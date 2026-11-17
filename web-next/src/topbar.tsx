@@ -7,13 +7,15 @@ import { createPortal } from 'react-dom'
 // 页面里写 <PageTitle>，内容会被送进 App 顶栏留的位置
 export const TopbarContext = createContext<HTMLElement | null>(null)
 
-export function PageTitle({ children, parent, count, desc, actions, icon }: {
+export function PageTitle({ children, parent, count, desc, actions, icon, tabs }: {
   children: ReactNode
   icon?: ReactNode
   parent?: ReactNode
   count?: ReactNode
   desc?: ReactNode
   actions?: ReactNode
+  /** 放在名称右边、同一行的标签条（项目详情，TSK-0718）；挤不下时标签条自己横向滚动 */
+  tabs?: ReactNode
 }) {
   const el = useContext(TopbarContext)
   if (!el) return null
@@ -26,7 +28,7 @@ export function PageTitle({ children, parent, count, desc, actions, icon }: {
         {count !== undefined && count !== null && <span className="list-count">{count}</span>}
       </div>
       {desc && <div className="tb-desc ellipsis">{desc}</div>}
-      <div className="spacer" />
+      {tabs ? <div className="tb-tabs">{tabs}</div> : <div className="spacer" />}
       {actions && <div className="tb-actions">{actions}</div>}
     </>,
     el,

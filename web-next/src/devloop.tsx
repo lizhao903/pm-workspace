@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import './devloop.css'
 import {
-  ARTIFACT_GROUPS, PROGRESS_LABEL, agentAfterDecision, agentRunScript, parseArtifact, runScript, seedArtifacts, seedProgress, seedRuns, stepRun,
+  ARTIFACT_GROUPS, HARNESS_LABEL, PROGRESS_LABEL, agentAfterDecision, cacheHitRatio, moduleLabel, agentRunScript, parseArtifact, runScript, seedArtifacts, seedProgress, seedRuns, stepRun,
   type RunEvent, type RunHarness, type Task, type TaskArtifact, type TaskProgress, type TaskRun, type TaskStatus,
 } from './taskdata'
 import { useEnumView } from './enumdata'
@@ -49,7 +49,7 @@ export function useDevLoop(patchTask: (id: string, p: Partial<Task>) => void) {
     if (!r.allow_writes || r.status !== 'done') return
     const files = r.events.flatMap((e) => (e.type === 'tool' && e.name === 'Edit' ? [e.detail] : []))
     const at = new Date().toISOString()
-    setProgress((xs) => [...xs, { id: newId('pg'), task_id: r.task_id, kind: 'note', text: '执行完成：改了文件，测试通过。', commits: [], files, actor_name: 'claude-code', session_id: r.session_id, source: 'agent', at }])
+    setProgress((xs) => [...xs, { id: newId('pg'), task_id: r.task_id, kind: 'note', text: '执行完成：改了文件，测试通过。', commits: [], files, actor_name: r.harness === 'deepseek' ? 'deepseek' : 'claude-code', session_id: r.session_id, source: 'agent', at }])
     setArtifacts((xs) => [...xs, ...files.map((f) => ({ id: newId('af'), task_id: r.task_id, note: '执行时改动的文件', path: `${r.workdir}/${f}`, rel_path: f, source: 'run' as const, at }))])
   }
   // 只推进流式执行；终端执行等 MCP 回写或手动标记结束
@@ -108,7 +108,7 @@ export function useDevLoop(patchTask: (id: string, p: Partial<Task>) => void) {
       // 交出去就算开工（SPEC-tasks-6.17）：流式、终端都把任务改成进行中，已完成、已取消的不动；
       // 负责人改成这次的执行者（TSK-0500，SPEC-tasks-6.33）：原来是人也覆盖，进展里记一句，执行结束不改回
       if (task.status !== 'done' && task.status !== 'cancelled') {
-        const who = o.harness === 'agent' ? (o.agent_name || '工作台 Agent') : 'Claude Code'
+        const who = o.harness === 'agent' ? (o.agent_name || '工作台 Agent') : o.harness === 'deepseek' ? 'DeepSeek' : 'Claude Code'
         const kind = o.harness === 'agent' ? 'agent' as const : 'cli' as const
         if (task.assignee !== who) add(task.id, { kind: 'note', text: ownerNote(task.assignee, who) })
         patchTask(task.id, { status: 'doing', assignee: who, assignee_ai: kind })
@@ -127,10 +127,16 @@ export function useDevLoop(patchTask: (id: string, p: Partial<Task>) => void) {
         return id
       }
       const files = progress.filter((p) => p.task_id === task.id).flatMap((p) => p.files)
-      setRuns((xs) => [{ id, task_id: task.id, status: 'running', session_id: sid, started_at: at, events: [], pending: runScript(task, o.allow_writes, o.extra_prompt, files), ...o, mode: 'stream' }, ...xs])
-      // 允许写入时 Claude Code 先领取任务（负责人上面已经改成它了）
+      // DeepSeek（TSK-0722）：dsh 后台执行；新会话按任务所属模块拼复用前缀（0058），续跑沿用上次的 dsh 会话、不拼前缀。
+      // 原型按固定比例给出 token 用量：新会话首轮命中少、同模块再跑命中多
+      const dsh = o.harness === 'deepseek'
+      const sameModule = dsh && runsRef.current.some((r) => r.harness === 'deepseek' && r.module_key === o.module_key)
+      const usage = dsh ? { module_key: o.module_key, prefix_version: 1, cache_read_tokens: sameModule ? 6144 : 4096, uncached_input_tokens: sameModule ? 210 : 2260, output_tokens: 900 } : {}
+      setRuns((xs) => [{ id, task_id: task.id, status: 'running', session_id: dsh && o.resume && o.agent_session ? o.agent_session : dsh ? `dsh-${sid.slice(0, 8)}` : sid, started_at: at, events: [],
+        pending: runScript(task, o.allow_writes, o.extra_prompt, files), ...o, ...usage, model: dsh ? o.model : undefined, mode: 'stream' }, ...xs])
+      // 允许写入时执行器先领取任务（负责人上面已经改成它了）
       if (o.allow_writes) {
-        add(task.id, { kind: 'claim', text: '领取了任务', status: 'doing', actor_name: 'claude-code', session_id: sid, source: 'agent' })
+        add(task.id, { kind: 'claim', text: '领取了任务', status: 'doing', actor_name: dsh ? 'deepseek' : 'claude-code', session_id: sid, source: 'agent' })
       }
       return id
     },
@@ -152,7 +158,33 @@ export interface AgentRunOptions {
   models: ModelConf[]
   /** 这条任务上一次工作台 Agent 执行的会话；没有时「接着上次的会话」置灰 */
   lastSession?: { id: string; agent_id?: string; agent_name?: string }
+  /** 这条任务上一次 DeepSeek 执行的 dsh 会话；没有时 DeepSeek 的「接着上次的会话」置灰 */
+  lastDsh?: string
 }
+
+/* ---------- 执行器状态（TSK-0722） ---------- */
+
+/** 执行器缺什么：blocking 的挡住发起（弹窗里置灰），不挡的只提示一句（如 MCP 没接上） */
+export interface RunnerProblem { code: string; message: string; fix?: string; blocking: boolean }
+/** 一个执行器的状态（正式产品 GET /api/runners，设置「执行器」页和「交给执行」弹窗用同一份） */
+export interface RunnerStatus { who: RunHarness; installed: boolean; version?: string; provider_id?: string; provider_name?: string; model?: string; problems: RunnerProblem[] }
+export const WHO_ORDER: readonly RunHarness[] = ['claude', 'deepseek', 'agent']
+/** 原型演示：三个都能用；DeepSeek 默认走本机 Ollama。要演示置灰把 problems 里的 blocking 改成 true */
+export const DEMO_RUNNERS: RunnerStatus[] = [
+  { who: 'claude', installed: true, version: '2.1.4', problems: [] },
+  { who: 'deepseek', installed: true, version: 'dsh 0.9.2', provider_id: 'pv_ollama', provider_name: '本机 Ollama', model: 'deepseek-r1:14b', problems: [] },
+  { who: 'agent', installed: true, problems: [] },
+]
+const blockingOf = (who: RunHarness, list: readonly RunnerStatus[]) => list.find((r) => r.who === who)?.problems.find((p) => p.blocking)
+const problemText = (p: RunnerProblem) => (p.fix ? `${p.message}。${p.fix}` : p.message)
+/** 每种执行器一句话：怎么跑、适合什么 */
+const WHO_HINT: Record<RunHarness, string> = {
+  claude: '本机 Claude Code：后台执行或切换到终端交互，适合改代码、动文件、跑测试',
+  deepseek: 'deepseek-harness（dsh）在后台跑 DeepSeek 模型，命令在它的沙箱里执行，经工作台 MCP 回写进展和结论；适合读需求写方案、整理分析',
+  agent: '工作台自己的 Agent 用它的工具处理这条任务：读任务和关联、记进展、改状态、建子任务。改代码类的任务仍建议交给 Claude Code',
+}
+/** dsh 能接的服务商协议，同正式产品 DSH_KINDS */
+const DSH_KINDS = ['openai', 'anthropic', 'ollama']
 
 /** 发起一次执行的参数；harness=agent 时后面几项才有用（SPEC-tasks-6.20 到 6.24） */
 export interface RunStart {
@@ -163,8 +195,10 @@ export interface RunStart {
   agent_id?: string; agent_name?: string; provider_id?: string; model?: string
   /** 只读角色：只给读的工具 */
   read_only?: boolean
-  /** 接着上次的会话（resume_session），agent_session 是要续的那个 */
+  /** 接着上次的会话（resume_session），agent_session 是要续的那个（DeepSeek 时是 dsh 会话） */
   resume?: boolean; agent_session?: string
+  /** DeepSeek 新会话复用的模块键（0058）：project:<项目 id> 或 workdir:<路径> */
+  module_key?: string
   confirm_wait?: number
 }
 
@@ -277,7 +311,7 @@ export function DevFields({ d, onChange, inheritDir, onRun, runningId, onShowRun
 }) {
   const filled = !!(d.acceptance || d.workdir || d.repo)
   const [open, setOpen] = useState(filled || !!onRun)
-  if (!open) return <button className="act act-quiet dev-open" onClick={() => setOpen(true)}>+ 开发信息：验收标准、工作目录，交给 Claude Code 做</button>
+  if (!open) return <button className="act act-quiet dev-open" onClick={() => setOpen(true)}>+ 开发信息：验收标准、工作目录，交给执行</button>
   return (
     <div className="field-group">
       <div className="mount-head">
@@ -285,7 +319,7 @@ export function DevFields({ d, onChange, inheritDir, onRun, runningId, onShowRun
         <span className="spacer" />
         {onRun && (runningId
           ? <button className="act" onClick={() => (onShowRun ? onShowRun(runningId) : document.getElementById(`run-${runningId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }))}><span className="proto-light pl-running" />查看运行中</button>
-          : <button className="act act-primary" onClick={onRun}>交给 Claude Code</button>)}
+          : <button className="act act-primary" onClick={onRun}>交给执行</button>)}
       </div>
       <label className="field">
         <span className="field-label">验收标准</span>
@@ -570,7 +604,7 @@ export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSes
   const xs = [...runs].sort((a, b) => b.started_at.localeCompare(a.started_at))
   return (
     <section className="dev-sec">
-      <div className="field-group-title">执行记录<span className="field-hint">从这里交给 Claude Code 或工作台 Agent 的每一次执行，最近的在前</span></div>
+      <div className="field-group-title">执行记录<span className="field-hint">从这里交给 Claude Code、DeepSeek 或工作台 Agent 的每一次执行，最近的在前</span></div>
       {!xs.length && <div className="mount-empty">还没有执行过</div>}
       {xs.map((r) => {
         const s = RUN_STATUS[r.status]
@@ -582,9 +616,16 @@ export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSes
           <div key={r.id} id={`run-${r.id}`} className={cls('dev-run', expanded && 'open', focus === r.id && 'lit')}>
             <button className="dev-run-head" onClick={() => setOpen(open === r.id ? null : r.id)} aria-expanded={expanded}>
               <span className={cls('dev-run-st', `st-${s.tone}`)}>{term && r.status === 'running' ? '进行中' : s.label}</span>
-              <span className={cls('src-tag', ag && 'dev-agent')}>{ag ? '工作台 Agent' : 'Claude Code'}</span>
+              <span className={cls('src-tag', ag && 'dev-agent', r.harness === 'deepseek' && 'dev-agent')}>{HARNESS_LABEL[r.harness ?? 'claude']}</span>
               {!ag && <span className={cls('src-tag', term && 'dev-term')}>{term ? '终端' : '流式'}</span>}
               {!term && !ag && <span className={cls('src-tag', r.allow_writes && 'dev-write')}>{r.allow_writes ? '允许写入' : '只读'}</span>}
+              {/* 模块前缀复用的缓存命中（0058）：有 token 数据才显示；悬停看命中、未命中的 token 数 */}
+              {cacheHitRatio(r) !== null && (
+                <span className="src-tag dev-cache" title={`命中缓存 ${r.cache_read_tokens ?? 0} tokens / 未命中 ${r.uncached_input_tokens ?? 0} tokens；模块前缀复用${moduleLabel(r.module_key) ? `（${moduleLabel(r.module_key)}）` : ''}`}>
+                  缓存 {Math.round(cacheHitRatio(r)! * 100)}%
+                </span>
+              )}
+              {moduleLabel(r.module_key) && <span className="src-tag dev-module" title={`模块前缀复用的模块：${r.module_key}`}>模块 {moduleLabel(r.module_key)}</span>}
               <span className="ellipsis list-sub">{r.extra_prompt || '没有附加说明'}</span>
               <span className="spacer" />
               <span className="list-sub dev-run-at">{timeAgo(r.started_at)} · {dur(r.started_at, r.ended_at)}</span>
@@ -600,7 +641,7 @@ export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSes
               <div className="dev-run-body">
                 <div className="list-sub mono">{ag
                   ? `${(r.agent_id && agentName?.(r.agent_id)) ?? r.agent_name ?? '已删除的 Agent'} · ${r.model ?? ''}${r.workdir ? ` · 产物目录 ${r.workdir}` : ''}${r.agent_session ? ` · 会话 ${short(r.agent_session)}` : ''}`
-                  : `${r.workdir}${term ? '' : ` · 会话 ${short(r.session_id)}`}${r.exit_code !== undefined ? ` · exit ${r.exit_code}` : ''}`}</div>
+                  : `${r.harness === 'deepseek' && r.model ? `${r.model} · ` : ''}${r.workdir}${term ? '' : ` · 会话 ${short(r.session_id)}`}${r.exit_code !== undefined ? ` · exit ${r.exit_code}` : ''}${r.output_tokens ? ` · 输出 ${r.output_tokens} tokens` : ''}`}</div>
                 {term
                   ? <div className="list-sub">在终端里交互执行，过程看终端标签。结束和结论由终端里的 Claude Code 经工作台 MCP（pmw_finish_run）回写{r.status === 'running' ? '；它没回写时用「标记结束」收尾' : ''}。</div>
                   : <RunOutput events={r.events} live={r.status === 'running'} onDecide={r.status === 'waiting' && onDecide ? (ok) => onDecide(r.id, ok) : undefined} />}
@@ -629,11 +670,11 @@ export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSes
   )
 }
 
-/* ---------- 交给 Claude Code ---------- */
+/* ---------- 交给执行（Claude Code / DeepSeek / 工作台 Agent，TSK-0722） ---------- */
 
 const TERMINAL_OFF = '终端插件没启用，到 设置 > 插件 里启用后可用'
 
-export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onClose, onManagePresets, onManagePerms, agentRun }: {
+export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onClose, onManagePresets, onManagePerms, onManageRunners, agentRun, runners = DEMO_RUNNERS }: {
   task: Task; inheritDir?: string
   /** 任务所属项目的上下文，提示词里的「所属项目」一节 */
   project?: ProjectContext
@@ -645,11 +686,26 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
   onManagePresets?: () => void
   /** 「管理执行权限」：去设置 > 执行权限（TSK-0499） */
   onManagePerms?: () => void
-  /** 交给工作台 Agent 要用的（SPEC-tasks-6.20）：没给就只有 Claude Code */
+  /** 「设置 / 执行器」：看执行器缺什么、怎么修（TSK-0722） */
+  onManageRunners?: () => void
+  /** 交给工作台 Agent 要用的（SPEC-tasks-6.20）：没给时工作台 Agent 置灰 */
   agentRun?: AgentRunOptions
+  /** 执行器状态（正式产品 GET /api/runners），不能用的置灰并写缺什么 */
+  runners?: RunnerStatus[]
 }) {
   const [dir, setDir] = useState(task.workdir ?? inheritDir ?? '')
-  const [harness, setHarness] = useState<RunHarness>('claude')
+  // 交给谁（TSK-0722，SPEC-tasks-6.34）：打开时按顺序第一个能用的；都不能用回 Claude Code（弹窗里照样说原因）
+  const blockOf = (w: RunHarness): RunnerProblem | undefined => blockingOf(w, runners)
+    ?? (w === 'agent' && !agentRun ? { code: 'no_agent', message: '工作台 Agent 没有启用', fix: '到设置 / Agent 里建一个并启用', blocking: true } : undefined)
+  const [harness, setHarness] = useState<RunHarness>(() => WHO_ORDER.find((w) => !blockOf(w)) ?? 'claude')
+  const dsh = harness === 'deepseek'
+  // DeepSeek：服务商（空是默认）、模型（空是服务商默认）、接着上次的会话
+  const dshRunner = runners.find((r) => r.who === 'deepseek')
+  const [dshProvider, setDshProvider] = useState('')
+  const [dshModel, setDshModel] = useState('')
+  const [dshResume, setDshResume] = useState(false)
+  const canDshResume = !!agentRun?.lastDsh
+  const dshProviders = (agentRun?.providers ?? []).filter((p) => p.enabled && DSH_KINDS.includes(p.kind))
   const [mode, setMode] = useState<HandoffMode>('stream')
   // null 是没动过勾选：跟着角色走（AUTO-03）
   const [allowChoice, setAllowChoice] = useState<boolean | null>(null)
@@ -666,7 +722,8 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
   // 写入档位（TSK-0499）：没选过跟设置「执行权限」的默认
   const perms = useRunPerms()
   const [profileChoice, setProfileChoice] = useState<RunWriteProfile | null>(null)
-  const writeProfile = profileChoice ?? perms.write_profile
+  // DeepSeek 没有「自定义白名单」（dsh 没有命令白名单），设置里默认是它时退回「允许改文件」
+  const writeProfile = profileChoice ?? (dsh && perms.write_profile === 'custom' ? 'accept_edits' : perms.write_profile)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }
     window.addEventListener('keydown', onKey, true)
@@ -677,7 +734,7 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
   // 工作台 Agent 的工作目录可选，只当 write_file 的产物目录（SPEC-tasks-6.20）
   const dirErr = ag ? (dir.trim() && !dir.trim().startsWith('/') ? '要写本机绝对路径' : '')
     : !dir.trim() ? '选一个工作目录，任务和所属项目都没设' : !dir.trim().startsWith('/') ? '要写本机绝对路径' : ''
-  const term = !ag && mode === 'terminal'
+  const term = !ag && !dsh && mode === 'terminal'
   const prompt = buildPrompt({ task, workdir: dir.trim(), extra, mode, project, preset })
   // 工作台 Agent：Agent、服务商、模型（SPEC-tasks-6.21、6.22）、续跑（6.23）
   const enabledAgents = agentRun?.agents.filter((a) => a.enabled) ?? []
@@ -704,7 +761,9 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
     `\n## 怎么做\n- 先用 get_object 读这条任务（${task.ref}），关联的对象需要时也读一下。\n- 做完一个关键步骤用 append_progress 记一句进展；拆子任务用 create_object 并带 parent_ref=${task.ref}。\n- 任务真的做完了，用 update_object 改成完成。\n- 这次没有人在旁边回答问题：不能向用户提问，拿不准的写进结论。\n- 有些写操作要用户确认，提出后会停下等；被拒绝了就换办法或收尾。${dir.trim() ? `\n- write_file 写进 ${dir.trim()}，只用相对路径。` : ''}`,
     '\n## 结束时\n最后用一段话写结论：做了什么、改了哪些对象、产出在哪、还剩什么没做。这段会原样记成这条任务的进展。',
   ].filter(Boolean).join('\n')
-  const title = ag ? '交给工作台 Agent' : '交给 Claude Code'
+  const title = `交给 ${HARNESS_LABEL[harness]}`
+  const off = WHO_ORDER.map((w) => ({ w, p: blockOf(w) })).filter((x) => x.p)
+  const warn = runners.find((r) => r.who === harness)?.problems.find((p) => !p.blocking)
   return (
     <div className="qs-mask" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div className="qs" role="dialog" aria-label={title}>
@@ -714,17 +773,23 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
           <span className="spacer" />
           <button className="icon-btn" onClick={onClose} title="关闭 (Esc)">{closeIcon}</button>
         </div>
-        {agentRun && (
-          <div className="field">
-            <span className="field-label">交给谁</span>
-            <div className="seg seg-full" role="radiogroup" aria-label="交给谁">
-              <button role="radio" aria-checked={!ag} className={cls(!ag && 'on')} onClick={() => setHarness('claude')}>Claude Code</button>
-              <button role="radio" aria-checked={ag} className={cls(ag && 'on')} onClick={() => { setHarness('agent'); setAsking(false) }}>工作台 Agent</button>
-            </div>
-            <span className="list-sub">{ag ? '工作台自己的 Agent 用它的工具处理这条任务：读任务和关联、记进展、改状态、拆子任务；要确认的写操作会停下等你。改代码的任务仍建议交给 Claude Code'
-              : '本机 Claude Code 在工作目录里干活，能改文件、跑命令'}</span>
+        <div className="field">
+          <span className="field-label">交给谁</span>
+          <div className="seg seg-full" role="radiogroup" aria-label="交给谁">
+            {WHO_ORDER.map((w) => {
+              const p = blockOf(w)
+              return (
+                <button key={w} role="radio" aria-checked={harness === w} className={cls(harness === w && 'on')} disabled={!!p} title={p ? problemText(p) : undefined}
+                  onClick={() => { setHarness(w); setAsking(false) }}>{HARNESS_LABEL[w]}</button>
+              )
+            })}
           </div>
-        )}
+          <span className="list-sub">{WHO_HINT[harness]}</span>
+          {off.map(({ w, p }) => (
+            <span key={w} className="list-sub danger-text">{HARNESS_LABEL[w]} 不可用：{problemText(p!)}{onManageRunners && <>（<button className="link-btn" onClick={onManageRunners}>设置 / 执行器</button>）</>}</span>
+          ))}
+          {warn && <span className="list-sub">{warn.message}{warn.fix ? `，${warn.fix}` : ''}</span>}
+        </div>
         {ag && agentRun && (
           <>
             <div className="field">
@@ -749,7 +814,8 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
             </div>
           </>
         )}
-        {!ag && <div className="field">
+        {dsh && <span className="list-sub">DeepSeek 只有后台执行：dsh 在工作台里跑，过程流式显示在任务的执行记录里；不接终端交互</span>}
+        {!ag && !dsh && <div className="field">
           <span className="field-label">执行方式</span>
           <div className="seg seg-full" role="radiogroup" aria-label="执行方式">
             <button role="radio" aria-checked={!term} className={cls(!term && 'on')} onClick={() => setMode('stream')}>流式执行</button>
@@ -767,6 +833,29 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
             : ag ? <span className="list-sub">{dir.trim() ? 'Agent 写文件（write_file）写在这里' : '不填 Agent 就不能写文件，其他工具照常用'}</span>
               : <span className="list-sub">{task.workdir ? '任务上设的' : inheritDir && dir === inheritDir ? '继承自所属项目' : '这次执行用的目录'}{term ? '，终端标签开在这里' : ''}</span>}
         </label>
+        {dsh && (
+          <div className="field">
+            <span className="field-label">服务商和模型</span>
+            <div className="act-row">
+              <select className="select" aria-label="服务商" value={dshProvider} onChange={(e) => setDshProvider(e.target.value)}>
+                <option value="">{dshRunner?.provider_name ? `默认（${dshRunner.provider_name}${dshRunner.model ? ` · ${dshRunner.model}` : ''}）` : '默认（带 deepseek 的服务商优先）'}</option>
+                {dshProviders.map((p) => <option key={p.id} value={p.id}>{p.name}{p.status === 'error' ? '（连接异常）' : ''}</option>)}
+              </select>
+              <input className="mono-input" aria-label="模型" value={dshModel} placeholder={dshRunner?.model || '按服务商设置'} onChange={(e) => setDshModel(e.target.value)} />
+            </div>
+            <span className="list-sub">只列 dsh 能接的服务商（OpenAI、Anthropic 兼容和 Ollama）；模型不填用服务商默认的</span>
+          </div>
+        )}
+        {dsh && (
+          <div className="dev-perm">
+            <label className="check check-lg">
+              <input type="checkbox" checked={dshResume && canDshResume} disabled={!canDshResume} onChange={(e) => setDshResume(e.target.checked)} />
+              接着上次的会话
+            </label>
+            <span className="list-sub">{canDshResume ? (dshResume ? '接着这条任务上一次 DeepSeek 执行的 dsh 会话跑，上次的上下文一起带上' : '不勾就新开一个会话')
+              : '这条任务还没交给 DeepSeek 执行过，没有可续的会话'}</span>
+          </div>
+        )}
         <div className="field">
           <div className="act-row">
             <label className="field-label" htmlFor="ho-preset">角色</label>
@@ -789,8 +878,8 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
               允许写入
             </label>
             <span className="list-sub">{allowLocked ? `角色「${preset?.scene ?? ''}」只读：只跑一遍给结论，不改文件`
-              : allow ? `会以 acceptEdits 权限模式运行：可以直接改工作目录里的文件${preset && allowChoice === null ? `（按角色「${preset.scene}」）` : ''}`
-                : '默认只读：只跑一遍看它打算怎么做，不改文件'}</span>
+              : allow ? `${dsh ? '会以 dsh 的 workspace-write 沙箱运行' : '会以 acceptEdits 权限模式运行'}：可以直接改工作目录里的文件${preset && allowChoice === null ? `（按角色「${preset.scene}」）` : ''}`
+                : dsh ? '默认只读：dsh 沙箱 read-only，命令照跑但写不了文件' : '默认只读：只跑一遍看它打算怎么做，不改文件'}</span>
             {allow && (
               <div className="field">
                 <div className="act-row">
@@ -799,15 +888,18 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
                   {onManagePerms && <button className="link-btn" onClick={onManagePerms}>管理执行权限</button>}
                 </div>
                 <select id="ho-profile" className="select" value={writeProfile} onChange={(e) => setProfileChoice(e.target.value as RunWriteProfile)}>
-                  {WRITE_PROFILE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  {WRITE_PROFILE_OPTIONS.map((o) => <option key={o.value} value={o.value} disabled={dsh && o.value === 'custom'}>{o.label}{dsh && o.value === 'custom' ? '（DeepSeek 没有）' : ''}</option>)}
                 </select>
-                <span className="list-sub">{writeProfileHint(writeProfile, perms.custom)}</span>
+                <span className="list-sub">{dsh ? 'dsh 没有命令白名单：这一档是 workspace-write 沙箱，能写工作目录（和软链接进来的目录），命令（含测试构建）都在沙箱里跑，写不出工作目录'
+                  : writeProfileHint(writeProfile, perms.custom)}</span>
               </div>
             )}
-            <span className="list-sub">任何档位都放行工作台 MCP（回写进展和结论）和只读命令（git log、grep、sqlite3 -readonly -safe 等）</span>
+            <span className="list-sub">{dsh ? '工作台 MCP 照常接上（回写进展和结论）；dsh 没有命令白名单，命令都在它的沙箱里跑，所以没有「自定义白名单」'
+              : '任何档位都放行工作台 MCP（回写进展和结论）和只读命令（git log、grep、sqlite3 -readonly -safe 等）'}</span>
             {asking && (
               <div className="dev-perm-ask">
-                <span>允许写入后，Claude Code 可以不经确认直接改「{dir || '工作目录'}」里的文件。其他需要权限的操作仍会被挡下，任何情况下都不会跳过权限确认。</span>
+                <span>{dsh ? `会以 dsh 的 workspace-write 沙箱运行：DeepSeek 可以不经确认直接改「${dir || '工作目录'}」里的文件，命令在沙箱里跑，写不出这个目录。不会开 danger-full-access。`
+                  : `允许写入后，Claude Code 可以不经确认直接改「${dir || '工作目录'}」里的文件。其他需要权限的操作仍会被挡下，任何情况下都不会跳过权限确认。`}</span>
                 <div className="act-row">
                   <button className="act act-warn" onClick={() => { setAllowChoice(true); setAsking(false) }}>确认允许写入</button>
                   <button className="act act-quiet" onClick={() => setAsking(false)}>算了，只读</button>
@@ -818,7 +910,7 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
         )}
         <label className="field">
           <span className="field-label">附加说明</span>
-          <textarea className="qs-input" rows={3} value={extra} placeholder={`可选：这次要特别注意的事，会接在任务内容后面发给${ag ? ' Agent' : ' Claude Code'}`} onChange={(e) => setExtra(e.target.value)} />
+          <textarea className="qs-input" rows={3} value={extra} placeholder={`可选：这次要特别注意的事，会接在任务内容后面发给 ${ag ? 'Agent' : HARNESS_LABEL[harness]}`} onChange={(e) => setExtra(e.target.value)} />
         </label>
         {ag && (
           <div className="dev-perm">
@@ -837,7 +929,7 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
         {agentErr && <span className="field-err">{agentErr}</span>}
         <div className="qs-foot">
           <span className="list-sub">{ag ? '过程流式显示在执行记录里，同时建一个 Agent 会话；默认最多 30 步、10 分钟，等确认 10 分钟没人决定按拒绝'
-            : term ? '会跳到终端页，执行记录里记一条进行中的终端执行' : '执行过程会流式显示在任务的执行记录里'}</span>
+            : term ? '会跳到终端页，执行记录里记一条进行中的终端执行' : dsh ? '执行过程会流式显示在任务的执行记录里，结论经工作台 MCP 回写' : '执行过程会流式显示在任务的执行记录里'}</span>
           <span className="spacer" />
           <button className="btn btn-ghost" onClick={onClose}>取消</button>
           {ag ? (
@@ -851,10 +943,15 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
               {resume && canResume ? '接着上次执行' : '开始执行'}
             </button>
           ) : (
-            <button className="btn btn-primary" disabled={!!dirErr || (!term && asking) || (term && !terminalOn)}
-              onClick={() => onStart({ workdir: dir.trim(), allow_writes: !term && allow, extra_prompt: extra.trim(), mode, preset,
-                permission: !term && allow ? writeProfile : 'read_only' })}>
-              {term ? '在终端中打开' : allow ? '开始执行（允许写入）' : '开始执行（只读）'}
+            <button className="btn btn-primary" disabled={!!dirErr || (!term && asking) || (term && !terminalOn) || !!blockOf(harness)}
+              onClick={() => onStart({ workdir: dir.trim(), allow_writes: !term && allow, extra_prompt: extra.trim(), mode: term ? 'terminal' : 'stream', preset,
+                permission: !term && allow ? writeProfile : 'read_only',
+                ...(dsh ? {
+                  harness: 'deepseek' as const, provider_id: dshProvider || dshRunner?.provider_id, model: dshModel.trim() || dshRunner?.model,
+                  resume: dshResume && canDshResume, agent_session: dshResume ? agentRun?.lastDsh : undefined,
+                  module_key: task.project_id ? `project:${task.project_id}` : `workdir:${dir.trim()}`,
+                } : {}) })}>
+              {dsh && dshResume && canDshResume ? '接着上次执行' : term ? '在终端中打开' : allow ? '开始执行（允许写入）' : '开始执行（只读）'}
             </button>
           )}
         </div>

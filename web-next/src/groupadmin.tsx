@@ -15,6 +15,69 @@ import type { Project } from './projectdata'
 import { SearchSelect, type SearchOption } from './searchselect'
 import { ImMark, cls, timeAgo } from './ui'
 import { MembersMenu } from './mutes'
+import type { ContactOps } from './membercontacts'
+
+/* ---------- 补全消息（IM 0.30.0，TSK-0724，SPEC-messages-7.14 起） ----------
+ * 行上「补全消息」选范围回渠道拉这个会话的历史、补空正文，没补完的行上「继续补全」；勾选后底部批量补全，逐个会话发。
+ * 补进来的不当新消息：不触发 SOP、不计未读、不通知。正式产品 POST /api/im/conversations/{id}/backfill?range=&cursor=，
+ * 前端 frontend/src/plugins/im/HistoryBackfill.tsx、historyModel.ts。原型不真的拉历史、不加消息，按会话算一个确定的演示结果。 */
+type Range = '7d' | '30d' | 'all'
+const RANGES: { key: Range; label: string; hint: string }[] = [
+  { key: '7d', label: '最近 7 天', hint: '发送时间在最近 7 天里的' },
+  { key: '30d', label: '最近 30 天', hint: '发送时间在最近 30 天里的' },
+  { key: 'all', label: '全部', hint: '不限时间，一个会话一轮至多翻 5000 条，更早的不补' },
+]
+const rangeLabel = (r: Range) => RANGES.find((x) => x.key === r)!.label
+type Fill = { added: number; expired: number; muted: number; duplicates: number; bodies_filled: number; complete: boolean }
+type RowFill = { busy?: boolean; note?: { text: string; bad: boolean }; resume?: Range }
+
+/** 不能补全的原因，能补为空串（同后端 backfillNote） */
+export function backfillBlock(s: GroupSummary): string {
+  if (!s.total) return '这个会话还没收到过消息，不知道用哪个账号拉'
+  if (s.channel === 'telegram') return 'Telegram 的 Bot 只能收到加入之后的新消息，拉不到历史消息'
+  if (s.channel !== 'slack') return '这个渠道不支持拉历史消息'
+  return ''
+}
+/** 原型的演示结果：按会话名和范围算一个确定的数；「全部」第一次只补到一半（演示「继续补全」） */
+function demoFill(s: GroupSummary, range: Range, resumed: boolean): Fill {
+  const h = [...s.key].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 997, 7)
+  const base = range === '7d' ? h % 4 : range === '30d' ? 3 + (h % 9) : 12 + (h % 30)
+  return { added: base, expired: range === '7d' ? 0 : Math.floor(base / 2), muted: h % 5 === 0 ? 1 : 0, duplicates: s.total, bodies_filled: h % 3 === 0 ? 1 : 0, complete: range !== 'all' || resumed }
+}
+function fillCounts(r: Omit<Fill, 'complete'>) {
+  const parts: string[] = []
+  if (r.added > 0) {
+    const sub = [...(r.expired ? [`${r.expired} 条较早的标为已过期`] : []), ...(r.muted ? [`${r.muted} 条因自动忽略标为已忽略`] : [])]
+    parts.push(`已补 ${r.added} 条${sub.length ? `（${sub.join('，')}）` : ''}`)
+  }
+  if (r.duplicates > 0) parts.push(`跳过 ${r.duplicates} 条已有的`)
+  if (r.bodies_filled > 0) parts.push(`补上 ${r.bodies_filled} 条空正文`)
+  return parts.length ? parts.join('，') : '没有要补的消息'
+}
+
+function BackfillMenu({ label, blocked, busy, resume, onPick, onContinue, align }: {
+  label: string; blocked: string; busy: boolean; resume?: Range; onPick: (r: Range) => void; onContinue?: () => void; align?: 'end'
+}) {
+  const [open, setOpen] = useState(false)
+  const title = blocked || '回渠道拉这个会话的历史消息补进来，顺带补正文为空的；补进来的不当新消息：不触发 SOP、不计未读、不通知'
+  if (blocked || busy) return <button className="act" disabled title={title}>{busy ? '补全中…' : label}</button>
+  return (
+    <div className="menu-wrap">
+      <button className="act" title={title} aria-expanded={open} onClick={() => setOpen(!open)}>{label} ▾</button>
+      {open && (
+        <div className={cls('menu ga-fill-menu', align === 'end' && 'ga-fill-end')} onMouseLeave={() => setOpen(false)}>
+          <div className="menu-label">补哪段时间的消息</div>
+          {resume && onContinue && <button className="menu-item" onClick={() => { setOpen(false); onContinue() }}><span>继续补全</span><span className="spacer" /><span className="muted">接着上次（{rangeLabel(resume)}）</span></button>}
+          {RANGES.map((r) => (
+            <button key={r.key} className="menu-item" title={r.hint} onClick={() => { setOpen(false); onPick(r.key) }}>
+              <span>{r.label}</span>{r.key === 'all' && <><span className="spacer" /><span className="muted">至多 5000 条</span></>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 /** 一次批量最多几个会话（同正式产品后端） */
 export const GROUP_BATCH_MAX = 200
@@ -94,8 +157,10 @@ export function suggestFor(s: GroupSummary, projects: Project[]): string[] {
 
 type KindFilter = '' | 'group' | 'direct'
 
-export function GroupAdminDrawer({ messages, contacts, projects, groupProjects, onSetGroupProject, onClose, onOpenConversation, onSend }: {
+export function GroupAdminDrawer({ messages, contacts, projects, groupProjects, onSetGroupProject, onClose, onOpenConversation, onSend, contactOps }: {
   messages: Message[]; contacts: Contact[]; projects: Project[]
+  /** 成员菜单的加为联系人、关联已有（TSK-0724）；不给时成员菜单只有自动忽略 */
+  contactOps?: ContactOps
   groupProjects: Record<string, string>
   onSetGroupProject: (key: string, projectId: string | null) => void
   onClose: () => void
@@ -115,6 +180,32 @@ export function GroupAdminDrawer({ messages, contacts, projects, groupProjects, 
   const [note, setNote] = useState('')
   const [, setLookTick] = useState(0)
   const [rowNote, setRowNote] = useState<Record<string, { text: string; bad: boolean }>>({})
+  const [rowFill, setRowFill] = useState<Record<string, RowFill>>({})
+  const [batchFill, setBatchFill] = useState<{ done: number; total: number } | null>(null)
+  /** 补一个会话；resumed 是「继续补全」 */
+  const fillOne = (s: GroupSummary, range: Range, resumed = false) => {
+    const r = demoFill(s, range, resumed)
+    const tail = r.complete ? '' : '；还没补完，点「继续补全」接着补'
+    setRowFill((x) => ({ ...x, [s.key]: { note: { text: `${rangeLabel(range)}：${fillCounts(r)}${tail}`, bad: false }, resume: r.complete ? undefined : range } }))
+    return r
+  }
+  /** 批量补全：逐个会话发，进度写在按钮上；不能补的跳过 */
+  const fillMany = (list: GroupSummary[], range: Range) => {
+    const can = list.filter((s) => !backfillBlock(s))
+    const skipped = list.length - can.length
+    setBatchFill({ done: 0, total: can.length })
+    const sum = { added: 0, expired: 0, muted: 0, duplicates: 0, bodies_filled: 0 }
+    let partial = 0
+    can.forEach((s, i) => window.setTimeout(() => {
+      const r = fillOne(s, range)
+      sum.added += r.added; sum.expired += r.expired; sum.muted += r.muted; sum.duplicates += r.duplicates; sum.bodies_filled += r.bodies_filled
+      if (!r.complete) partial += 1
+      if (i === can.length - 1) {
+        setBatchFill(null)
+        setNote([`${rangeLabel(range)}补全 ${can.length} 个会话：${fillCounts(sum)}`, ...(partial ? [`${partial} 个没补完，在行上点「继续补全」`] : []), ...(skipped ? [`${skipped} 个渠道不支持或还没消息，跳过`] : [])].join('；'))
+      } else setBatchFill({ done: i + 1, total: can.length })
+    }, 300 * (i + 1)))
+  }
   const pidOf = (s: GroupSummary) => (groupProjects[s.key] && projects.some((p) => p.id === groupProjects[s.key]) ? groupProjects[s.key] : '')
   const nameOf = (pid: string) => projects.find((p) => p.id === pid)?.name ?? '已删除的项目'
   const kw = q.trim().toLowerCase()
@@ -225,8 +316,10 @@ export function GroupAdminDrawer({ messages, contacts, projects, groupProjects, 
                   <input type="checkbox" checked={sel.has(s.key)} onChange={() => toggle(s.key)} aria-label={`选中 ${displayName(s)}`} />
                   <div className="ga-main">
                     <div className={cls('ga-top', s.unresolved.length > 0 && 'ga-top-refill')}>{ch && used.length > 1 && <ImMark ch={ch} compact />}<button className="ga-name" onClick={() => onOpenConversation(s.channel, s.key)} title="看这个会话的消息">{displayName(s)}</button><span className="spacer" />{s.unresolved.length > 0 && <button className="act" disabled={!REFILL_CHANNELS.includes(s.channel)} onClick={() => refillOne(s)}
-                      title={REFILL_CHANNELS.includes(s.channel) ? `回渠道查 ${s.unresolved.length} 个只有编号的人（${s.unresolved.slice(0, 3).join('、')}）的名字并补上；只补空的，不改联系人和手动改过的名字` : '这个渠道查不了编号对应的名字'}>查询回填</button>}<button className="act" onClick={() => onSend(s.key)} title="直接发到这个会话，不挂在哪条消息的消息列里">发消息</button></div>
-                    <div className="ga-sub"><span className="ga-who">{s.direct ? '私聊' : s.participants.join('、')}</span><span>{timeAgo(s.last_at)}</span><MembersMenu msgs={messages.filter((m) => keyOf(m) === s.key)} onDone={setNote} /></div>
+                      title={REFILL_CHANNELS.includes(s.channel) ? `回渠道查 ${s.unresolved.length} 个只有编号的人（${s.unresolved.slice(0, 3).join('、')}）的名字并补上；只补空的，不改联系人和手动改过的名字` : '这个渠道查不了编号对应的名字'}>查询回填</button>}<BackfillMenu label={rowFill[s.key]?.resume ? '继续补全' : '补全消息'} blocked={backfillBlock(s)} busy={!!batchFill} align="end"
+                      resume={rowFill[s.key]?.resume} onPick={(r) => fillOne(s, r)} onContinue={() => fillOne(s, rowFill[s.key]!.resume!, true)} /><button className="act" onClick={() => onSend(s.key)} title="直接发到这个会话，不挂在哪条消息的消息列里">发消息</button></div>
+                    <div className="ga-sub"><span className="ga-who">{s.direct ? '私聊' : s.participants.join('、')}</span><span>{timeAgo(s.last_at)}</span><MembersMenu msgs={messages.filter((m) => keyOf(m) === s.key)} onDone={setNote} ops={contactOps} /></div>
+                    {rowFill[s.key]?.note && <div className={cls('ga-refill', rowFill[s.key]!.note!.bad && 'bad')} role="status">{rowFill[s.key]!.note!.text}</div>}
                     {rowNote[s.key] ? <div className={cls('ga-refill', rowNote[s.key].bad && 'bad')}>{rowNote[s.key].text}</div>
                       : s.unresolved.some((id) => lookedError(s.channel, id)) ? <div className="ga-refill muted">上次没查到：{s.unresolved.map((id) => lookedError(s.channel, id)).find(Boolean)}</div> : null}
                   </div>
@@ -253,6 +346,8 @@ export function GroupAdminDrawer({ messages, contacts, projects, groupProjects, 
           <span className="ga-bulk-n">已选 {picked.length} 个</span>
           {picked.length < max && <button className="btn btn-ghost" onClick={() => setSel(new Set(rows.slice(0, GROUP_BATCH_MAX).map((s) => s.key)))}>全选 {max} 个</button>}
           <span className="spacer" />
+          <BackfillMenu label={batchFill ? `补全中 ${batchFill.done + 1}/${batchFill.total}…` : '补全消息'} busy={!!batchFill}
+            blocked={picked.some((s) => !backfillBlock(s)) ? '' : '勾选的会话都不能补全（渠道不支持拉历史，或还没收到过消息）'} onPick={(r) => fillMany(picked, r)} />
           <SearchSelect value={batchPid} onChange={setBatchPid} options={options} placeholder="选项目" searchPlaceholder="搜项目" align="end" />
           <button className="btn btn-primary" disabled={!batchPid} onClick={() => { setMany(picked.map((s) => s.key), batchPid, `设为「${nameOf(batchPid)}」`); setSel(new Set()); setBatchPid('') }}>设为默认归属</button>
           <button className="btn btn-outline" disabled={!picked.some((s) => pidOf(s))} onClick={() => { setMany(picked.map((s) => s.key), null, '清除归属'); setSel(new Set()) }}>清除归属</button>

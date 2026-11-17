@@ -10,6 +10,7 @@ import type { Contact, Message } from './data'
 import { IM_CHANNELS } from './data'
 import { newId } from './ids'
 import { cls, timeAgo } from './ui'
+import { BatchContactDialog, LinkContactDialog, contactCandidates, membersOf, type ContactOps, type Member } from './membercontacts'
 
 export type Mute = {
   id: string
@@ -191,20 +192,25 @@ function UnmuteDialog({ mute, onClose, onDone }: { mute: Mute; onClose: () => vo
 }
 
 /** 群组管理每行「成员」菜单里的一项：这个会话里发过言的人（SPEC-messages-9.5） */
-export function MemberMuteItem({ msg, onDone, close }: { msg: Message; onDone: (text: string) => void; close: () => void }) {
+export function MemberMuteItem({ msg, onDone, close, tags }: { msg: Message; onDone: (text: string) => void; close: () => void; tags?: React.ReactNode }) {
   const name = contactOf(msg, env.contacts)?.name ?? msg.sender_name
   return (
     <div className="menu-item mute-member" onClick={(e) => e.stopPropagation()}>
-      <span className="ellipsis">{name}</span>
+      <span className="ellipsis">{name}</span>{tags}
       <span className="spacer" />
       <MuteButton msg={msg} onDone={(t) => { onDone(t); close() }} />
     </div>
   )
 }
 
-/** 群组管理每行的「成员」菜单：这个会话里发过言的人，每人一项（最近发言的在前） */
-export function MembersMenu({ msgs, onDone }: { msgs: Message[]; onDone: (text: string) => void }) {
+/**
+ * 群组管理每行的「成员」菜单：这个会话里发过言的人，每人一行（最近发言的在前）。
+ * 加为联系人（TSK-0724）：没认上的人「加为联系人」「关联已有」，已认上的「联系人」点了去联系人页；顶上「全部加为联系人 N」；
+ * 每人都有「自动忽略」（TSK-0495）。不给 ops 时只有自动忽略
+ */
+export function MembersMenu({ msgs, onDone, ops }: { msgs: Message[]; onDone: (text: string) => void; ops?: ContactOps }) {
   const [open, setOpen] = useState(false)
+  const [pick, setPick] = useState<{ kind: 'link'; m: Member } | { kind: 'batch'; xs: Member[] } | null>(null)
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
@@ -214,15 +220,44 @@ export function MembersMenu({ msgs, onDone }: { msgs: Message[]; onDone: (text: 
   }, [open])
   const seen = new Set<string>()
   const people = [...msgs].sort((a, b) => b.at.localeCompare(a.at)).filter((m) => !seen.has(m.sender_id) && !!seen.add(m.sender_id))
+  const members = membersOf(msgs, ops?.contacts ?? env.contacts)
+  const candidates = contactCandidates(members)
+  const done = (t: string) => { setPick(null); onDone(t) }
   return (
     <div className="menu-wrap" ref={ref}>
-      <button className="mute-members-btn" onClick={() => setOpen(!open)} title="会话里发过言的人：可以把某人（含机器人）设为自动忽略">成员 ▾</button>
+      <button className="mute-members-btn" onClick={() => setOpen(!open)} title="会话里发过言的人：可以加为联系人，或把某人（含机器人）设为自动忽略">成员 ▾</button>
       {open && (
         <div className="menu mute-members">
-          <div className="menu-label">自动忽略此人的消息</div>
-          {people.map((m) => <MemberMuteItem key={m.sender_id} msg={m} onDone={onDone} close={() => setOpen(false)} />)}
+          {ops && candidates.length > 0 && (
+            <button className="menu-item mc-all" onClick={() => { setPick({ kind: 'batch', xs: candidates }); setOpen(false) }}
+              title="把这里还没认上联系人的人都建成联系人（不含机器人和你自己），先确认名单">
+              <span>全部加为联系人</span><span className="spacer" /><span className="muted">{candidates.length} 人</span>
+            </button>
+          )}
+          <div className="menu-label">发过言的人</div>
+          {people.map((m) => {
+            const mem = members.find((x) => x.sender_id === m.sender_id)!
+            return (
+              <div key={m.sender_id}>
+                <MemberMuteItem msg={m} onDone={onDone} close={() => setOpen(false)} tags={<>{mem.is_bot && <span className="mc-tag">机器人</span>}{mem.is_self && <span className="mc-tag">你</span>}</>} />
+                {ops && (
+                  <div className="mc-acts">
+                    {mem.contact ? <button className="act act-quiet" title="已是联系人，点了去联系人页" onClick={() => { setOpen(false); ops.open(mem.contact!.id) }}>联系人</button>
+                      : !mem.is_self && (
+                        <>
+                          <button className="act act-quiet" title="新建联系人（名字用渠道里的，可改）并挂上这个渠道身份" onClick={() => { setPick({ kind: 'batch', xs: [mem] }); setOpen(false) }}>加为联系人</button>
+                          <button className="act act-quiet" title="他已经在联系人里了：把这个渠道身份挂到他名下" onClick={() => { setPick({ kind: 'link', m: mem }); setOpen(false) }}>关联已有</button>
+                        </>
+                      )}
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
+      {ops && pick?.kind === 'link' && <LinkContactDialog member={pick.m} ops={ops} onClose={() => setPick(null)} onDone={done} />}
+      {ops && pick?.kind === 'batch' && <BatchContactDialog members={pick.xs} ops={ops} onClose={() => setPick(null)} onDone={done} />}
     </div>
   )
 }

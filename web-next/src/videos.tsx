@@ -470,6 +470,11 @@ const SHARED: { key: 'intro' | 'outro' | 'template'; label: string; ph: string }
   { key: 'outro', label: '共用收尾', ph: '比如 shared/outro.tsx（关注引导 + 下集预告）' },
   { key: 'template', label: '共用模板', ph: '比如 templates/theme（主题、字体、配色）' },
 ]
+/**
+ * 配音音色（TTS-01）：正式产品从「语音合成」插件取（GET /api/tts/voices，插件没装时 404，下拉退成输入框）。
+ * 原型用一份演示音色目录；语音合成本身在 设置 → 连接器 → 内容平台 → 语音合成
+ */
+const DEMO_TTS = { default_voice: 'voice-broleez', voices: ['voice-broleez', 'voice-narrator', 'voice-calm'] }
 const CloseIcon = () => <svg viewBox="0 0 16 16" width="14" height="14"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
 
 /** 抽屉里按 Esc：有确认框先关确认框，没有就关抽屉 */
@@ -501,7 +506,9 @@ export function SeriesSettingsDrawer({ series, videos, onClose, onSave }: {
 
   const eps = series ? videos.filter((v) => v.series_id === series.id).sort((a, b) => (a.episode ?? 999) - (b.episode ?? 999)) : []
   const changed = series ? SHARED.filter((f) => d[f.key].trim() !== series[f.key].trim()) : []
-  const clean = () => ({ ...d, name: d.name.trim(), desc: d.desc.trim(), intro: d.intro.trim(), outro: d.outro.trim(), template: d.template.trim() })
+  const speed = d.voice_speed ?? 1
+  const clean = () => ({ ...d, name: d.name.trim(), desc: d.desc.trim(), intro: d.intro.trim(), outro: d.outro.trim(), template: d.template.trim(),
+    voice: (d.voice ?? '').trim(), voice_speed: speed >= 0.5 && speed <= 2 ? speed : 1 })
 
   const save = () => {
     setTried(true)
@@ -540,6 +547,25 @@ export function SeriesSettingsDrawer({ series, videos, onClose, onSave }: {
               <input className="mono" value={d[f.key]} placeholder={f.ph} onChange={(e) => setD({ ...d, [f.key]: e.target.value })} />
             </label>
           ))}
+        </section>
+        {/* 配音（TTS-01）：音频合成阶段用；留空用「语音合成」插件的默认音色和语速 */}
+        <section className="field-group">
+          <div className="field-group-title">配音<span className="field-hint">音频合成阶段用；留空用「语音合成」插件的默认音色和语速</span></div>
+          <label className="field">
+            <span className="field-label">音色</span>
+            <select aria-label="配音音色" value={d.voice ?? ''} onChange={(e) => setD({ ...d, voice: e.target.value })}>
+              <option value="">默认音色（{DEMO_TTS.default_voice}）</option>
+              {DEMO_TTS.voices.map((v) => <option key={v} value={v}>{v}</option>)}
+              {d.voice && !DEMO_TTS.voices.includes(d.voice) && <option value={d.voice}>{d.voice}（不在当前音色目录）</option>}
+            </select>
+            <span className="field-hint">插件默认：{DEMO_TTS.default_voice}</span>
+          </label>
+          <label className="field">
+            <span className="field-label">语速</span>
+            <input aria-label="配音语速" type="number" min={0.5} max={2} step={0.05} value={speed}
+              onChange={(e) => setD({ ...d, voice_speed: e.target.value === '' ? 0 : Number(e.target.value) })} />
+            <span className="field-hint">0.5 – 2.0，默认 1.0；超出范围保存时按 1.0</span>
+          </label>
         </section>
         {creating && <div className="mount-empty">建好后在系列详情里新建一集，或者把已有的视频加进来</div>}
       </div>

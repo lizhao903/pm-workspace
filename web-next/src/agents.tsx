@@ -136,6 +136,8 @@ export const RUN_STATUS: Record<AgentRun['status'], { label: string; color: stri
   waiting: { label: '等你确认', color: '#b0570b' },
   rejected: { label: '已拒绝', color: '#a19d92' },
   failed: { label: '失败', color: '#c0352b' },
+  running: { label: '执行中', color: '#3d4fd6' },
+  canceled: { label: '已停止', color: '#a19d92' },
 }
 export const Pill = ({ label, color }: { label: string; color: string }) => <span className="pill" style={{ '--c': color } as React.CSSProperties}><span className="pill-dot" />{label}</span>
 
@@ -373,7 +375,11 @@ function RemoveAction({ disabled, onRemove }: { disabled: boolean; onRemove: () 
   )
 }
 
-export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, placeholderNote, autoSend, permHint }: {
+export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, placeholderNote, autoSend, permHint, modelLabel, onBusy }: {
+  /** 这个会话现在用的「服务商 · 模型」（SPEC-sessions-1.50）：每条回复记下它，悬停回复时露出来 */
+  modelLabel?: string
+  /** 正在回复时为真（SPEC-sessions-1.48：正在回复时不能换模型） */
+  onBusy?: (busy: boolean) => void
   /** 权限没开时回复里指向哪里打开，默认是配置页左边的「工具与权限」 */
   permHint?: string
   /** 刚建的空会话自动发出去的第一句话（快速新建会话用） */
@@ -404,10 +410,11 @@ export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, 
       const r = reply(agent, t, ctx, permHint)
       // 自动档的写操作直接执行，拿回真实输出
       const calls = r.calls.map((c) => (c.state === 'done' && abilityOf(c.tool).write ? { ...c, output: onExecute(c) } : c))
-      onMsgs((m) => [...m, { id: uid + 1, role: 'agent', text: r.text, calls, at: new Date().toISOString() }])
+      onMsgs((m) => [...m, { id: uid + 1, role: 'agent', text: r.text, calls, at: new Date().toISOString(), ...(modelLabel && { model: modelLabel }) }])
       setThinking(false)
     }, 800)
   }
+  useEffect(() => { onBusy?.(thinking) }, [thinking, onBusy])
   // 只发一次：StrictMode 下 effect 会跑两遍，ref 挡住第二遍；已经有消息了也不发
   const autoSent = useRef(false)
   useEffect(() => {
@@ -434,8 +441,11 @@ export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, 
             {examples.map((e) => <button key={e} className="ai-example" disabled={!agent.enabled} onClick={() => send(e)}>{e}</button>)}
           </div>
         )}
-        {msgs.map((m) => (
-          <div key={m.id} className={cls('ai-msg', m.role === 'user' ? 'ai-user' : 'ai-ai')}>
+        {msgs.map((m) => m.role === 'notice' ? (
+          // 换模型这类系统提示（SPEC-sessions-1.48）：居中小字，只给人看
+          <div key={m.id} className="ai-notice" role="note">{m.text}</div>
+        ) : (
+          <div key={m.id} className={cls('ai-msg', m.role === 'user' ? 'ai-user' : 'ai-ai')} title={m.role === 'agent' && m.model ? `这条回复用的 ${m.model}` : undefined}>
             {m.role === 'user' && <RemoveAction disabled={thinking} onRemove={() => onMsgs((xs) => xs.filter((x) => x.id !== m.id))} />}
             {m.role === 'agent' && <AgentAvatar agent={agent} size={24} />}
             <div className="ai-bubble">
@@ -443,6 +453,7 @@ export function ChatPane({ agent, msgs, onMsgs, ctx, onExecute, head, examples, 
                 <div className="call-list">{m.calls.map((c, i) => <CallCard key={i} call={c} onConfirm={() => settle(m.id, i, true)} onReject={() => settle(m.id, i, false)} />)}</div>
               )}
               <div className="pre-line">{m.text}</div>
+              {m.role === 'agent' && m.model && <div className="ai-model">{m.model}</div>}
             </div>
             {m.role === 'agent' && <RemoveAction disabled={thinking} onRemove={() => onMsgs((xs) => xs.filter((x) => x.id !== m.id))} />}
           </div>

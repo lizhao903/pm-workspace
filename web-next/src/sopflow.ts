@@ -101,6 +101,11 @@ export interface Sop {
   im?: SopIM
   /** 所在文件夹（TSK-0482，SPEC-sop-2.15）：SOP_FOLDERS 里的 id；没有或指向已删的文件夹是「未分类」 */
   folder_id?: string | null
+  /**
+   * 归属（f1b87395，SOP 插件迁移 0008）：buildin 是内置流程（启动时从 config/sop-build-in/*.json 导入，只读：不能改、删，编排页只能看），
+   * 没有或 nobuild-in 是自己建的
+   */
+  ownership?: 'buildin' | 'nobuild-in'
   fields: SopField[]
   steps: SopStepDef[]
   /** 编排画布上的节点位置，key 是步骤 key，__start 是开始节点；没有就按依赖自动排 */
@@ -1172,6 +1177,13 @@ export const SOPS: Sop[] = [
     ],
   },
 ]
+
+/** 内置流程（f1b87395）：正式产品 config/sop-build-in/ 下的 JSON 在启动时导入，归属 buildin、只读；原型里这几条对得上 */
+export const BUILTIN_SOP_IDS = ['sop_video_weekly', 'sop_im_auto_intake', 'sop_im_dev_pipeline', 'sop_im_task_confirm']
+for (const s of SOPS) if (BUILTIN_SOP_IDS.includes(s.id)) s.ownership = 'buildin'
+export const isBuiltinSop = (s: Pick<Sop, 'ownership'>) => s.ownership === 'buildin'
+/** 导出（f1b87395）：流程库卡片上「导出」复制到剪贴板的 JSON，和编排页「导入」同一个格式 */
+export const sopJson = (s: Sop) => JSON.stringify({ id: s.id, name: s.name, desc: s.desc, trigger: s.trigger, fields: s.fields, steps: s.steps, ...(s.layout ? { layout: s.layout } : {}) }, null, 2)
 
 // 新建和编辑的 SOP 也放进这张表，引擎和界面都从这里按 id 取。App 里另有一份 state 负责触发重渲染
 export const sopById = (id: string) => SOPS.find((s) => s.id === id)!

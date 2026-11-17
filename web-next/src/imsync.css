@@ -1,0 +1,18 @@
+/* IM 群组管理：补全消息菜单、成员加为联系人（TSK-0724） */
+.ga-fill-menu { min-width: 220px; }
+.ga-fill-end { right: 0; left: auto; }
+.mc-all { font-weight: 500; }
+.mc-tag { flex: none; padding: 0 5px; border-radius: 4px; background: var(--bg-2, #f1f0ec); color: var(--muted); font-size: 11px; }
+.mc-acts { display: flex; gap: 4px; padding: 0 10px 6px; }
+.mc-pick { display: flex; flex-direction: column; max-height: 280px; overflow: auto; margin: 8px 0; }
+.mc-list { display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow: auto; margin: 8px 0; }
+.mc-row { display: flex; align-items: flex-start; gap: 8px; }
+.mc-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.mc-name { height: 30px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); color: var(--text); }
+.mc-name.invalid { border-color: var(--danger, #c0352b); }
+.mc-ext { font-size: 12px; overflow-wrap: anywhere; }
+.mc-err { color: var(--danger, #c0352b); font-size: 12px; }
+.mc-fields { display: flex; flex-wrap: wrap; gap: 12px; }
+.mc-fields label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.mc-fields select, .mc-fields input { height: 30px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); color: var(--text); }
+.drawer-foot .ga-fill-menu { top: auto; bottom: calc(100% + 4px); left: 0; right: auto; }

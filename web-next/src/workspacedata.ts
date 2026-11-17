@@ -5,7 +5,7 @@
 // groups 是唯一的来源；modules 是按分组顺序摊平的启用列表，跟着 groups 算出来，方便各处直接用
 
 export type ModuleKey = 'today' | 'projects' | 'contacts' | 'messages' | 'tasks' | 'library' | 'sop' | 'sessions' | 'terminal' | 'browser'
-  | 'videos' | 'markets' | 'monitor' | 'strategy' | 'trading' | 'etf'
+  | 'videos' | 'markets' | 'monitor' | 'strategy' | 'trading' | 'etf' | 'runs' | 'recording'
 
 export const MODULES: { key: ModuleKey; label: string; desc: string }[] = [
   { key: 'today', label: '今日', desc: '今天要处理的事集中在一页' },
@@ -16,6 +16,10 @@ export const MODULES: { key: ModuleKey; label: string; desc: string }[] = [
   { key: 'library', label: '文档', desc: '工作台文档和本地目录' },
   { key: 'sop', label: 'SOP', desc: '标准流程的编排和执行' },
   { key: 'sessions', label: '会话', desc: '和 Agent 的对话、执行记录、产出' },
+  // 运行中心（P0-O1，正式产品内核模块 runs）：Agent 执行和任务执行一页看到
+  { key: 'runs', label: '运行', desc: 'Agent 执行和任务执行一页看到，能停、能重新执行' },
+  // 录音转写插件（recording 0.3.0）：浏览器录音、本机 whisper 转写、纪要和待办候选、说话人声纹
+  { key: 'recording', label: '录音', desc: '录音、本机转写、会议纪要和待办候选' },
   { key: 'terminal', label: '终端', desc: '分屏终端，能启停项目原型' },
   { key: 'browser', label: '浏览器', desc: '内置浏览器：看原型、Google Drive 文件' },
   { key: 'videos', label: '视频', desc: '视频制作流程、产出物、系列和多平台发布' },
@@ -45,7 +49,7 @@ export function withGroups(w: Omit<Workbench, 'modules'> & { modules?: ModuleKey
 /** 模板里的分组用「名称 + 模块」描述，新建时再生成 id */
 export const TEMPLATES: { role: string; name: string; desc: string; groups: [string, ModuleKey[]][]; home: ModuleKey; id: string; mark?: Workbench['mark'] }[] = [
   { id: 'ws_pm', role: '产品经理', name: '产品经理工作台', desc: '需求、项目、原型、客户沟通都要管', home: 'today', mark: { text: '', icon: 'compass', color: '#3d4fd6' },
-    groups: [['', ['today']], ['工作', ['projects', 'tasks', 'library']], ['沟通', ['messages', 'contacts', 'sessions']], ['自动化', ['sop', 'terminal', 'browser']]] },
+    groups: [['', ['today']], ['工作', ['projects', 'tasks', 'library', 'recording']], ['沟通', ['messages', 'contacts', 'sessions', 'runs']], ['自动化', ['sop', 'terminal', 'browser']]] },
   { id: 'ws_dev', role: '研发工程师', name: '研发工作台', desc: '任务、项目原型、终端和浏览器为主', home: 'tasks', mark: { text: '', icon: 'code', color: '#0f8a8a' },
     groups: [['', ['today']], ['研发', ['tasks', 'projects', 'terminal', 'browser']], ['资料', ['library', 'sessions']], ['自动化', ['sop']]] },
   { id: 'ws_ops', role: '运营 / 客户成功', name: '运营工作台', desc: '消息、联系人和流程为主', home: 'messages', mark: { text: '', icon: 'headset', color: '#b0570b' },
@@ -55,8 +59,8 @@ export const TEMPLATES: { role: string; name: string; desc: string; groups: [str
   { id: 'ws_trader', role: '交易员', name: '交易工作台', desc: '看盘盯盘、策略回测、账户执行和风控', home: 'markets', mark: { text: '', icon: 'candles', color: '#c0352b' },
     groups: [['', ['today']], ['行情', ['markets', 'monitor', 'etf']], ['策略与执行', ['strategy', 'trading']], ['资讯', ['messages', 'library', 'browser']], ['工具', ['tasks', 'sessions', 'terminal']]] },
   { id: 'ws_all', role: '全部模块', name: '0xBroleez', desc: '所有功能模块都开着', home: 'today', mark: { text: '0x', color: '#161823' },
-    groups: [['', ['today']], ['工作', ['projects', 'tasks', 'library']], ['视频', ['videos']], ['交易', ['markets', 'monitor', 'etf', 'strategy', 'trading']],
-      ['沟通', ['messages', 'contacts', 'sessions']], ['工具', ['sop', 'terminal', 'browser']]] },
+    groups: [['', ['today']], ['工作', ['projects', 'tasks', 'library', 'recording']], ['视频', ['videos']], ['交易', ['markets', 'monitor', 'etf', 'strategy', 'trading']],
+      ['沟通', ['messages', 'contacts', 'sessions', 'runs']], ['工具', ['sop', 'terminal', 'browser']]] },
   { id: '', role: '自定义', name: '我的工作台', desc: '从空白开始，自己挑模块', home: 'today', groups: [['', ['today']]] },
 ]
 export const fromTemplate = (t: (typeof TEMPLATES)[number], id: string, name: string): Workbench =>

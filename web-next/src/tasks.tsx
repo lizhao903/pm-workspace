@@ -28,7 +28,8 @@ import { AiBadge, AiOwner, CLI_MEMBERS, aiKindOf } from './aiowner'
 
 /** 任务页的二级菜单 key */
 /** schedule：定时任务建出来的任务；schedules：定时任务本身的管理页；due：逾期未完成；hooks：Webhook 列表 */
-export type TaskView = 'all' | 'due' | 'board' | 'outputs' | 'manual' | 'im' | 'webhook' | 'schedule' | 'incident' | 'schedules' | 'hooks' | `hook:${string}`
+// 来源分类视图（人工创建、IM 消息、Webhook、定时、运行异常）已去掉（826fe6d2）：来源只在列表的来源标签上看
+export type TaskView = 'all' | 'due' | 'board' | 'outputs' | 'schedules' | 'hooks' | `hook:${string}`
 
 const channelLabel = (k: string) => IM_CHANNELS.find((c) => c.key === k)?.label ?? k
 // 「今天」按本地日期；addDays、weekEnd 只做日历日加减，用 UTC 解析不受时区影响
@@ -107,11 +108,6 @@ export function TasksNav({ tasks, hooks, deliveries, view, onSelect, onNewHook, 
       { key: 'due' as TaskView, label: '逾期', desc: dueN ? `${dueN} 条过了截止日还没完成` : '没有逾期的任务', alert: dueN, group: '视图' },
       { key: 'board' as TaskView, label: '阶段看板', desc: '按阶段分列，按提出人看进度', group: '视图' },
       { key: 'outputs' as TaskView, label: '产出物', desc: `${outN} 条任务有产出`, group: '视图' },
-      { key: 'manual' as TaskView, label: '人工创建', group: '来源' },
-      { key: 'im' as TaskView, label: 'IM 消息', group: '来源' },
-      { key: 'webhook' as TaskView, label: 'Webhook', group: '来源' },
-      { key: 'schedule' as TaskView, label: '定时', group: '来源' },
-      { key: 'incident' as TaskView, label: '运行异常', group: '来源' },
       { key: 'schedules' as TaskView, label: '定时任务', desc: '到点自动建任务、跑 SOP、叫 Agent', group: '自动化' },
       { key: 'hooks' as TaskView, label: 'Webhook 接入', desc: `${hooks.length} 个${failN ? `，${failN} 个最近推送失败` : ''}`, alert: failN, group: '自动化' },
       ...recent.map((h) => ({ key: `hook:${h.id}` as TaskView, label: h.name, desc: `${timeAgo(last.get(h.id)!.at)}推送${h.enabled ? '' : ' · 已停用'}`, alert: failing(h), group: '最近推送' })),
@@ -191,22 +187,17 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
   useEffect(() => { setMore({}) }, [view, st, prio, proj, kw, out, ai])
   const now = today()
   const end = weekEnd(now)
-  const base = tasks.filter((t) => (view === 'all' || (view === 'due' ? isOverdue(t) : t.source.kind === view)) && (!proj || (proj === '-' ? !t.project_id : t.project_id === proj)) && matchOutputs(t.id, out, outputs) && (!ai || !!t.assignee_ai))
+  const base = tasks.filter((t) => (view === 'all' || isOverdue(t)) && (!proj || (proj === '-' ? !t.project_id : t.project_id === proj)) && matchOutputs(t.id, out, outputs) && (!ai || !!t.assignee_ai))
   const match = (t: Task, s: StatusFilter) => s === 'all' || (s === 'open' ? isOpenTask(t.status) : t.status === s)
   const rows = base
     .filter((t) => match(t, st) && (!prio || t.priority === prio) && (!kw || [t.title, t.desc, t.ref, t.assignee].some((v) => v.toLowerCase().includes(kw))))
     .sort((a, b) => a.priority.localeCompare(b.priority) || (a.due ?? '9').localeCompare(b.due ?? '9'))
   const segs = DUE_SEGS.map((s) => ({ ...s, xs: rows.filter((t) => dueSeg(t, now, end) === s.key) })).filter((s) => s.xs.length)
   const projName = (id: string) => projects.find((x) => x.id === id)?.name
-  const title = { all: '全部任务', due: '逾期任务', manual: '人工创建的任务', im: 'IM 消息转的任务', webhook: 'Webhook 转的任务', schedule: '定时任务建的任务', incident: '运行异常转的研发任务' }[view]
+  const title = { all: '全部任务', due: '逾期任务' }[view]
   const sub = {
     all: '人工创建、IM 消息转来、Webhook 推来的任务都在这里，按截止日分段',
     due: '过了截止日还没完成的任务，最早到期的在前',
-    manual: '自己手动建的任务',
-    im: '在 IM 消息里点「转任务」建的，能回看原消息',
-    webhook: '外部系统推到接收地址后按映射规则自动建的，能回看原始推送',
-    schedule: '定时任务到点自动建的，规则在「定时任务」里改',
-    incident: '从「设置 / 运行异常」转过来的，带着异常详情；做完回去把异常标为已解决',
   }[view]
   // 状态在设置里可以加很多个：seg 只放前 5 个，其余收进「更多状态」
   const statusItems = statusEnum.items.filter((i) => i.key !== 'cancelled')
@@ -290,13 +281,7 @@ function TaskList({ tasks, hooks, projects, view, selected, onOpen, onNew, onSta
         ) : (
           <div className="empty">
             <div className="empty-title">{view === 'due' ? '没有逾期的任务' : '这里还没有任务'}</div>
-            <div className="list-sub">{{
-              due: '截止日都还没到，或者已经做完了',
-              im: '在 IM 消息里点「转任务」',
-              webhook: '在「Webhook 接入」里建一个 Webhook，把地址填到外部系统里',
-              schedule: '定时任务到点会建在这里',
-              incident: '在「设置 / 运行异常」里转任务',
-            }[view as string] ?? '点右上角新建一个'}</div>
+            <div className="list-sub">{view === 'due' ? '截止日都还没到，或者已经做完了' : '点右上角新建一个'}</div>
           </div>
         )
       ) : (
@@ -453,6 +438,8 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
     terminalOn: boolean; onTerminal: (o: { task: Task; runId: string; workdir: string; prompt: string }) => void; onManagePresets?: () => void
     /** 「管理执行权限」（TSK-0499） */
     onManagePerms?: () => void
+    /** 「设置 / 执行器」（TSK-0722）：执行器不可用时去看缺什么 */
+    onManageRunners?: () => void
     /** 执行记录「去设置放行」（TSK-0499） */
     onAllowRules?: (rules: string[]) => void
     /** 交给工作台 Agent（SPEC-tasks-6.20）：Agent、服务商、模型；没给就只有 Claude Code */
@@ -724,8 +711,11 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
         <RunDialog task={{ ...task, workdir: d.workdir }} inheritDir={inheritDir} project={projectCtx} terminalOn={!!handoff?.terminalOn} onClose={() => setRunOpen(false)}
           agentRun={handoff?.agentRun && (() => {
             const last = mine(dev.runs).filter((r) => r.harness === 'agent' && r.agent_session).sort((a, b) => b.started_at.localeCompare(a.started_at))[0]
-            return { ...handoff.agentRun, lastSession: last ? { id: last.agent_session!, agent_id: last.agent_id, agent_name: last.agent_name } : undefined }
+            // DeepSeek 续跑（TSK-0722）：这条任务上一次 DeepSeek 执行的 dsh 会话
+            const lastDsh = mine(dev.runs).filter((r) => r.harness === 'deepseek').sort((a, b) => b.started_at.localeCompare(a.started_at))[0]
+            return { ...handoff.agentRun, lastSession: last ? { id: last.agent_session!, agent_id: last.agent_id, agent_name: last.agent_name } : undefined, lastDsh: lastDsh?.session_id }
           })()}
+          onManageRunners={handoff?.onManageRunners && (() => { setRunOpen(false); handoff.onManageRunners?.() })}
           onManagePresets={handoff?.onManagePresets && (() => { setRunOpen(false); handoff.onManagePresets?.() })}
           onManagePerms={handoff?.onManagePerms && (() => { setRunOpen(false); handoff.onManagePerms?.() })}
           onStart={(o) => {
@@ -746,8 +736,8 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], thread
               handoff?.onTerminal({ task, runId, workdir: o.workdir, prompt: buildPrompt({ task, workdir: o.workdir, extra: o.extra_prompt, mode: 'terminal', project: projectCtx, runId, preset: o.preset }) })
               return
             }
-            // 交出去就算开工（SPEC-tasks-6.17），负责人改成 Claude Code（SPEC-tasks-6.33）；允许写入时它还会领取
-            setD((x) => (x.status === 'done' || x.status === 'cancelled' ? x : { ...x, status: 'doing', assignee: 'Claude Code', assignee_ai: 'cli' }))
+            // 交出去就算开工（SPEC-tasks-6.17），负责人改成 Claude Code 或 DeepSeek（SPEC-tasks-6.33）；允许写入时它还会领取
+            setD((x) => (x.status === 'done' || x.status === 'cancelled' ? x : { ...x, status: 'doing', assignee: o.harness === 'deepseek' ? 'DeepSeek' : 'Claude Code', assignee_ai: 'cli' }))
             setRunOpen(false)
             // 流式执行发起后切到执行记录看输出（SPEC-tasks-4.41）
             pick('runs')

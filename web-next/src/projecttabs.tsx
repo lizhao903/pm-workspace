@@ -7,7 +7,8 @@ import { listenedChannels } from './channelpick'
 import { IM_CHANNELS, type Connector, type Contact, type Message } from './data'
 import { MentionText, contactIndex, isSnoozed, senderKey } from './messages'
 import { SearchSelect, matchOption } from './searchselect'
-import { STAKE_ROLE, type Project, type ProjectChat, type StakeRole } from './projectdata'
+import { STAKE_ROLE, type Project, type ProjectChat } from './projectdata'
+import { describeRule, nextRun, whenText, type Schedule } from './scheduledata'
 import { RUN_STATUS, runStatus, type Sop, type SopRun } from './sopflow'
 import type { Task, TaskArtifact, TaskStatus } from './taskdata'
 import { summarize } from './taskoutputs'
@@ -167,7 +168,10 @@ export function StakeholdersTab({ p, contacts, messages, onChange, onOpenContact
   onChange: (x: Partial<Project>) => void; onOpenContact: (id: string) => void; onOpenMessage: (id: string) => void
 }) {
   const avail = contacts.filter((c) => !p.stakeholders.some((s) => s.contact_id === c.id))
-  const patch = (id: string, x: Partial<{ role: StakeRole; focus: string }>) => onChange({ stakeholders: p.stakeholders.map((s) => (s.contact_id === id ? { ...s, ...x } : s)) })
+  const roles = useEnumView('project_role')
+  const groupDict = useEnumView('contact_group')
+  const [group, setGroup] = useState('')
+  const patch = (id: string, x: Partial<{ role: string; focus: string }>) => onChange({ stakeholders: p.stakeholders.map((s) => (s.contact_id === id ? { ...s, ...x } : s)) })
   // 每个联系人在本项目绑定的会话里最近的一条消息：项目消息扫一遍，按发信人归到联系人上
   const latest = useMemo(() => {
     const people = contactIndex(contacts)
@@ -179,33 +183,52 @@ export function StakeholdersTab({ p, contacts, messages, onChange, onOpenContact
     return out
   }, [p, messages, contacts])
   const lastMsg = (c: Contact) => latest.get(c.id)
-  const order: StakeRole[] = ['decider', 'contact', 'owner', 'member', 'informed']
-  const rows = [...p.stakeholders].sort((a, b) => order.indexOf(a.role) - order.indexOf(b.role))
+  // 按字典 project_role 的顺序排（TSK-0718）；字典里没有的角色排最后
+  const rows = sortStakes(p.stakeholders, roles.items.map((r) => r.key))
+  // 按联系人分组筛（826fe6d2）：干系人覆盖两个及以上分组时出现切换，只列有人的分组，顺序同分组字典
+  const groups = useMemo(() => {
+    const n = new Map<string, number>()
+    for (const s of rows) { const c = contacts.find((x) => x.id === s.contact_id); if (c) n.set(c.group, (n.get(c.group) ?? 0) + 1) }
+    const known = groupDict.items.filter((d) => n.has(d.key)).map((d) => ({ key: d.key, label: d.label, n: n.get(d.key)! }))
+    const rest = [...n.keys()].filter((k) => !groupDict.items.some((d) => d.key === k)).map((k) => ({ key: k, label: k, n: n.get(k)! }))
+    return [...known, ...rest]
+  }, [rows, contacts, groupDict.items])
+  const curGroup = groups.some((g) => g.key === group) ? group : ''
+  const shown = curGroup ? rows.filter((s) => contacts.find((x) => x.id === s.contact_id)?.group === curGroup) : rows
   return (
     <>
       <div className="mount-head pt-head">
-        <span className="list-sub">谁拍板、谁对接、谁负责，每个人关心什么。人从联系人里挑</span>
+        {groups.length > 1 ? (
+          <div className="seg seg-sm" role="group" aria-label="联系人分组">
+            <button className={cls(!curGroup && 'on')} aria-pressed={!curGroup} onClick={() => setGroup('')}>全部<span className="seg-n">{rows.length}</span></button>
+            {groups.map((g) => <button key={g.key} className={cls(curGroup === g.key && 'on')} aria-pressed={curGroup === g.key} onClick={() => setGroup(g.key)}>{g.label}<span className="seg-n">{g.n}</span></button>)}
+          </div>
+        ) : <span className="list-sub">谁拍板、谁对接、谁负责，每个人关心什么。人从联系人里挑</span>}
         <span className="spacer" />
         <SearchSelect value="" placeholder="加干系人" searchPlaceholder="搜姓名、公司、职位" align="end" active={false}
           options={avail.map((c) => ({ value: c.id, label: c.name, hint: c.company, keywords: c.title, icon: <Avatar name={c.name} size={18} src={c.photo} /> }))}
           emptyText="联系人都已经加进来了"
-          onChange={(id) => { if (id) onChange({ stakeholders: [...p.stakeholders, { contact_id: id, role: 'member', focus: '' }] }) }} />
+          onChange={(id) => { if (id) onChange({ stakeholders: [...p.stakeholders, { contact_id: id, role: roles.defaultKey ?? 'member', focus: '' }] }) }} />
       </div>
       {rows.length ? (
         <div className="task-table">
           <div className="stake-row task-th"><span>人</span><span>角色</span><span>关注点</span><span>最近沟通</span><span /></div>
-          {rows.map((s) => {
+          {shown.map((s) => {
             const c = contacts.find((x) => x.id === s.contact_id)
             if (!c) return null
             const last = lastMsg(c)
+            const role = roles.item(s.role)
             return (
               <div key={s.contact_id} className="stake-row">
                 <button className="stake-who" onClick={() => onOpenContact(c.id)}>
                   <Avatar name={c.name} size={30} src={c.photo} />
                   <span className="mount-text"><b>{c.name}</b><span className="list-sub ellipsis">{[c.title, c.company].filter(Boolean).join(' · ')}</span></span>
                 </button>
-                <select className={cls('stake-role', `sr-${s.role}`)} value={s.role} onChange={(e) => patch(c.id, { role: e.target.value as StakeRole })} title={STAKE_ROLE[s.role].desc}>
-                  {order.map((r) => <option key={r} value={r}>{STAKE_ROLE[r].label}</option>)}
+                {/* 角色走字典 project_role：停用的当前值照常显示「（已停用）」、虚线框；字典里没有的原样显示、标红 */}
+                <select className={cls('stake-role', `sr-${s.role}`, role && !role.enabled && 'stake-role-off', !role && 'stake-role-bad')} value={s.role}
+                  onChange={(e) => patch(c.id, { role: e.target.value })}
+                  title={!role ? `不认识的角色「${s.role}」，选一个改掉` : !role.enabled ? `角色「${role.label}」已停用，可以照旧留着，也可以换一个` : role.desc || STAKE_ROLE[s.role]?.desc}>
+                  {roles.optionsWith(s.role).map((r) => <option key={r.key} value={r.key}>{r.label}{!r.enabled ? '（已停用）' : ''}</option>)}
                 </select>
                 <input className="stake-focus" value={s.focus} placeholder="他关心什么" onChange={(e) => patch(c.id, { focus: e.target.value })} />
                 <span>{last ? <button className="link-btn link-muted ellipsis" onClick={() => onOpenMessage(last.id)} title={last.text}>{timeAgo(last.at)} · {last.text.length > 14 ? `${last.text.slice(0, 14)}…` : last.text}</button> : <span className="list-sub">{p.chats.length ? '本项目会话里没有消息' : '还没绑定沟通渠道'}</span>}</span>
@@ -279,7 +302,14 @@ export function ProjectSopTab({ p, sops, runs, onChange, onStart, onOpenRun, onO
 }) {
   const mine = sops.filter((s) => p.sop_ids.includes(s.id))
   const avail = sops.filter((s) => !p.sop_ids.includes(s.id))
-  const recent = runs.filter((r) => p.sop_ids.includes(r.sop_id)).sort((a, b) => b.started_at - a.started_at).slice(0, 8)
+  const hidden = p.sop_ids_hidden ?? []
+  // 自动反向关联（826fe6d2）：没手动关联、但流程里引用了本项目、执行时用的是本项目、或流程名以项目名开头的也列出来，标「自动」
+  const auto = useMemo(() => autoFlows(p, sops, runs), [p, sops, runs])
+  const shownIds = [...p.sop_ids, ...auto.map((a) => a.sop.id)]
+  const recent = runs.filter((r) => shownIds.includes(r.sop_id) || r.object_id === p.id || runForProject(r, p)).sort((a, b) => b.started_at - a.started_at).slice(0, 8)
+  const hiddenN = hidden.filter((id) => sops.some((s) => s.id === id)).length
+  // 手动关联了的从「不自动关联」里拿掉，免得以后取消关联后它不再自动出现
+  const link = (id: string) => onChange({ sop_ids: [...p.sop_ids, id], sop_ids_hidden: hidden.filter((x) => x !== id) })
   return (
     <>
       <div className="mount-head pt-head">
@@ -288,9 +318,9 @@ export function ProjectSopTab({ p, sops, runs, onChange, onStart, onOpenRun, onO
         <SearchSelect value="" placeholder="关联 SOP" searchPlaceholder="搜流程名" align="end" active={false}
           options={avail.map((s) => ({ value: s.id, label: s.name, keywords: s.desc }))}
           emptyText="SOP 都已经关联了"
-          onChange={(id) => { if (id) onChange({ sop_ids: [...p.sop_ids, id] }) }} />
+          onChange={(id) => { if (id) link(id) }} />
       </div>
-      {mine.length ? (
+      {mine.length || auto.length ? (
         <div className="mount-list">
           {mine.map((s) => (
             <div key={s.id} className="mount-card">
@@ -300,8 +330,23 @@ export function ProjectSopTab({ p, sops, runs, onChange, onStart, onOpenRun, onO
               <button className="act act-quiet" onClick={() => onChange({ sop_ids: p.sop_ids.filter((x) => x !== s.id) })}>取消关联</button>
             </div>
           ))}
+          {auto.map(({ sop: s, reasons }) => (
+            <div key={s.id} className="mount-card">
+              <span className="mount-icon conn-icon"><svg viewBox="0 0 16 16" width="13" height="13"><rect x="1.8" y="2.5" width="4.4" height="3.6" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" /><rect x="9.8" y="9.9" width="4.4" height="3.6" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M6.2 4.3h2a1.6 1.6 0 0 1 1.6 1.6v4" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg></span>
+              <button className="mount-text mount-toggle" onClick={() => onOpenSop(s.id)} title="在 SOP 里打开">
+                <b>{s.name}<span className="pj-auto-tag" title={reasons.map((r) => AUTO_REASON_LABEL[r]).join('；')}>自动</span></b>
+                <span className="list-sub">{reasons.map((r) => AUTO_REASON_LABEL[r]).join('；')}{s.desc ? ` · ${s.desc}` : ''}</span>
+              </button>
+              <button className="act act-primary" onClick={() => onStart(s.id)}>执行</button>
+              <button className="act act-quiet" onClick={() => link(s.id)}>固定关联</button>
+              <button className="act act-quiet" onClick={() => onChange({ sop_ids_hidden: [...hidden, s.id] })}>不自动关联</button>
+            </div>
+          ))}
         </div>
       ) : <div className="mount-empty">还没关联 SOP</div>}
+      {hiddenN > 0 && (
+        <div className="list-sub pj-hidden-note">{hiddenN} 个流程设成了不自动关联<button className="link-btn" onClick={() => onChange({ sop_ids_hidden: [] })}>恢复</button></div>
+      )}
       {recent.length > 0 && (
         <>
           <div className="section-label">最近执行</div>
@@ -316,6 +361,77 @@ export function ProjectSopTab({ p, sops, runs, onChange, onStart, onOpenRun, onO
           </div>
         </>
       )}
+    </>
+  )
+}
+
+/* ---------- 自动反向关联的 SOP（826fe6d2，正式产品 sopModel.autoFlows） ---------- */
+
+/** 执行输入里表示「哪个项目」的字段名 */
+const PROJECT_INPUT_KEYS = ['project_id', 'project'] as const
+/** 为什么自动关联：def 流程里写了本项目的 id，run 执行时用的是本项目，name 流程名以项目名开头 */
+type AutoReason = 'def' | 'run' | 'name'
+const AUTO_REASON_LABEL: Record<AutoReason, string> = { def: '流程里引用了本项目', run: '执行时用的是本项目', name: '流程名以项目名开头' }
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+/** 整词出现：前后不是字母数字、下划线、连字符 */
+const hasToken = (text: string, token: string) => !!token && new RegExp(`(^|[^A-Za-z0-9_-])${escapeRe(token)}($|[^A-Za-z0-9_-])`).test(text)
+/** 流程名以项目名开头，后面紧跟分隔符（「产品工作台新版 · 周报」「XAUE-周报」） */
+const NAME_SEP = /^[\s·•\-—–:：|/／]/
+const nameHit = (flowName: string, title: string) => { const t = title.trim(); return !!t && flowName.startsWith(t) && NAME_SEP.test(flowName.slice(t.length)) }
+/** 执行的输入里项目字段是本项目（id 或名字） */
+const runForProject = (r: SopRun, p: Project) => PROJECT_INPUT_KEYS.some((k) => { const v = r.input[k]; return v === p.id || v === p.name })
+
+/** 不在手动关联、没被点掉，且满足任一条的流程；保持流程库顺序 */
+function autoFlows(p: Project, sops: Sop[], runs: SopRun[]): { sop: Sop; reasons: AutoReason[] }[] {
+  const hidden = p.sop_ids_hidden ?? []
+  const ran = new Set(runs.filter((r) => r.object_id === p.id || runForProject(r, p)).map((r) => r.sop_id))
+  return sops.filter((s) => !p.sop_ids.includes(s.id) && !hidden.includes(s.id)).map((s) => {
+    const reasons: AutoReason[] = []
+    if (hasToken(JSON.stringify(s.steps), p.id)) reasons.push('def')
+    if (ran.has(s.id)) reasons.push('run')
+    if (nameHit(s.name, p.name)) reasons.push('name')
+    return { sop: s, reasons }
+  }).filter((x) => x.reasons.length)
+}
+
+/** 干系人按角色字典的顺序排，同角色按加入顺序；字典里没有的角色排最后 */
+export function sortStakes<T extends { role: string }>(xs: T[], order: string[]): T[] {
+  const rank = (r: string) => { const i = order.indexOf(r); return i < 0 ? order.length : i }
+  return [...xs].sort((a, b) => rank(a.role) - rank(b.role))
+}
+
+/* ---------- 定时任务（826fe6d2，正式产品 SchedulesTab） ---------- */
+
+/** 归到这个项目的定时任务（Schedule.project_id）；编辑和新建都去任务模块的定时任务页 */
+export function ProjectSchedulesTab({ p, schedules, onOpen, onNew, onAll }: {
+  p: Project; schedules: Schedule[]
+  onOpen: (id: string) => void
+  /** 新建定时任务，预填所属项目 */
+  onNew: () => void
+  /** 在定时任务页看（按这个项目筛） */
+  onAll: () => void
+}) {
+  const [now] = useState(() => new Date())
+  const rows = schedules.filter((s) => s.project_id === p.id)
+  return (
+    <>
+      <div className="mount-head pt-head">
+        <span className="list-sub">归到这个项目的定时任务；动作是建任务时，建出来的任务也归到这个项目</span>
+        <span className="spacer" />
+        {rows.length > 0 && <button className="act act-quiet" onClick={onAll}>在定时任务页看</button>}
+        <button className="act act-primary" onClick={onNew}>新建定时任务</button>
+      </div>
+      {rows.length ? (
+        <div className="task-table">
+          {rows.map((s) => (
+            <button key={s.id} className={cls('pj-sched', !s.enabled && 'is-off')} onClick={() => onOpen(s.id)}>
+              <span className="ellipsis" title={s.name}>{s.name}</span>
+              <span className="run-muted ellipsis">{describeRule(s.rule)}</span>
+              <span className="run-muted">{s.enabled ? whenText(nextRun(s.rule, now)) : '已停用'}</span>
+            </button>
+          ))}
+        </div>
+      ) : <div className="empty"><div className="empty-title">这个项目还没有定时任务</div><div className="list-sub">比如每周一 9 点建一条「整理周会议程」，或者每天早上拉一次项目代码</div></div>}
     </>
   )
 }

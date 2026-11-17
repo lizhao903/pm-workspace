@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { SearchSelect } from './searchselect'
 import { ListSegHead } from './tasks'
 import {
-  ACTION_LABEL, INTERVAL_HOURS, RULE_MODES, RULE_MODE_LABEL, SWEEP_LEVEL_LABEL, WEEK, claudeActionError, claudeOutPath, describeRule, emptyRule, intervalCron, intervalOf,
+  ACTION_LABEL, INTERVAL_HOURS, RULE_MODES, RULE_MODE_LABEL, SWEEP_LEVEL_LABEL, WEEK, claudeActionError, claudeOutPath, describeRule, gitPullError, gitPullText, emptyRule, intervalCron, intervalOf,
   modeOf, nextRun, nextText, ruleError, sweepText, whenText, withMode, type RuleMode, type Schedule, type ScheduleAction, type ScheduleRule,
 } from './scheduledata'
 import type { Priority } from './taskdata'
@@ -26,10 +26,18 @@ export const actionText = (a: ScheduleAction, sops: Named[], agents: Named[], pu
     : a.kind === 'publish' ? `发布「${publishes.find((x) => x.id === a.publish_id)?.name ?? '已删除的发布记录'}」`
       : a.kind === 'incident_sweep' ? `巡检运行异常：${sweepText(a)}，建任务交给 Claude Code`
       : a.kind === 'claude' ? a.prompt || '未填要求'
+      : a.kind === 'git_pull' ? gitPullText(a)
       : `${agents.find((x) => x.id === a.agent_id)?.name ?? '已删除的 Agent'}：${a.prompt || '未填要求'}`)
 
-export function SchedulesPage({ schedules, sops, agents, publishes = [], selected, onOpen, onNew, onToggle }: {
+/** 项目筛选里「不属于项目」的值，和任务列表一致 */
+const NO_PROJECT = '-'
+
+export function SchedulesPage({ schedules, sops, agents, publishes = [], selected, onOpen, onNew, onToggle, projects = [], initProject = '' }: {
   schedules: Schedule[]
+  /** 项目筛选和名称旁的项目标签（826fe6d2）；name 是项目名 */
+  projects?: Named[]
+  /** 进来时的项目筛选（从项目详情「定时任务」过来） */
+  initProject?: string
   sops: Named[]
   agents: Named[]
   /** 定时发布指向的发布记录，name 是「平台 · 标题」 */
@@ -41,10 +49,13 @@ export function SchedulesPage({ schedules, sops, agents, publishes = [], selecte
 }) {
   const [q, setQ] = useState('')
   const [kind, setKind] = useState<'' | ScheduleAction['kind']>('')
+  const [proj, setProj] = useState(initProject)
+  const projName = (id: string) => projects.find((p) => p.id === id)?.name
+  const inProj = (s: Schedule) => !proj || (proj === NO_PROJECT ? !s.project_id : s.project_id === proj)
   // 停用的沉到底部，默认收起
   const [offOpen, setOffOpen] = useState(false)
   const kw = q.trim().toLowerCase()
-  const hit = (s: Schedule) => (!kind || s.action.kind === kind) && (!kw || `${s.name} ${describeRule(s.rule)} ${actionText(s.action, sops, agents, publishes)}`.toLowerCase().includes(kw))
+  const hit = (s: Schedule) => (!kind || s.action.kind === kind) && inProj(s) && (!kw || `${s.name} ${describeRule(s.rule)} ${actionText(s.action, sops, agents, publishes)}`.toLowerCase().includes(kw))
   const sorted = schedules.filter(hit).sort((a, b) => (nextRun(a.rule)?.getTime() ?? Infinity) - (nextRun(b.rule)?.getTime() ?? Infinity))
   const on = sorted.filter((s) => s.enabled)
   const off = sorted.filter((s) => !s.enabled)
@@ -53,7 +64,9 @@ export function SchedulesPage({ schedules, sops, agents, publishes = [], selecte
     const next = s.enabled ? nextRun(s.rule) : null
     return (
       <div key={s.id} className={cls('sched-row', selected === s.id && 'sel', !s.enabled && 'is-off')} onClick={() => onOpen(s.id)}>
-        <span className="task-main"><span className="task-title"><span className="ellipsis" title={s.name}>{s.name}</span></span></span>
+        <span className="task-main"><span className="task-title"><span className="ellipsis" title={s.name}>{s.name}</span>
+          {s.project_id && <span className="src-tag sched-proj" title={projName(s.project_id)}>{projName(s.project_id) ?? '已删除的项目'}</span>}
+        </span></span>
         <span className="run-muted ellipsis">{describeRule(s.rule)}</span>
         <span className="sched-action"><span className={`sched-kind sk-${s.action.kind}`}>{ACTION_LABEL[s.action.kind]}</span><span className="ellipsis run-muted">{actionText(s.action, sops, agents, publishes)}</span></span>
         <span className={cls('run-muted', s.enabled && next && 'sched-next')}>{nextText(s)}</span>
@@ -76,6 +89,11 @@ export function SchedulesPage({ schedules, sops, agents, publishes = [], selecte
             ))}
           </div>
           <span className="spacer" />
+          {projects.length > 0 && (
+            <SearchSelect value={proj} onChange={setProj} noneLabel="全部项目" placeholder="全部项目" searchPlaceholder="搜项目" aria-label="项目"
+              options={[...projects.map((p) => ({ value: p.id, label: p.name })), { value: NO_PROJECT, label: '不属于项目' }]}
+              missingLabel={() => '已删除的项目'} />
+          )}
           <div className="search">
             <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
             <input placeholder="搜索名称、规则、要做的事" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -103,7 +121,11 @@ export function SchedulesPage({ schedules, sops, agents, publishes = [], selecte
   )
 }
 
-export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assignees, onClose, onSave, onDelete, onRunNow, openTask, onOpenPublish, onOpenCalendar, taskName }: {
+export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assignees, onClose, onSave, onDelete, onRunNow, openTask, onOpenPublish, onOpenCalendar, taskName, projects = [], initProjectId = '' }: {
+  /** 所属项目的候选（826fe6d2）；name 是项目名 */
+  projects?: Named[]
+  /** 新建时预填的所属项目（从项目详情「新建定时任务」进来） */
+  initProjectId?: string
   /** 提醒关联的任务「T-004 标题」，任务删了返回 undefined */
   taskName?: (taskId: string) => string | undefined
   schedule: Schedule | null
@@ -128,7 +150,7 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
   const defPrio = (prioEnum.defaultKey ?? 'P2') as Priority
   const creating = !schedule
   const [d, setD] = useState<Schedule>(() => schedule ?? {
-    id: newId('sc'), name: '', enabled: true, rule: emptyRule(), created_at: new Date().toISOString(), history: [],
+    id: newId('sc'), name: '', enabled: true, rule: emptyRule(), created_at: new Date().toISOString(), history: [], project_id: initProjectId || undefined,
     action: { kind: 'task', title: '', desc: '', priority: defPrio, assignee: '我', due_days: 0 },
   })
   const [tried, setTried] = useState(false)
@@ -143,13 +165,14 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
       : k === 'sop' ? { kind: 'sop', sop_id: sops[0]?.id ?? '' }
         : k === 'incident_sweep' ? { kind: 'incident_sweep', min_level: 'error', min_count: 1 }
         : k === 'claude' ? { kind: 'claude', workdir: '', prompt: '', preset_id: '', allow_writes: false, out_dir: '' }
+        : k === 'git_pull' ? { kind: 'git_pull', repo: '', remote: '', branch: '' }
           : { kind: 'agent', agent_id: agents.find((a) => a.enabled !== false)?.id ?? '', prompt: '' },
   })
   const a = d.action
   // 定时发布只读：规则跟着发布记录，过了时间也不算错
   const pub = a.kind === 'publish'
   const rErr = pub ? '' : ruleError(r)
-  const aErr = a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '') : a.kind === 'remind' ? (!a.title.trim() ? '提醒标题必填' : a.title.trim().length > 100 ? '提醒标题最多 100 字' : '') : a.kind === 'sop' ? (!a.sop_id ? '选一个 SOP' : '') : a.kind === 'publish' || a.kind === 'incident_sweep' ? '' : a.kind === 'claude' ? claudeActionError(a) : (!a.agent_id ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : '')
+  const aErr = a.kind === 'task' ? (!a.title.trim() ? '任务标题必填' : '') : a.kind === 'remind' ? (!a.title.trim() ? '提醒标题必填' : a.title.trim().length > 100 ? '提醒标题最多 100 字' : '') : a.kind === 'sop' ? (!a.sop_id ? '选一个 SOP' : '') : a.kind === 'publish' || a.kind === 'incident_sweep' ? '' : a.kind === 'claude' ? claudeActionError(a) : a.kind === 'git_pull' ? gitPullError(a) : (!a.agent_id ? '选一个 Agent' : !a.prompt.trim() ? '写一下要它做什么' : '')
   const errors = [!d.name.trim() && '名称必填', rErr, aErr].filter(Boolean) as string[]
   const next = nextRun(r)
   // 随 SOP 流程管理的那条（TSK-0463）：名称跟流程名、动作锁定，规则和启停照常改
@@ -172,6 +195,14 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
           <input value={d.name} autoFocus={creating} readOnly={pub || managed} className={cls(tried && !d.name.trim() && 'bad')} placeholder="比如：周会前整理议程" onChange={(e) => setD({ ...d, name: e.target.value })} />
           {managed && <span className="field-hint-line">名称跟着 SOP 流程名，改流程名时一起改</span>}
         </label>
+        {!pub && (
+          <div className="field">
+            <span className="field-label">所属项目<span className="field-hint">按项目归类；动作是建任务时，建的任务也归到这个项目</span></span>
+            <SearchSelect variant="field" aria-label="所属项目" value={d.project_id ?? ''} noneLabel="不属于项目" placeholder="不属于项目" searchPlaceholder="搜项目"
+              options={projects.map((p) => ({ value: p.id, label: p.name }))} missingLabel={() => '已删除的项目'}
+              onChange={(v) => setD({ ...d, project_id: v || undefined })} />
+          </div>
+        )}
 
         {a.kind === 'publish' ? (
           <section className="field-group">
@@ -260,6 +291,23 @@ export function ScheduleDrawer({ schedule, sops, agents, publishes = [], assigne
               <span className="field-hint-line">到点在工作台里弹出提醒，不发到 IM；关联了任务的，点提醒打开这条任务。只提醒一次的到点后自动停用</span>
             </>
           )}
+          {a.kind === 'git_pull' && (() => {
+            const gErr = gitPullError(a)
+            const setA = (p: Partial<typeof a>) => setD({ ...d, action: { ...a, ...p } })
+            return (
+              <>
+                <label className="field"><span className="field-label">仓库路径<em>*</em><span className="field-hint">本机 git 仓库的绝对路径，保存时会检查是不是 git 仓库</span></span>
+                  <input className={cls('mono-input', tried && gErr && 'bad')} value={a.repo} placeholder="/Users/me/code/project" onChange={(e) => setA({ repo: e.target.value })} />
+                  {tried && gErr && <span className="field-err">{gErr}</span>}
+                </label>
+                <div className="field-row">
+                  <label className="field"><span className="field-label">远端</span><input className="mono-input" value={a.remote} placeholder="不填按上游" onChange={(e) => setA({ remote: e.target.value })} /></label>
+                  <label className="field"><span className="field-label">分支</span><input className="mono-input" value={a.branch} placeholder="不填按上游" onChange={(e) => setA({ branch: e.target.value })} /></label>
+                </div>
+                <span className="field-hint-line">到点在这个仓库里跑 git pull --ff-only：只做快进，本地有没推的提交、和远端分叉或改动挡住时不合并，记一条失败。不会弹密码，要用 ssh key 或已存的凭证；最多等 90 秒。结果记在下面的执行记录里</span>
+              </>
+            )
+          })()}
           {a.kind === 'incident_sweep' && (
             <>
               <div className="field-row">

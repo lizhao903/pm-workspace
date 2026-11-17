@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { PageTitle } from './topbar'
-import { AUTH_LABEL, IM_CHANNELS, TOOL_CATEGORIES, TOOLS, fieldView, testedAccount, tokenProblem, type ConnStatus, type Connector, type Tool } from './data'
+import { AUTH_LABEL, IM_CHANNELS, TOOL_CATEGORIES, TOOLS, fieldView, testedAccount, tokenProblem, type ConnStatus, type Connector, type Message, type Tool } from './data'
 import { cls, timeAgo } from './ui'
 import { ImQuickReplies } from './quickreplies'
 import { ChannelPicker } from './channelpick'
@@ -228,7 +228,7 @@ export function ConnectorsSettings({ connectors, messageCount, initialCat = '', 
 type Draft = Pick<Connector, 'name' | 'config' | 'direction' | 'interval'> & { enabled: boolean }
 type TestResult = { ok: boolean; text: string } | null
 
-export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, onConnect, onDisconnect, delImpact, onBackfillEmails }: {
+export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, onConnect, onDisconnect, delImpact, onBackfillEmails, latestMessages }: {
   onConnect?: () => void
   onDisconnect?: () => void
   tool: Tool
@@ -240,6 +240,8 @@ export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, on
   delImpact?: string[]
   /** 从 Slack 补联系人邮箱（SPEC-settings-4.7d），只有已接的 Slack 给 */
   onBackfillEmails?: () => EmailBackfillResult
+  /** Telegram：这个连接器最近 3 条消息（新的在前），测试连接成功后列出来（3f33bed8，正式产品 LatestMessage.tsx） */
+  latestMessages?: Message[]
 }) {
   const creating = !connector
   const [d, setD] = useState<Draft>(() => connector
@@ -349,6 +351,7 @@ export function ConnectorDrawer({ tool, connector, onClose, onSave, onDelete, on
             {test && <span className={test.ok ? 'test-ok' : 'test-bad'}>{test.text}</span>}
           </div>
         </div>
+        {tool.key === 'telegram' && connector && latestMessages && test?.ok && !testing && <LatestMessage messages={latestMessages} />}
 
         {connector && onBackfillEmails && <EmailBackfill connector={connector} run={onBackfillEmails} />}
 
@@ -426,5 +429,36 @@ function EmailBackfill({ connector, run }: { connector: Connector; run: () => Em
         <ul className="mail-list">{r.conflicts.map((x) => <li key={x.id}>{x.name}：名册里是 {x.current}，Slack 里是 {x.found}（没改，要换去联系人里改）</li>)}</ul>
       )}
     </div>
+  )
+}
+
+/**
+ * Telegram 测试连接成功后的「最近 3 条消息」（3f33bed8，正式产品 settings/connectors/LatestMessage.tsx）：
+ * 正式产品先同步一次（配了 webhook 的不同步），再取这个连接器最近 3 条；原型直接取已收进来的消息
+ */
+function LatestMessage({ messages }: { messages: Message[] }) {
+  return (
+    <section className="field-group cn-message-preview" aria-label="最新消息">
+      <div className="field-group-title">最近 3 条消息</div>
+      {messages.length ? (
+        <div className="cn-message-table-wrap" tabIndex={0} role="region" aria-label="最新消息详情">
+          <table className="cn-message-table" aria-label="最新消息">
+            <colgroup><col className="cn-message-sender-col" /><col className="cn-message-time-col" /><col className="cn-message-chat-col" /><col /></colgroup>
+            <thead><tr><th scope="col">发信人</th><th scope="col">时间</th><th scope="col">会话</th><th scope="col">消息内容</th></tr></thead>
+            <tbody>{messages.map((m) => (
+              <tr key={m.id}>
+                <td>{m.sender_name || m.sender_id || '未知发信人'}</td>
+                <td><time dateTime={m.at}>{new Date(m.at).toLocaleString('zh-CN', { hour12: false })}</time></td>
+                <td>{m.conversation || `与 ${m.sender_name || m.sender_id || '未知发信人'} 的私聊`}</td>
+                <td>
+                  <div className="cn-message-content">{m.text || (m.attachments?.length ? '附件消息' : '无文本内容')}</div>
+                  {!!m.attachments?.length && <div className="muted cn-message-attachments">附件：{m.attachments.map((a) => a.name || '未命名附件').join('、')}</div>}
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      ) : <div className="muted">暂无消息。向这个 Bot 发一条消息后，再点「测试连接」。</div>}
+    </section>
   )
 }

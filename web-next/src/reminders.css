@@ -28,3 +28,6 @@
 .sched-popup-opt.on b { color: var(--accent); }
 .sched-popup-opt input { margin: 3px 0 0; }
 .sched-popup-opt > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* 定时任务「拉取代码」（77171f30）和名称旁的所属项目（826fe6d2） */
+.sk-git_pull { background: color-mix(in srgb, #495057 12%, transparent); color: color-mix(in srgb, #495057 85%, var(--text)); }
+.sched-row .task-title .sched-proj { flex: 0 4 auto; min-width: 0; max-width: 10em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 6px; }

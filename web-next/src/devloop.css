@@ -72,6 +72,9 @@
 .dev-confirm { border-color: var(--warn); }
 .dev-confirm .act-row { flex-wrap: wrap; }
 .src-tag.dev-write { color: var(--warn); background: var(--warn-soft); }
+/* 模块前缀复用的缓存命中（0058）：命中率和模块键都弱化，不抢状态和执行器 */
+.src-tag.dev-cache { color: var(--muted); font-variant-numeric: tabular-nums; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ok) 40%, transparent); }
+.src-tag.dev-module { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 .dev-run-at { flex: none; }
 .dev-run-note { padding: 0 10px 8px; font-size: 12px; }
 .dev-run-body { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 10px; border-top: 1px solid var(--line); background: var(--panel-2); }

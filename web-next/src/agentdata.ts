@@ -89,7 +89,10 @@ export interface AgentRun {
   trigger: string
   summary: string
   calls: ToolCall[]
-  status: 'done' | 'waiting' | 'rejected' | 'failed'
+  /** running 执行中、canceled 已停止（正式产品 O-2：在跑的能停，失败、已停止的能重新执行） */
+  status: 'done' | 'waiting' | 'rejected' | 'failed' | 'running' | 'canceled'
+  /** 由「重新执行」发起的，记原执行 id */
+  retry_of?: string
 }
 
 export const AGENT_COLORS = ['#3d4fd6', '#7a4fd6', '#0f8a8a', '#b0570b', '#2f7d43', '#c0352b', '#e8590c', '#23221e']
@@ -126,7 +129,11 @@ export interface KnowledgeBase { id: string; name: string; desc: string; sources
 
 /* ---------- 会话与产出 ---------- */
 
-export interface ChatMsg { id: number; role: 'user' | 'agent'; text: string; calls?: ToolCall[]; at?: string }
+/**
+ * role 为 notice 的是换模型这类系统提示（SPEC-sessions-1.48），居中小字，不进模型的上下文；
+ * model 是这条 Agent 回复当时用的「服务商 · 模型」（SPEC-sessions-1.50），之前的消息没有
+ */
+export interface ChatMsg { id: number; role: 'user' | 'agent' | 'notice'; text: string; calls?: ToolCall[]; at?: string; model?: string }
 /**
  * 会话的来源（SPEC-sessions-1.42）：从哪条记录发起的。im_message 是 IM 消息的「发起会话」「拆分任务」；
  * task_run 是任务交给工作台 Agent 执行时建的会话（SPEC-sessions-1.44），带任务和执行记录 id，message_ids 为空
@@ -135,7 +142,11 @@ export interface SessionSource {
   kind: 'im_message' | 'task_run'; message_ids: string[]; label: string; intent: 'chat' | 'split'
   task_id?: string; run_id?: string
 }
-export interface Session { id: string; agent_id: string; project_id?: string; title: string; created_at: string; updated_at: string; messages: ChatMsg[]; source?: SessionSource }
+/**
+ * model、model_override（TSK-0720，SPEC-sessions-1.46 到 1.50）：model_override 为真时这个会话单独用 model（模型 id），
+ * 否则跟随 Agent 当前的默认模型；Agent 删了按 model 回看
+ */
+export interface Session { id: string; agent_id: string; project_id?: string; title: string; created_at: string; updated_at: string; messages: ChatMsg[]; source?: SessionSource; model?: string; model_override?: boolean }
 
 /** Agent 真正落到数据上的东西：建的任务、写的文档、发的回复、发起的流程 */
 export type OutputKind = 'task' | 'doc' | 'reply' | 'sop' | 'other'
@@ -215,6 +226,11 @@ export const seedAgentRuns: AgentRun[] = [
     id: 'ar4', agent_id: 'ag_triage', at: minsAgo(60 * 26), trigger: '收到微信消息 · 唐一苇', status: 'rejected',
     summary: '建议回复确认续费报价，你拒绝了回复，改为自己处理',
     calls: [{ tool: 'reply_message', input: { channel: 'wechat', to: '唐一苇', text: '李总您好，报价单收到了，我这边确认后回复您。' }, state: 'rejected' }],
+  },
+  {
+    id: 'ar5', agent_id: 'ag_weekly', at: minsAgo(60 * 24 * 12), trigger: '定时 · 每周五 16:00', status: 'failed',
+    summary: '模型服务商返回 429（请求太多），没写成周报草稿',
+    calls: [{ tool: 'read_tasks', input: { updated_after: '本周一' }, output: { done: 4, doing: 2, todo: 3 }, state: 'done' }],
   },
 ]
 

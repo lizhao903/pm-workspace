@@ -339,9 +339,17 @@ TOOLS.push(
   appTool('xiaohongshu', 'media', '小红书', '#ff2442', '笔记数据和评论（蒲公英 / 开放平台）；发布需在 App 或创作者中心', ['token'], [
     R('list_notes', '列出笔记'), R('get_stats', '曝光、阅读、点赞、收藏'), R('list_comments', '读评论'),
   ], { fields: [{ key: 'app_key', label: 'App Key', kind: 'text', required: true }, { key: 'app_secret', label: 'App Secret', kind: 'secret', required: true }] }),
-  appTool('tts', 'media', '语音合成', '#0f8a8a', '把口播稿合成音频，视频的「音频合成」阶段用它', ['token'], [
+  // 语音合成插件（tts 0.1.0，TTS-01）登记的连接器：本机 IndexTTS，自动检测音色目录和默认音色，字段全部可留空（零配置）
+  appTool('tts', 'media', '语音合成', '#0f8a8a', '本机 IndexTTS 配音：自动检测音色目录和默认音色（优先 voice-broleez），也能换音色、语速；留空即用默认', ['none'], [
     R('list_voices', '列出可用音色'), W('synthesize', '按章节合成音频'),
-  ], { fields: [{ key: 'vendor', label: '服务', kind: 'select', options: ['火山引擎（豆包语音）', 'MiniMax', 'ElevenLabs', 'Azure 语音', '阿里云智能语音'], required: true }, { key: 'voice', label: '默认音色', kind: 'text', placeholder: '比如 zh_male_jingqiang' }] }),
+  ], { fields: [
+    { key: 'engine', label: '引擎', kind: 'select', options: ['indextts'] },
+    { key: 'voice', label: '默认音色', kind: 'text', placeholder: '留空自动选（优先 voice-broleez）' },
+    { key: 'voice_dir', label: '音色目录', kind: 'text', placeholder: '留空自动找 web-video 目录下的 .voice.pt' },
+    { key: 'speed', label: '语速', kind: 'text', placeholder: '0.5 – 2.0，默认 1.0' },
+    { key: 'bin', label: 'indextts 路径', kind: 'text', placeholder: '留空自动在 PATH 里找' },
+    { key: 'ffmpeg', label: 'ffmpeg 路径', kind: 'text', placeholder: '留空自动在 PATH 里找' },
+  ] }),
   // 行情数据：行情、盯盘、回测取数用；没有接入时页面用模拟行情
   appTool('binance_md', 'market', 'Binance 行情', '#f0b90b', '现货和合约的实时行情、K 线、盘口、资金费率，公开接口', ['none'], [
     R('ticker', '最新价和 24 小时统计'), R('klines', 'K 线'), R('depth', '盘口'), R('funding_rate', '永续资金费率'),

@@ -83,10 +83,18 @@ import { ATTACH_DIR, SYNC_POOL, type MsgAttachment } from './data'
 import { newId } from './ids'
 import { PageTitle } from './topbar'
 import { OverviewPage, type OverviewKey } from './overview'
+import { RunsCenterPage } from './runs'
+import { RecorderStatus, RecordingPage, RecordingSettingsPage } from './recording'
+import { startRecording } from './recordingdata'
+import { RunnersPage } from './runners'
+import { ExecutorsPage } from './executors'
+import { PluginsPage } from './plugins'
+import { LocalFsPage } from './localfs'
+import { JobsPage } from './jobs'
 
 // 菜单从这里加：Page 加一个 key，MENU 加一行，main 里接上页面。设置不在 MENU 里，单独吸底
 type Page = 'today' | 'projects' | 'contacts' | 'messages' | 'tasks' | 'library' | 'sop' | 'sessions' | 'terminal' | 'browser'
-  | 'videos' | 'markets' | 'monitor' | 'strategy' | 'trading' | 'etf' | 'settings' | 'overview'
+  | 'videos' | 'markets' | 'monitor' | 'strategy' | 'trading' | 'etf' | 'runs' | 'recording' | 'settings' | 'overview'
 
 // 抽屉是全局的一个：从消息页「存为联系人」时，不用离开消息页就能打开联系人表单
 type DrawerState =
@@ -107,7 +115,8 @@ type DrawerState =
   | { kind: 'new-kb' }
   | { kind: 'skill'; id: string }
   | { kind: 'new-skill'; from?: string }
-  | { kind: 'new-schedule' }
+  /** project：从项目详情「新建定时任务」进来时预填所属项目（826fe6d2） */
+  | { kind: 'new-schedule'; project?: string }
   | { kind: 'provider'; id: string }
   | { kind: 'new-provider'; provider: ProviderKind }
   | { kind: 'new-task'; fromMessage?: string; initial?: Partial<TaskDraft> }
@@ -147,6 +156,8 @@ const icons: Record<Page, React.ReactNode> = {
   strategy: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M2 13.5h12M3.5 11l3-3.5 2.5 2 4-5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /><path d="M10.5 4.5h2.5V7" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   trading: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M3 5h9.5l-2.5-2.5M13 11H3.5L6 13.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   settings: <span className="side-icon">{gear}</span>,
+  runs: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="m6.6 5.6 3.6 2.4-3.6 2.4Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>,
+  recording: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><rect x="5.6" y="1.8" width="4.8" height="8" rx="2.4" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M3.4 7.6a4.6 4.6 0 0 0 9.2 0M8 12.2v2" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>,
   overview: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><rect x="2" y="2" width="5" height="5" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.4" /><rect x="9" y="2" width="5" height="5" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.4" /><rect x="2" y="9" width="5" height="5" rx="1.2" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M9.5 10h4M9.5 12.5h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>,
 }
 
@@ -161,6 +172,8 @@ export default function App() {
   const [section, setSection] = useState<Section>('connectors')
   // 执行记录「去设置放行」带过来的规则（TSK-0499），设置 > 执行权限预填
   const [permsPending, setPermsPending] = useState<string[]>([])
+  // 版本更新（SYS-UPD）：原型里源码目录比正在运行的新几条提交，更新完才没有差异；有差异时设置二级菜单「版本更新」亮红点
+  const [updateDone, setUpdateDone] = useState(false)
   // Agent 配置页有未保存的改动时，切二级菜单先让它确认
   const agentGuard = useRef<((leave: () => void) => boolean) | null>(null)
   const leaveAgent = (go: () => void) => { if (!agentGuard.current || agentGuard.current(go)) go() }
@@ -179,6 +192,8 @@ export default function App() {
   const [deliveries, setDeliveries] = useState(seedDeliveries)
   const [taskView, setTaskView] = useState<TaskView>('all')
   const [schedules, setSchedules] = useState(seedSchedules)
+  /** 定时任务页的项目筛选初值：从项目「定时任务」标签的「在定时任务页看」带过来 */
+  const [projSchedFilter, setProjSchedFilter] = useState('')
   // 提醒（定时任务动作 remind）到点在右下角弹出，点「知道了」或「打开任务」才收
   const [reminderPops, setReminderPops] = useState<Reminder[]>([])
   const [incidents, setIncidents] = useState(seedIncidents)
@@ -639,7 +654,9 @@ export default function App() {
     if (a.kind === 'task') {
       const dueAt = new Date(now); dueAt.setDate(dueAt.getDate() + a.due_days)
       const due = localDay(dueAt)
-      const t = newTask(tasks, { title: a.title.replace(/\{\{\s*date\s*\}\}/g, now.toLocaleDateString('zh-CN')), desc: a.desc, priority: a.priority, assignee: a.assignee, due, source: { kind: 'schedule', schedule_id: sc.id, name: sc.name } })
+      const t = newTask(tasks, { title: a.title.replace(/\{\{\s*date\s*\}\}/g, now.toLocaleDateString('zh-CN')), desc: a.desc, priority: a.priority, assignee: a.assignee, due, source: { kind: 'schedule', schedule_id: sc.id, name: sc.name },
+        // 定时任务归了项目，建出来的任务也归到这个项目（826fe6d2）
+        ...(sc.project_id ? { project_id: sc.project_id } : {}) })
       setTasks((xs) => [t, ...xs])
       text = `建了任务 ${t.ref}`
       ref = t.ref
@@ -676,6 +693,10 @@ export default function App() {
       }
       text = [made.length ? `建了 ${made.length} 条修复任务 ${made.map((m) => m.t.ref).join('、')}` : '没有要处理的运行异常', held > 0 && `${held} 条留给你处理（修复任务被删过，或是 Claude Code 执行失败）`, skipped > 0 && `跳过 ${skipped} 条（级别或次数不够）`].filter(Boolean).join('，')
       ref = made[0]?.t.ref
+    } else if (a.kind === 'git_pull') {
+      // 拉取代码（77171f30）：原型不真的拉，按仓库名记一条「已是最新」；正式产品 git pull --ff-only，失败记「没拉成：原因」
+      const where = a.repo.trim().replace(/\/+$/, '').split('/').pop() || a.repo
+      text = `${where}${a.branch ? `（${a.branch}）` : ''} 已是最新 440999e`
     } else if (a.kind === 'claude') {
       // 交给 Claude Code（TSK-0429）：原型不真的跑，按配置记一条；正式产品无人值守跑一次流式执行，结论和写出的文件回填这条记录
       const day = localDay(now)
@@ -824,6 +845,8 @@ export default function App() {
     { key: 'library', label: '文档', badge: content.length },
     { key: 'sop', label: 'SOP', badge: sopWaiting, alert: sopWaiting > 0 },
     { key: 'sessions', label: '会话', badge: agentWaiting, alert: agentWaiting > 0 },
+    { key: 'runs', label: '运行' },
+    { key: 'recording', label: '录音' },
     { key: 'terminal', label: '终端' },
     { key: 'browser', label: '浏览器' },
     { key: 'videos', label: '视频', alert: videoWaiting > 0 },
@@ -863,14 +886,15 @@ export default function App() {
       }))
       return [...stepItems.map(({ taskId: _t, ...x }) => x), ...stageItems]
     })()),
-    ...(!modOn('sessions') ? [] : agentRuns).filter((r) => r.status === 'waiting').map((r) => ({
-      id: `ar-${r.id}`, kind: 'Agent 待确认', tone: 'warn' as const, title: `${agents.find((a) => a.id === r.agent_id)?.name ?? 'Agent'}：${r.trigger}`,
-      sub: r.summary, at: r.at, action: '去确认', onClick: () => { setPage('sessions'); setSessionView('runs'); setDrawer(null) },
-    })),
-    ...(!modOn('sessions') ? [] : sessions).filter((x) => x.messages.some((m) => m.calls?.some((c) => c.state === 'pending'))).map((x) => ({
-      id: `ss-${x.id}`, kind: 'Agent 待确认', tone: 'warn' as const, title: `会话「${x.title}」里有操作等你确认`, sub: agents.find((a) => a.id === x.agent_id)?.name ?? '',
-      at: x.updated_at, action: '去确认', onClick: () => { setPage('sessions'); setSessionView('chats'); setCurrentSession(x.id); setDrawer(null) },
-    })),
+    // Agent 待确认（P0-O3，SPEC-today-1.31）：一条等确认的工具调用一行「<Agent> 等你确认「<工具>」」，点了去那个会话（执行记录里的去执行记录）确认
+    ...(!modOn('sessions') ? [] : agentRuns).filter((r) => r.status === 'waiting').flatMap((r) => r.calls.flatMap((c, i) => c.state !== 'pending' ? [] : [{
+      id: `ar-${r.id}-${i}`, kind: 'Agent 待确认', tone: 'warn' as const, title: `${agents.find((a) => a.id === r.agent_id)?.name ?? 'Agent'} 等你确认「${c.tool}」`,
+      sub: r.summary, at: r.at, action: '去确认', onClick: () => { setPage('sessions'); setSessionView('runs'); setRunFocus(r.id); setDrawer(null) },
+    }])),
+    ...(!modOn('sessions') ? [] : sessions).flatMap((x) => x.messages.flatMap((m) => (m.calls ?? []).flatMap((c, i) => c.state !== 'pending' ? [] : [{
+      id: `ss-${x.id}-${m.id}-${i}`, kind: 'Agent 待确认', tone: 'warn' as const, title: `${agents.find((a) => a.id === x.agent_id)?.name ?? 'Agent'} 等你确认「${c.tool}」`, sub: x.title,
+      at: m.at ?? x.updated_at, action: '去确认', onClick: () => { setPage('sessions'); setSessionView('chats'); setCurrentSession(x.id); setDrawer(null) },
+    }]))),
     // 待验收的任务：Claude Code 提交验收后等你拍板，排在 IM 消息前面；在今日页上直接打开抽屉
     ...(!modOn('tasks') ? [] : tasks).filter((t) => t.status === 'review').map((t) => {
       const last = dev.progress.filter((p) => p.task_id === t.id && p.kind === 'review').sort((a, b) => b.at.localeCompare(a.at))[0]
@@ -1208,6 +1232,7 @@ export default function App() {
     ...(has('sessions') ? [{ id: 'c-chat', group: '操作', title: '和 Agent 开个新会话', keywords: '会话 对话 chat', run: () => { setPage('sessions'); setSessionView('chats'); setPickAgent((n) => n + 1) } }] : []),
     ...(has('sop') ? [{ id: 'c-sop', group: '操作', title: '新建 SOP', keywords: '流程 工作流', run: () => { newSopFolder.id = null; setPage('sop'); setSopView('edit:new'); setOpenRun(null) } }] : []),
     ...(has('projects') ? [{ id: 'c-proj', group: '操作', title: '新建项目', keywords: 'project', run: () => { setPage('projects'); newProject() } }] : []),
+    ...(has('recording') ? [{ id: 'c-rec', group: '操作', title: '开始录音', sub: '打开录音页并直接开始录（按上次选的录音来源）', keywords: 'recording 录音 转写 麦克风 系统声音', run: () => { setPage('recording'); setDrawer(null); startRecording() } }] : []),
     { id: 'c-theme', group: '操作', title: theme === 'dark' ? '切换到浅色' : '切换到深色', keywords: '配色 主题 dark light 外观', run: () => setTheme(theme === 'dark' ? 'light' : 'dark') },
     { id: 'c-side', group: '操作', title: collapsed ? '展开左侧菜单' : '收起左侧菜单', keywords: '侧栏 菜单', run: () => setCollapsed(!collapsed) },
     ...benches.filter((b) => b.id !== bench.id).map((b) => ({ id: `c-bench-${b.id}`, group: '工作台', title: `切换到「${b.name}」`, sub: b.role, keywords: '工作台 切换', run: () => switchBench(b.id) })),
@@ -1556,6 +1581,8 @@ export default function App() {
     const Drawer = tool && tool.category !== 'im' ? ApiConnectorDrawer : ConnectorDrawer
     if (tool) drawerEl = (
       <Drawer key={current?.id ?? `new-${tool.key}`} tool={tool} connector={current}
+        // Telegram 测试连接成功后在抽屉里列这个连接器最近 3 条消息（3f33bed8）；只有 IM 的抽屉用
+        {...(tool.key === 'telegram' && current ? { latestMessages: messages.filter((m) => m.connector_id === current.id).sort((a, b) => b.at.localeCompare(a.at)).slice(0, 3) } : {})}
         onConnect={current ? () => connectConn(current.id) : undefined} onDisconnect={current ? () => disconnectConn(current.id) : undefined}
         onClose={() => setDrawer(null)}
         onSave={(d) => {
@@ -1604,6 +1631,7 @@ export default function App() {
           },
           onManagePresets: () => { setDrawer(null); go('settings'); setSection('run-prompts') },
           onManagePerms: () => { setDrawer(null); go('settings'); setSection('run-permissions') },
+          onManageRunners: () => { setDrawer(null); go('settings'); setSection('runners') },
           onAllowRules: (rules) => { setPermsPending(rules); setDrawer(null); go('settings'); setSection('run-permissions') },
           // 交给工作台 Agent（SPEC-tasks-6.20）：Agent 默认取场景「执行任务」的；会话是全局的，来源标这次执行（SPEC-sessions-1.44）
           agentRun: { agents, defaultAgentId: taskRunAgent(agents, agentScenarios)?.id, providers, models },
@@ -1702,6 +1730,7 @@ export default function App() {
     const sc = drawer.kind === 'schedule' ? schedules.find((x) => x.id === drawer.id) ?? null : null
     if (drawer.kind === 'new-schedule' || sc) drawerEl = (
       <ScheduleDrawer key={sc?.id ?? 'new'} schedule={sc} sops={sops} agents={agents} assignees={assignees} publishes={pubNames}
+        projects={projects.map((x) => ({ id: x.id, name: x.name }))} initProjectId={drawer.kind === 'new-schedule' ? drawer.project : undefined}
         onOpenPublish={(id) => { const p = publishes.find((x) => x.id === id); if (p) openPublishOf(p) }}
         onOpenCalendar={has('videos') ? () => { setPage('videos'); setDrawer(null); setVideoView('calendar') } : undefined}
         onClose={() => setDrawer(null)}
@@ -1827,7 +1856,7 @@ export default function App() {
         onKill={() => { const s = killAll({ runs: tradeRuns, orders, risk }, '手动一键全停'); setTradeRuns(s.runs); setOrders(s.orders); setRisk(s.risk) }} />}
       {page === 'sop' && !sopView.startsWith('edit:') && <SopNav sops={sops} runs={runs} view={sopView} waitingN={todayNeeds.filter((x) => x.kind === '待我处理').length} onSelect={(v) => { setSopView(v); setOpenRun(null); setSopFilter(undefined) }} onNew={() => { newSopFolder.id = null; setSopView('edit:new'); setOpenRun(null) }} />}
       {page === 'settings' && (
-        <SettingsNav active={section} alerts={{ connectors: brokenConnectors, providers: brokenProviders, incidents: openIncidents }}
+        <SettingsNav active={section} alerts={{ connectors: brokenConnectors, providers: brokenProviders, incidents: openIncidents, update: updateDone ? 0 : 1 }}
           onSelect={(k) => leaveAgent(() => { setSection(k as Section); if (k === 'agents') setAgentView('list'); setDrawer(null) })} />
       )}
       <div className="main">
@@ -1846,6 +1875,9 @@ export default function App() {
           )}
           {page === 'tasks' && taskView === 'schedules' && (
             <SchedulesPage schedules={schedules} sops={sops} agents={agents} publishes={pubNames} selected={drawer?.kind === 'schedule' ? drawer.id : null}
+              projects={projects.map((x) => ({ id: x.id, name: x.name }))}
+              // 项目「定时任务」标签点「在定时任务页看」带过来的项目筛选
+              key={`sched-${projSchedFilter}`} initProject={projSchedFilter}
               onOpen={(id) => setDrawer({ kind: 'schedule', id })} onNew={() => setDrawer({ kind: 'new-schedule' })}
               onToggle={(id, on) => setSchedules((xs) => xs.map((y) => (y.id === id ? { ...y, enabled: on } : y)))} />
           )}
@@ -1882,6 +1914,22 @@ export default function App() {
           ))}
           {page === 'messages' && (
             <MessagesPage messages={messages} contacts={contacts} connectors={connectors} selected={selectedId}
+              contactOps={{
+                // 群组管理成员菜单（TSK-0724）：建联系人挂渠道身份、关联已有；同名已存在的失败
+                contacts,
+                create: (xs) => {
+                  const ok: string[] = []; const failed: Record<string, string> = {}; const made: Contact[] = []
+                  for (const x of xs) {
+                    if ([...contacts, ...made].some((c) => c.name === x.name)) { failed[x.sender_id] = `已有同名联系人「${x.name}」，改个名字再点，或单个「关联已有」`; continue }
+                    made.push({ id: newId('ct'), name: x.name, company: x.company, title: '', phone: '', email: '', group: x.group, tags: [], im: { [x.channel]: x.sender_id }, note: '', starred: false, last_contact_at: null, created_at: new Date().toISOString() })
+                    ok.push(x.name)
+                  }
+                  if (made.length) setContacts((cs) => [...made, ...cs])
+                  return { ok, failed }
+                },
+                link: (cid, ch, sid) => patchContact(cid, { im: { ...(contacts.find((c) => c.id === cid)?.im ?? {}), [ch]: sid } }),
+                open: (id) => { setPage('contacts'); setDrawer({ kind: 'contact', id }) },
+              }}
               onSync={syncMessages} syncing={syncing} syncResult={syncResult}
               onOpen={openMessage} onAct={actOnMessage} onGoConnectors={openImConnectors} onToTask={openTaskFromMessage}
               taskOf={(id) => tasks.find((t) => t.source.kind === 'im' && t.source.message_id === id)?.ref}
@@ -2025,6 +2073,16 @@ export default function App() {
                   onFetchAttachment: (mid, aid) => fetchAttachment(mid, aid), onAddAttachment: addAttachmentToProject,
                   onOpenMaterial: (mid) => openMaterial(pj.id, mid), imOn: has('messages'),
                   focusMaterial: matFocus,
+                  // 定时任务标签（826fe6d2）：编辑、新建都去任务模块的定时任务页；新建预填所属项目
+                  schedules,
+                  onOpenSchedule: (id) => { setProjSchedFilter(''); setPage('tasks'); setTaskView('schedules'); setDrawer({ kind: 'schedule', id }) },
+                  onNewSchedule: () => { setProjSchedFilter(''); setPage('tasks'); setTaskView('schedules'); setDrawer({ kind: 'new-schedule', project: pj.id }) },
+                  onAllSchedules: () => { setProjSchedFilter(pj.id); setPage('tasks'); setTaskView('schedules'); setDrawer(null) },
+                  // 项目知识库（TSK-0721）
+                  kbs,
+                  onOpenKb: (id) => { go('settings'); setSection('kbs'); setDrawer({ kind: 'kb', id }) },
+                  onCreateKb: (kb) => setKbs((xs) => [...xs, kb]),
+                  onAttachKb: (agentId, kbId) => setAgents((xs) => xs.map((a) => (a.id === agentId && !a.kbs.includes(kbId) ? { ...a, kbs: [...a.kbs, kbId] } : a))),
                 }} />
             )
           })()}
@@ -2133,10 +2191,27 @@ export default function App() {
           })()}
           {page === 'sessions' && sessionView === 'chats' && (
             <ChatsView agents={agents} sessions={sessions} current={currentSession} ctx={ctx} pickRequest={pickAgent} firstMessage={firstMessage}
+              models={{
+                // 会话里看和换模型（TSK-0720）：服务商停用、异常、模型没启用的置灰
+                options: models.map((m) => { const u = usable(m, providers); const p = providers.find((x) => x.id === m.provider_id); return { key: m.id, model: m.name, provider: p?.name ?? '', ok: u.ok, why: u.why, gone: !p } }),
+                agentDefault: (id) => agents.find((a) => a.id === id)?.model,
+                agentName: (id) => agents.find((a) => a.id === id)?.name,
+                onSetSession: (sid, p, notice) => setSessions((xs) => xs.map((x) => x.id !== sid ? x : {
+                  ...x, ...p, ...(!p.model_override && { model: agents.find((a) => a.id === x.agent_id)?.model ?? x.model }),
+                  messages: notice ? [...x.messages, { id: Math.max(0, ...x.messages.map((m) => m.id)) + 1, role: 'notice' as const, text: notice, at: new Date().toISOString() }] : x.messages,
+                })),
+                onSetAgentDefault: (id, model) => { setAgents((xs) => xs.map((a) => (a.id === id ? { ...a, model } : a))); return '' },
+              }}
               projects={projects} initialProject={sessionProject} tools={sessionTools}
               onOpenSource={(id) => { setPage('messages'); openMessage(id) }}
               onOpenTaskRun={(id, run) => { setPage('tasks'); setDrawer({ kind: 'task', id, tab: 'runs', run }) }}
-              onOpen={setCurrentSession} onNew={(id) => newSession(id)}
+              onOpen={setCurrentSession} onNew={(id, model) => {
+                // 新会话指定模型：建好就单独用它（同会话里换模型），不插切换提示
+                if (!model) { newSession(id); return }
+                const sid = createSession(id)
+                setSessions((xs) => xs.map((x) => (x.id === sid ? { ...x, model, model_override: true } : x)))
+                setCurrentSession(sid)
+              }}
               onMsgs={setSessionMsgs}
               onRename={(id, title) => setSessions((xs) => xs.map((x) => (x.id === id ? { ...x, title } : x)))}
               onDelete={(id) => { setSessions((xs) => xs.filter((x) => x.id !== id)); setCurrentSession(sessions.find((x) => x.id !== id)?.id ?? null) }}
@@ -2144,7 +2219,10 @@ export default function App() {
               onOpenAgent={(id) => { go('settings'); setSection('agents'); setAgentView(id) }}
               onOpenRuns={() => setSessionView('runs')} onOpenOutputs={() => setSessionView('outputs')} runsWaiting={agentWaiting} />
           )}
-          {page === 'sessions' && sessionView === 'runs' && <RunsView agents={agents} runs={agentRuns} onSettle={settleAgentRun} focus={runFocus} onFocused={() => setRunFocus(null)} onBack={() => setSessionView('chats')} />}
+          {page === 'sessions' && sessionView === 'runs' && <RunsView agents={agents} runs={agentRuns} onSettle={settleAgentRun} focus={runFocus} onFocused={() => setRunFocus(null)} onBack={() => setSessionView('chats')}
+            // 停止、重新执行（O-2）：原型里停了就是已停止；重新执行按原输入另起一条，演示直接跑完
+            onStop={(id) => setAgentRuns((rs) => rs.map((r) => (r.id === id && r.status === 'running' ? { ...r, status: 'canceled' as const, summary: `${r.summary}（手动停止）` } : r)))}
+            onRetry={(id) => setAgentRuns((rs) => { const o = rs.find((r) => r.id === id); return o ? [{ ...o, id: newId('ar'), at: new Date().toISOString(), status: 'done' as const, retry_of: o.id, trigger: `${o.trigger}（重新执行）`, summary: '按原输入重新执行完成' }, ...rs] : rs })} />}
           {page === 'sessions' && sessionView === 'outputs' && <OutputsView agents={agents} outputs={outputs} sessions={sessions} runs={agentRuns} onOpenTarget={openOutputTarget} onOpenOrigin={openOutputOrigin} onBack={() => setSessionView('chats')} />}
           {page === 'settings' && section === 'agents' && (agentView === 'list' ? (
             <AgentsPage agents={agents} models={modelChoices} onOpen={setAgentView} onNew={() => setAgentView('new')}
@@ -2191,7 +2269,24 @@ export default function App() {
           {page === 'settings' && section === 'worktrees' && <WorktreeSettingsPage />}
           {page === 'settings' && section === 'terminal' && <TerminalSettingsPage value={claudeCommand} onSave={setClaudeCommand} />}
           {page === 'settings' && section === 'appearance' && <AppearancePage theme={theme} onTheme={setTheme} collapsed={collapsed} onCollapsed={setCollapsed} />}
-          {page === 'settings' && section === 'update' && <UpdatePage />}
+          {page === 'settings' && section === 'update' && <UpdatePage done={updateDone} onDone={() => setUpdateDone(true)} />}
+          {page === 'settings' && section === 'plugins' && <PluginsPage />}
+          {page === 'settings' && section === 'executors' && <ExecutorsPage providers={providers} models={models} />}
+          {page === 'settings' && section === 'runners' && <RunnersPage providers={providers} models={models} />}
+          {page === 'settings' && section === 'localfs' && <LocalFsPage />}
+          {page === 'settings' && section === 'jobs' && <JobsPage />}
+          {page === 'settings' && section === 'recording' && <RecordingSettingsPage projects={projects.map((x) => ({ id: x.id, name: x.name }))} />}
+          {page === 'runs' && (
+            <RunsCenterPage agents={agents} agentRuns={agentRuns} taskRuns={dev.runs} tasks={tasks}
+              onOpenAgentRun={(id) => { setPage('sessions'); setSessionView('runs'); setRunFocus(id); setDrawer(null) }}
+              onOpenTaskRun={(id, run) => { setPage('tasks'); setDrawer({ kind: 'task', id, tab: 'runs', run }) }}
+              onCancelTaskRun={dev.cancel} />
+          )}
+          {page === 'recording' && (
+            <RecordingPage projects={projects.map((x) => ({ id: x.id, name: x.name }))} contacts={contacts.map((x) => ({ id: x.id, name: x.name, company: x.company }))}
+              onCreateTask={(p) => { const t = newTask(tasks, { title: p.title, desc: p.desc, project_id: p.project_id || undefined, assignee: p.assignee, priority: p.priority, due: p.due }); setTasks((xs) => [t, ...xs]); return { id: t.id, ref: t.ref } }}
+              onOpenTask={has('tasks') ? (id) => { setPage('tasks'); setDrawer({ kind: 'task', id }) } : undefined} />
+          )}
           {page === 'settings' && section === 'run-prompts' && <RunPresetsPage />}
           {page === 'settings' && section === 'run-permissions' && <RunPermsPage key={permsPending.join('\n')} pending={permsPending} />}
           {page === 'settings' && section === 'enums' && (
@@ -2219,6 +2314,8 @@ export default function App() {
         })}
       </div>
       {drawerEl}
+      {/* 录音插件的外壳状态条（正式产品 shellStatus 插槽）：录着的时候任意页面顶部居中可见 */}
+      <div className="rec-status-host"><RecorderStatus onOpen={() => go('recording')} /></div>
       {palette && <CommandPalette items={buildPaletteItems} onClose={() => setPalette(false)} />}
       {quickSession && (
         <QuickSession agents={agents} projects={projects} onClose={() => setQuickSession(false)}

@@ -91,7 +91,7 @@ const DRAFT: Partial<Record<OverviewKey, PageRow[]>> = {
 
 // 规格里的页面落在原型的哪个子页：二级菜单、设置分项、项目详情标签；没写的就打开模块入口
 const VIEW_OF: Record<string, string> = {
-  'SPEC-tasks-2': 'all', 'SPEC-tasks-3': 'manual', 'SPEC-tasks-4': 'all', 'SPEC-tasks-5': 'all', 'SPEC-tasks-6': 'all',
+  'SPEC-tasks-2': 'all', 'SPEC-tasks-3': 'all', 'SPEC-tasks-4': 'all', 'SPEC-tasks-5': 'all', 'SPEC-tasks-6': 'all',
   'SPEC-tasks-7': 'schedules', 'SPEC-tasks-8': 'schedules', 'SPEC-tasks-9': 'hooks', 'SPEC-tasks-10': 'hooks',
   'SPEC-sessions-1': 'chats', 'SPEC-sessions-2': 'runs', 'SPEC-sessions-3': 'outputs',
   'SPEC-projects-2': 'overview', 'SPEC-projects-3': 'overview', 'SPEC-projects-4': 'comms', 'SPEC-projects-5': 'comms',
@@ -102,6 +102,8 @@ const VIEW_OF: Record<string, string> = {
   'SPEC-settings-10': 'kbs', 'SPEC-settings-11': 'kbs', 'SPEC-settings-12': 'kbs', 'SPEC-settings-13': 'kbs', 'SPEC-settings-14': 'kbs',
   'SPEC-settings-15': 'skills', 'SPEC-settings-16': 'skills', 'SPEC-settings-17': 'enums', 'SPEC-settings-18': 'incidents',
   'SPEC-settings-19': 'incidents', 'SPEC-settings-20': 'domains', 'SPEC-settings-21': 'appearance',
+  'SPEC-settings-23': 'update', 'SPEC-settings-27': 'runners', 'SPEC-settings-28': 'plugins', 'SPEC-settings-29': 'executors',
+  'SPEC-settings-30': 'localfs', 'SPEC-settings-31': 'jobs',
 }
 
 const STATUS_COLOR: Record<Status, string> = { 已整理: 'var(--ok)', 整理中: 'var(--accent)', 待整理: 'var(--warn)' }

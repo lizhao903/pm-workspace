@@ -1,0 +1,25 @@
+/* 运行中心（SPEC-runs-1）：照正式产品 frontend/src/modules/runs/runs.css */
+.runs-page { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.runs-toolbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.runs-seg { max-width: 100%; overflow-x: auto; }
+.runs-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.runs-row { display: flex; align-items: center; gap: 14px; padding: 12px 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); min-width: 0; }
+.runs-row:hover { border-color: var(--line-2); }
+.runs-row-main { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.runs-row-top { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.runs-row-top .pill { flex: none; }
+.runs-title { flex: 0 1 auto; min-width: 0; font-weight: 600; font-size: 13px; text-align: left; color: var(--text); }
+.runs-title:hover { color: var(--accent); }
+.runs-time { flex: none; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.runs-elapsed { flex: none; font-size: 12px; color: var(--faint); font-variant-numeric: tabular-nums; }
+.runs-row-sub { display: flex; align-items: center; gap: 10px; min-width: 0; font-size: 13px; color: var(--muted); }
+.runs-sub { min-width: 0; }
+.runs-wait { flex: none; font-size: 12px; color: var(--warn); }
+.runs-summary { font-size: 13px; color: var(--faint); min-width: 0; }
+.runs-acts { display: flex; align-items: center; gap: 6px; flex: none; flex-wrap: wrap; }
+.runs-more { align-self: center; margin-top: 4px; padding: 6px 16px; font-size: 13px; color: var(--muted); border: 1px dashed var(--line-2); border-radius: var(--r-sm); }
+.runs-more:hover { color: var(--text); border-color: var(--line); }
+@media (max-width: 760px) {
+  .runs-row { flex-direction: column; align-items: stretch; gap: 10px; }
+  .runs-acts { justify-content: flex-end; }
+}

@@ -7,6 +7,7 @@ import { SearchSelect } from './searchselect'
 import { Subnav } from './subnav'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
+import { ModelSwitch, effectiveModel, modelText, type SessionModels } from './sessionmodel'
 
 // 会话：和 Agent 的对话（存下来）、Agent 被触发后的执行记录、Agent 真正产出的东西。Agent 本身怎么配置在「设置 > Agent」
 
@@ -124,7 +125,9 @@ export function sessionLinks(msgs: ChatMsg[], limit = 8): string[] {
 
 interface DockState { open: SessionTool | null; mounted: SessionTool[] }
 
-export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen, onNew, onMsgs, onRename, onDelete, onExecute, onOpenAgent, firstMessage, projects, initialProject, tools, onOpenSource, onOpenTaskRun, onOpenRuns, onOpenOutputs, runsWaiting = 0 }: {
+export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen, onNew, onMsgs, onRename, onDelete, onExecute, onOpenAgent, firstMessage, projects, initialProject, tools, onOpenSource, onOpenTaskRun, onOpenRuns, onOpenOutputs, runsWaiting = 0, models }: {
+  /** 会话的模型（TSK-0720，SPEC-sessions-1.46 到 1.50）：列表和头部显示实际用的「服务商 · 模型」，头部能换 */
+  models?: SessionModels
   /** 会话清单底部两个并排按钮（SPEC-sessions-0.1）：去执行记录、产出结果；runsWaiting 是等你确认的执行记录数，「执行记录」上的红点 */
   onOpenRuns?: () => void; onOpenOutputs?: () => void; runsWaiting?: number
   /** 会话来源（SPEC-sessions-1.42）：点「来源」回到那条 IM 消息 */
@@ -146,7 +149,8 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
   current: string | null
   ctx: Ctx
   onOpen: (id: string) => void
-  onNew: (agentId: string) => void
+  /** model：勾了「这次指定模型」时选的模型 id，会话一开始就单独用它 */
+  onNew: (agentId: string, model?: string) => void
   onMsgs: (sessionId: string, f: (m: ChatMsg[]) => ChatMsg[]) => void
   onRename: (id: string, title: string) => void
   onDelete: (id: string) => void
@@ -160,11 +164,16 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
   const [limit, setLimit] = useState(PAGE)
   const [picking, setPicking] = useState(false)
   const [pickQ, setPickQ] = useState('')
+  const [pickModel, setPickModel] = useState(false)
+  const [newModel, setNewModel] = useState('')
+  const modelOk = !pickModel || !!models?.options.find((o) => o.key === newModel && o.ok)
   useEffect(() => { if (pickRequest) { setPicking(true); setPickQ('') } }, [pickRequest])
   const [editing, setEditing] = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
   const agentOf = (id: string) => agents.find((a) => a.id === id)
   const kw = q.trim().toLowerCase()
+  const modelOf = (s: Session) => (models ? modelText(models.options, effectiveModel(s, models)) : null)
+  // 搜会话标题和消息正文（P0-S1，正式产品走服务端搜，不再匹配 Agent 名和模型）
   const rows = sessions.filter((s) => (!filter || s.agent_id === filter) && (!proj || (proj === '-' ? !s.project_id : s.project_id === proj))
     && (!kw || s.title.toLowerCase().includes(kw) || s.messages.some((m) => m.text.toLowerCase().includes(kw))))
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
@@ -184,7 +193,9 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
   const found = cur ? agentOf(cur.agent_id) : undefined
   // Agent 删了会话还在：换一个停用的占位 Agent，照样能回看历史，发不了消息
   const agent = cur && !found ? goneAgent(cur.agent_id) : found
-  const pending = (s: Session) => s.messages.some((m) => m.calls?.some((c) => c.state === 'pending'))
+  // 等确认注意力（P0-O3）：这个会话里等你确认的工具调用数
+  const pending = (s: Session) => s.messages.reduce((n, m) => n + (m.calls?.filter((c) => c.state === 'pending').length ?? 0), 0)
+  const [replying, setReplying] = useState(false)
 
   // 会话旁边的工具：入口在会话头部右上角，面板在对话右边；打开过的一直挂着，收起只是藏起来，切会话不收起
   const [dock, setDock] = useState<DockState>({ open: null, mounted: [] })
@@ -210,7 +221,7 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
         <div className="chat-list-head">
           <div className="search search-full search-sm">
             <svg viewBox="0 0 16 16" width="13" height="13"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-            <input placeholder="搜会话标题和内容" value={q} onChange={(e) => setF(() => setQ(e.target.value))} />
+            <input placeholder="搜会话标题和消息" value={q} onChange={(e) => setF(() => setQ(e.target.value))} />
           </div>
           <div className="chat-filters">
             <SearchSelect value={filter} noneLabel="全部 Agent" searchPlaceholder="搜 Agent" options={agentOpts} missingLabel={() => '已删除的 Agent'}
@@ -229,12 +240,25 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
               <div className="search search-sm agent-pick-search">
                 <svg viewBox="0 0 16 16" width="13" height="13"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.5" /><path d="M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
                 <input autoFocus placeholder="搜 Agent，最近聊过的在前" value={pickQ} onChange={(e) => setPickQ(e.target.value)}
-                  onKeyDown={(e) => { const a = pickList.find((x) => x.enabled); if (e.key === 'Enter' && a) { onNew(a.id); setPicking(false) } if (e.key === 'Escape') setPicking(false) }} />
+                  onKeyDown={(e) => { const a = pickList.find((x) => x.enabled); if (e.key === 'Enter' && a && modelOk) { onNew(a.id, pickModel ? newModel : undefined); setPicking(false) } if (e.key === 'Escape') setPicking(false) }} />
+              </div>
+            )}
+            {/* 新会话指定模型（826fe6d2）：默认跟随 Agent 的默认模型；勾上先选模型再点 Agent，会话一开始就单独用它 */}
+            {models && (
+              <label className="ms-check"><input type="checkbox" checked={pickModel} onChange={(e) => setPickModel(e.target.checked)} />这次指定模型（不跟 Agent 的默认模型）</label>
+            )}
+            {models && pickModel && (
+              <div className="ms-newbox">
+                <select aria-label="用哪个模型" value={newModel} onChange={(e) => setNewModel(e.target.value)}>
+                  <option value="">选服务商和模型</option>
+                  {models.options.filter((o) => !o.gone).map((o) => <option key={o.key} value={o.key} disabled={!o.ok}>{o.provider} · {o.model}{o.ok ? '' : `（${o.why}）`}</option>)}
+                </select>
+                {!modelOk && <span className="list-sub">先选一个能用的服务商和模型，再点下面的 Agent</span>}
               </div>
             )}
             <div className="agent-pick-list">
               {pickList.map((a) => (
-                <button key={a.id} className="menu-item" disabled={!a.enabled} onClick={() => { onNew(a.id); setPicking(false) }}>
+                <button key={a.id} className="menu-item" disabled={!a.enabled || !modelOk} onClick={() => { onNew(a.id, pickModel ? newModel : undefined); setPicking(false) }}>
                   <AgentAvatar agent={a} size={20} /><span className="ellipsis">{a.name}</span>{!a.enabled && <span className="list-sub">已停用</span>}
                 </button>
               ))}
@@ -253,8 +277,9 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
               <button className={cls('chat-item', s.id === current && 'sel')} onClick={() => { onOpen(s.id); setEditing(false); setConfirmDel(false) }}>
                 {a && <AgentAvatar agent={a} size={30} />}
                 <span className="chat-item-text">
-                  <span className="chat-item-top"><span className="ellipsis chat-item-title">{s.title}</span>{pending(s) && <span className="side-dot" title="有操作等你确认" />}</span>
+                  <span className="chat-item-top"><span className="ellipsis chat-item-title">{s.title}</span>{pending(s) > 0 && <span className="side-dot" title={`${pending(s)} 个调用等你确认`} aria-label={`${pending(s)} 个调用等你确认`} />}</span>
                   <span className="ellipsis list-sub">{a?.name ?? '已删除的 Agent'} · {s.source?.kind === 'task_run' ? s.source.label : last ? last.text : '还没有消息'}</span>
+                  {modelOf(s) && <span className={cls('ellipsis chat-item-model', modelOf(s)!.bad && 'bad')}>{modelOf(s)!.text}</span>}
                 </span>
                 <span className="chat-item-time">{timeAgo(s.updated_at)}</span>
               </button>
@@ -273,7 +298,8 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
       </div>
       <div className="chat-main">
         {cur && agent ? (
-          <ChatPane key={cur.id} agent={agent} msgs={cur.messages} onMsgs={(f) => onMsgs(cur.id, f)} ctx={ctx} onExecute={(c) => onExecute(cur.id, c)}
+          <ChatPane key={cur.id} agent={agent} msgs={cur.messages} onBusy={setReplying}
+            modelLabel={models ? modelText(models.options, effectiveModel(cur, models)).text : undefined} onMsgs={(f) => onMsgs(cur.id, f)} ctx={ctx} onExecute={(c) => onExecute(cur.id, c)}
             autoSend={firstMessage?.sessionId === cur.id ? firstMessage.text : undefined}
             examples={CHAT_EXAMPLES}
             placeholderNote={!found ? '这个 Agent 已删除，只能回看' : agent.enabled ? undefined : '这个 Agent 已停用，只能回看'}
@@ -290,6 +316,7 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
                   <button className="chat-title" onClick={() => setEditing(true)} title="点一下改标题">{cur.title}</button>
                 )}
                 {found ? <button className="link-btn chat-agent" onClick={() => onOpenAgent(agent.id)}>{agent.name}</button> : <span className="list-sub">已删除的 Agent</span>}
+                {models && <ModelSwitch key={cur.id} session={cur} models={models} busy={replying} gone={!found} />}
                 <span className="spacer" />
                 {!confirmDel && avail.length > 0 && (
                   <span className="chat-tools">
@@ -354,7 +381,13 @@ export function ChatsView({ agents, sessions, current, ctx, pickRequest, onOpen,
 
 /* ---------- 执行记录 ---------- */
 
-export function RunsView({ agents, runs, onSettle, focus, onFocused, onBack }: {
+export function RunsView({ agents, runs, onSettle, focus, onFocused, onBack, onStop, onRetry, onOpenSession, sessionOf }: {
+  /** 在跑的「停止」、失败和已停止的「重新执行」（正式产品 O-2，SPEC-sessions-2.12）；不传就没有这两个按钮 */
+  onStop?: (runId: string) => void
+  onRetry?: (runId: string) => void
+  /** 执行建了会话的给「打开会话」 */
+  onOpenSession?: (sessionId: string) => void
+  sessionOf?: (runId: string) => string | undefined
   /** 标题上的「会话」点了回会话页（SPEC-sessions-0.1） */
   onBack?: () => void
   agents: Agent[]
@@ -366,6 +399,7 @@ export function RunsView({ agents, runs, onSettle, focus, onFocused, onBack }: {
 }) {
   const [filter, setFilter] = useState('')
   const [st, setSt] = useState<'' | AgentRun['status']>('')
+  const [retried, setRetried] = useState<ReadonlySet<string>>(() => new Set())
   const [limit, setLimit] = useState(PAGE)
   /** 手动展开、收起过的；没动过的只展开等你确认的 */
   const [toggled, setToggled] = useState<Record<string, boolean>>({})
@@ -397,7 +431,8 @@ export function RunsView({ agents, runs, onSettle, focus, onFocused, onBack }: {
       <PageTitle parent={onBack ? <button className="link-btn" onClick={onBack}>会话</button> : '会话'} count={rows.length} desc="Agent 被消息、定时、任务触发后的每一次执行；写操作等你确认的在这里处理">执行记录</PageTitle>
       <div className="toolbar">
         <div className="seg">
-          {([['', '全部'], ['waiting', '等你确认'], ['done', '已完成'], ['rejected', '已拒绝'], ['failed', '失败']] as const).map(([k, l]) => (
+          {/* 全部 + 等你确认、已完成、已拒绝、失败、已停止；「执行中」只在有的时候出现 */}
+          {([...(runs.some((r) => r.status === 'running') ? [['running', '执行中']] as const : []), ['', '全部'], ['waiting', '等你确认'], ['done', '已完成'], ['rejected', '已拒绝'], ['failed', '失败'], ['canceled', '已停止']] as const).map(([k, l]) => (
             <button key={k} className={cls(st === k && 'on')} onClick={() => { setSt(k); setLimit(PAGE) }}>{l}<span className="seg-n">{k ? runs.filter((r) => r.status === k).length : runs.length}</span></button>
           ))}
         </div>
@@ -428,6 +463,16 @@ export function RunsView({ agents, runs, onSettle, focus, onFocused, onBack }: {
                   <div className="call-list">
                     {r.calls.map((c, i) => <CallCard key={i} call={c} onConfirm={() => onSettle(r.id, i, true)} onReject={() => onSettle(r.id, i, false)} />)}
                   </div>
+                  {((r.status === 'running' && onStop) || ((r.status === 'failed' || r.status === 'canceled') && onRetry) || sessionOf?.(r.id)) && (
+                    <div className="act-row">
+                      {r.status === 'running' && onStop && <button className="act btn-danger" title="停掉这次执行；已经执行的调用不会撤回" onClick={() => onStop(r.id)}>停止</button>}
+                      {(r.status === 'failed' || r.status === 'canceled') && onRetry && (
+                        retried.has(r.id) ? <span className="run-muted">已重新发起</span>
+                          : <button className="act" title="按这次执行的输入重新发起一次" onClick={() => { onRetry(r.id); setRetried((x) => new Set(x).add(r.id)) }}>重新执行</button>
+                      )}
+                      {sessionOf?.(r.id) && onOpenSession && <button className="act act-quiet" onClick={() => onOpenSession(sessionOf(r.id)!)}>打开会话</button>}
+                    </div>
+                  )}
                 </>
               )}
             </div>

@@ -1,0 +1,112 @@
+/* 设置里同步自正式产品的几页：执行器（runners、executors）、插件、本机目录、后台任务。颜色走 styles.css 的变量 */
+.setx-page { display: flex; flex-direction: column; gap: 14px; min-width: 0; max-width: 860px; }
+.setx-sm { font-size: 12.5px; }
+.setx-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.setx-demo { display: inline-flex; align-items: center; gap: 4px; }
+.setx-card { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); min-width: 0; }
+.setx-card-head { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
+.setx-card-head b { font-size: 15px; overflow-wrap: anywhere; }
+.setx-kv { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 14px; margin: 0; font-size: 13px; }
+.setx-kv dt { color: var(--muted); }
+.setx-kv dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.setx-kv code, .setx-card code { font: 12px var(--mono); overflow-wrap: anywhere; }
+.setx-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.setx-warn { color: var(--warn); background: var(--warn-soft); border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); border-radius: var(--r-sm); padding: 8px 10px; font-size: 12.5px; overflow-wrap: anywhere; }
+.setx-notice { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-radius: var(--r); background: color-mix(in srgb, var(--ok) 12%, var(--panel)); font-size: 13px; }
+.setx-notice.danger { background: var(--danger-soft); color: var(--danger); }
+.setx-notice > span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.setx-mask { position: fixed; inset: 0; z-index: 90; background: color-mix(in srgb, #000 22%, transparent); display: flex; justify-content: flex-end; }
+.setx-drawer { width: min(560px, 100%); height: 100%; box-shadow: var(--shadow-lg); }
+.setx-drawer .drawer-body { display: flex; flex-direction: column; gap: 16px; }
+.setx-sec { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.setx-sec + .setx-sec { border-top: 1px solid var(--line); padding-top: 16px; }
+.setx-sec > h3 { margin: 0; font-size: 14px; font-weight: 600; }
+
+/* 执行器（runners） */
+.rnr-state { font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; }
+.rnr-state.ok { color: var(--ok); }
+.rnr-state.warn { color: var(--warn); }
+.rnr-state.bad { color: var(--danger); }
+.rnr-problems { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.rnr-problem { padding: 8px 12px; border-radius: var(--r); border: 1px solid var(--line); font-size: 13px; }
+.rnr-problem.blocking { border-color: var(--danger); }
+.rnr-problem ol { margin: 6px 0 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 4px; }
+.rnr-problem code { white-space: pre-wrap; overflow-wrap: anywhere; font: 12px var(--mono); }
+.rnr-smoke { display: flex; flex-direction: column; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }
+.rnr-smoke-title { font-weight: 500; }
+.rnr-checks { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.rnr-check { display: grid; grid-template-columns: 4.5em 6em minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 13px; }
+.rnr-check-mark { font-weight: 500; }
+.rnr-check[data-status='pass'] .rnr-check-mark { color: var(--ok); }
+.rnr-check[data-status='fail'] .rnr-check-mark { color: var(--danger); }
+.rnr-check[data-status='skip'] .rnr-check-mark, .rnr-check[data-status='pending'] .rnr-check-mark { color: var(--muted); }
+.rnr-check[data-status='running'] .rnr-check-mark { color: var(--accent); }
+.rnr-check-detail { min-width: 0; overflow-wrap: anywhere; color: var(--muted); }
+.rnr-quote { margin: 0; padding: 6px 10px; border-left: 3px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; }
+.rnr-ok { color: var(--ok); font-size: 13px; }
+
+/* 执行器（executors，本机 CLI 配置） */
+.exe-card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.exe-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.exe-icon { display: grid; place-items: center; flex: 0 0 40px; height: 40px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); font: 600 16px var(--mono); color: var(--muted); }
+.exe-type { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.exe-status { display: inline-flex; align-items: center; gap: 5px; padding: 2px 7px; border-radius: 20px; color: var(--muted); background: var(--hover); font-size: 11px; white-space: nowrap; }
+.exe-status i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.exe-status.on { color: var(--ok); background: color-mix(in srgb, var(--ok) 10%, transparent); }
+.exe-row { display: flex; align-items: baseline; gap: 12px; min-width: 0; font-size: 13px; }
+.exe-row > .exe-label { color: var(--muted); font-size: 12px; flex: 0 0 60px; }
+.exe-runtime { border-top: 1px solid var(--line); padding-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.exe-meta { margin: 0; padding: 10px 12px; border-radius: var(--r-sm); background: var(--hover); display: flex; flex-direction: column; gap: 6px; }
+.exe-meta > div { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px; align-items: baseline; font-size: 12px; }
+.exe-meta dt { color: var(--muted); }
+.exe-meta dd { margin: 0; min-width: 0; overflow-wrap: anywhere; display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; }
+.exe-chat { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--line); border-radius: var(--r); padding: 10px; }
+.exe-chat-msg { font-size: 13px; padding: 8px 10px; border-radius: var(--r-sm); background: var(--hover); white-space: pre-wrap; overflow-wrap: anywhere; }
+.exe-chat-msg.me { background: var(--accent-soft); align-self: flex-end; max-width: 90%; }
+.exe-inventory { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.exe-inventory th, .exe-inventory td { text-align: left; vertical-align: top; padding: 6px 10px; border: 1px solid var(--line); overflow-wrap: anywhere; }
+.exe-inventory th:first-child { width: 72px; }
+.exe-cmd { border: 1px solid var(--line); border-radius: var(--r-sm); overflow: hidden; }
+.exe-cmd-head { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; }
+.exe-cmd pre { margin: 0; padding: 10px; max-height: 220px; overflow: auto; font: 12px var(--mono); border-top: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+
+/* 插件（CORE-09） */
+.plg-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 10px; }
+.plg-card { display: flex; flex-direction: column; gap: 10px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r-lg); background: var(--panel); min-width: 0; }
+.plg-card-bad { border-color: color-mix(in srgb, var(--warn) 50%, var(--line)); }
+.plg-card-top { display: flex; gap: 10px; min-width: 0; cursor: pointer; text-align: left; }
+.plg-logo { display: grid; place-items: center; flex: 0 0 36px; height: 36px; border-radius: 9px; background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+.plg-name { font-weight: 600; font-size: 14px; display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
+.plg-version { font: 11.5px var(--mono); color: var(--faint); font-weight: 400; }
+.plg-desc { font-size: 12.5px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.plg-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.plg-hint { font-size: 12px; color: var(--faint); }
+.plg-section-head { display: flex; align-items: baseline; gap: 8px; }
+.plg-section-head h2 { margin: 0; font-size: 14px; font-weight: 600; }
+.plg-perm { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-sm); font-size: 13px; }
+.plg-perm[data-risk='high'], .plg-perm[data-risk='highest'] { border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
+.plg-perm-main { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.plg-risk { font-size: 11px; color: var(--danger); }
+.plg-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.plg-chip { padding: 2px 8px; border-radius: 99px; background: var(--hover); font-size: 12px; }
+
+/* 本机目录、后台任务 */
+.lf-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+.lf-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; font-size: 13px; min-width: 0; }
+.lf-row + .lf-row { border-top: 1px solid var(--line); }
+.lf-path { font: 12.5px var(--mono); flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.lf-add { display: flex; gap: 8px; }
+.lf-add input { flex: 1; min-width: 0; font-family: var(--mono); }
+.jobs-scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); }
+.jobs-table { width: 100%; min-width: 900px; border-collapse: collapse; font-size: 12.5px; }
+.jobs-table th { background: var(--hover); color: var(--muted); font-weight: 500; text-align: left; white-space: nowrap; }
+.jobs-table th, .jobs-table td { padding: 8px 10px; vertical-align: top; }
+.jobs-table td { border-top: 1px solid var(--line); }
+.jobs-err { max-width: 260px; overflow-wrap: anywhere; }
+
+@media (max-width: 640px) {
+  .setx-grid2 { grid-template-columns: 1fr; }
+  .rnr-check { grid-template-columns: 4em minmax(0, 1fr); }
+  .rnr-check-detail { grid-column: 1 / -1; }
+  .lf-add { flex-direction: column; }
+}

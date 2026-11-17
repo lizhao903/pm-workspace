@@ -320,8 +320,8 @@ export type RunEvent =
   | { type: 'confirm'; id: string; name: string; summary: string; deadline: string }
   | { type: 'decision'; id: string; approved: boolean; reason: 'user' | 'timeout' }
 
-/** 执行器（SPEC-tasks-6.20）：本机 Claude Code，或工作台自己的 Agent（正式产品 task_runs.harness，claude / deepseek / agent） */
-export type RunHarness = 'claude' | 'agent'
+/** 执行器（SPEC-tasks-6.20、6.34）：本机 Claude Code、DeepSeek（deepseek-harness 的 dsh headless，TSK-0722），或工作台自己的 Agent（正式产品 task_runs.harness） */
+export type RunHarness = 'claude' | 'deepseek' | 'agent'
 
 export interface TaskRun {
   id: string
@@ -354,7 +354,36 @@ export interface TaskRun {
   events: RunEvent[]
   /** 原型模拟流式：还没吐出来的事件 */
   pending: RunEvent[]
+  // ---- 模块前缀复用（P0，2026-11，迁移 0058）：DeepSeek 执行按任务所属模块复用系统提示前缀，记下用的模块和缓存量 ----
+  /** 复用的模块键：project:<项目 id> 或 workdir:<路径>；老记录没有 */
+  module_key?: string
+  /** 模块前缀的版本：前缀变了加一 */
+  prefix_version?: number
+  /** 命中缓存、没重算的输入 token 数 */
+  cache_read_tokens?: number
+  /** 没命中缓存、重算的输入 token 数 */
+  uncached_input_tokens?: number
+  /** 输出 token 数 */
+  output_tokens?: number
 }
+
+/** 缓存命中率 0~1 = cache_read / (cache_read + uncached_input)；没有 token 数据回 null（不显示） */
+export function cacheHitRatio(r: Pick<TaskRun, 'cache_read_tokens' | 'uncached_input_tokens'>): number | null {
+  if (r.cache_read_tokens === undefined && r.uncached_input_tokens === undefined) return null
+  const hit = r.cache_read_tokens ?? 0
+  const total = hit + (r.uncached_input_tokens ?? 0)
+  return total > 0 ? hit / total : null
+}
+/** 模块键给人看：project:<id> → 项目 <id>，workdir:<路径> → 目录 <路径> */
+export function moduleLabel(key?: string): string {
+  const k = (key ?? '').trim()
+  if (!k) return ''
+  if (k.startsWith('project:')) return '项目 ' + k.slice(8)
+  if (k.startsWith('workdir:')) return '目录 ' + k.slice(8)
+  return k
+}
+/** 执行器的名字；老记录没有 harness 按 Claude Code 算 */
+export const HARNESS_LABEL: Record<RunHarness, string> = { claude: 'Claude Code', deepseek: 'DeepSeek', agent: '工作台 Agent' }
 
 const SS_A = '7c41e2a9-3b0d-4f6e-9a12-5d8e0c6b1f37'
 const SS_B = 'b18f5d03-92c4-4a7e-8d61-0f3a9e27c5b4'
@@ -433,6 +462,14 @@ export const seedRuns: TaskRun[] = [
     id: 'run_d5', task_id: 'tk_dev2', mode: 'terminal', status: 'done', workdir: `${PMW}/web`, allow_writes: false, extra_prompt: '先只改设置页',
     summary: '设置页三处保存失败改成字段下方提示，顶部横幅去掉；npm run build 通过。还剩连接器页同样的横幅没改。',
     session_id: SS_C, started_at: minsAgo(30), ended_at: minsAgo(12), pending: [], events: [],
+  },
+  {
+    // 交给 DeepSeek 的（TSK-0722）：dsh 后台执行，经工作台 MCP 回写；模块前缀复用，命中率显示在标题行（0058）
+    id: 'run_d6', task_id: 'tk_dev3', harness: 'deepseek', status: 'done', workdir: `${YC}/server`, allow_writes: false, extra_prompt: '先出方案，不改代码',
+    model: 'deepseek-chat', session_id: 'dsh-5f3c2a71', started_at: minsAgo(240), ended_at: minsAgo(232), pending: [],
+    module_key: 'project:pj_perm', prefix_version: 3, cache_read_tokens: 6144, uncached_input_tokens: 223, output_tokens: 1180,
+    events: [ev.t('t1', 'pmw_get_object', 'T-017'), ev.r('t1'), ev.t('t2', 'Read', 'server/authz/cache.go'), ev.r('t2'),
+      ev.d('方案：按部门打版本号，权限变更只自增该部门版本；查询带版本做缓存键。已记一条进展。')],
   },
 ]
 

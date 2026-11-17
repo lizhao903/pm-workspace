@@ -66,7 +66,7 @@
 | 会话 | `sessions` | `sessions.md` | [shots/sessions](shots/sessions) | PROTO-04c | 已整理 |
 | IM 消息 | `messages` | `messages.md` | [shots/messages](shots/messages) | PROTO-04d | 已整理 |
 | 项目 | `projects` | `projects.md` | [shots/projects](shots/projects) | PROTO-04d | 已整理 |
-| 设置 | `settings` | `settings.md` | [shots/settings](shots/settings) | PROTO-04e（设置的全部分节：工作台与模块、连接器、模型服务商、Agent、知识库、技能、枚举值、运行异常、内网域名、外观） | 已整理（抽屉和子页截图待 shots.py 步骤补） |
+| 设置 | `settings` | `settings.md` | [shots/settings](shots/settings) | PROTO-04e（设置的全部分节：工作台与模块、连接器、模型服务商、Agent、知识库、技能、枚举值、运行异常、内网域名、外观）；原型同步 2026-11-17 补插件、执行器（两页）、本机目录、后台任务（`SPEC-settings-27` 到 `31`） | 已整理（抽屉和子页截图待 shots.py 步骤补） |
 | SOP | `sop` | [`sop.md`](sop.md) | [shots/sop](shots/sop) | PROTO-04f1（流程库、待我处理、执行记录、流程详情、发起执行、运行页、编排页、AI 协助、18 种节点的配置项、原型模拟清单） | 已整理（发现的 6 处原型问题记在 `SPEC-sop-0`，待另开修错任务） |
 | 终端 | `terminal` | `terminal.md` | [shots/terminal](shots/terminal) | PROTO-04f2 | 已整理 |
 | 浏览器 | `browser` | `browser.md` | [shots/browser](shots/browser) | PROTO-04f2 | 已整理 |
@@ -76,6 +76,8 @@
 | 策略 | `strategy` | [`strategy.md`](strategy.md) | [shots/strategy](shots/strategy) | PROTO-04f4（策略库、编辑页、快速回测、回测记录和对比、回测报告和扫参、运行记录、回测引擎约定；引用任务 TRD-04a 到 TRD-05c） | 已整理（发现的 3 处原型问题记在 `SPEC-strategy-0`，待另开修错任务） |
 | 交易 | `trading` | [`trading.md`](trading.md) | [shots/trading](shots/trading) | PROTO-04f4（总览、持仓、委托、下单、策略运行和部署、交易账户、风控单列一节、实盘标记、今日卡片口径；引用任务 TRD-05a 到 TRD-08d）；TRD-08p（交易设置：实盘评审、trade:live、停用插件；对账抽屉） | 已整理（发现的 8 处原型问题记在 `SPEC-trading-0`，0.1 到 0.4 已由 TRD-08p 改掉，其余待另开修错任务） |
 | 宽基监控 | `etf` | [`etf.md`](etf.md) | [shots/etf](shots/etf) | ETF-01b（TSK-0450：份额与资金流、异动、规则和规则抽屉；指标口径、7 条内置规则、判定规则；引用任务 ETF-01a、ETF-01b） | 已整理 |
+| 运行 | `runs` | [`runs.md`](runs.md) | [shots/runs](shots/runs) | 原型同步 2026-11-17（运行中心：Agent 执行和任务执行一页看，停止、重新执行、取消、缓存命中率；对照正式产品 P0-O1、8c098989） | 已整理（截图待 `shots.py --only runs` 补） |
+| 录音 | `recording` | [`recording.md`](recording.md) | [shots/recording](shots/recording) | 原型同步 2026-11-17（录音页、录音详情、录音状态条、录音转写设置；对照正式产品录音插件 0.3.0） | 已整理（截图待 `shots.py --only recording` 补；和正式产品的差异记在文末 R-1 到 R-5） |
 
 状态：待整理 / 整理中 / 已整理（已和原型逐条对照）。规格文件写好后把文件名改成链接，并把这一行的状态改掉。
 

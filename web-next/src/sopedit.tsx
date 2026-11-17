@@ -13,6 +13,7 @@ import { newId } from './ids'
 import { RuleFields } from './schedule'
 import { describeRule, emptyRule } from './scheduledata'
 import { CondEditor, FieldsList, blankCond, condProblems, condText, legacyCond, stepFields } from './sopcond'
+import './sopsync.css'
 
 /** 新选「定时」时的默认规则：每天 09:00（TSK-0463） */
 const defaultSched = () => ({ rule: { ...emptyRule(), freq: 'daily' as const, time: '09:00' }, enabled: true })
@@ -520,7 +521,9 @@ function ConfigInput({ field, value, cfg, ctx, bad, onChange }: { field: ConfigF
   )
 }
 
-function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop, onRemove, onRemoveEdge, onSelect, onAddNext, onClose }: {
+function NodePanel({ readOnly = false, draft, nodeKey, runs, sopList, tried, onChange, onPatchSop, onRemove, onRemoveEdge, onSelect, onAddNext, onClose }: {
+  /** 内置流程只读（f1b87395）：配置项都置灰，不能删节点 */
+  readOnly?: boolean
   sopList: { id: string; name: string }[]
   tried: boolean
   draft: Sop
@@ -568,7 +571,7 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
     return (
       <aside className="node-panel">
         {head('start', <span className="np-name-static">开始</span>)}
-        <div className="np-body form">
+        <fieldset disabled={readOnly} className="np-body form np-fieldset">
           <div className="list-sub">执行时要填的内容，第一批节点拿它当输入。</div>
           {/* 文件夹（TSK-0482，SPEC-sop-9.32）：流程库里按它分类，保存时一起存；文件夹在流程库里建 */}
           <div className="field">
@@ -646,7 +649,7 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
             </div>
           </div>
           <NextList kids={kids} onSelect={onSelect} onAdd={addBtn()} />
-        </div>
+        </fieldset>
       </aside>
     )
   }
@@ -657,8 +660,8 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
 
   return (
     <aside className="node-panel">
-      {head(s.kind, <input className="np-name" value={s.name} placeholder="节点名称" onChange={(e) => onChange({ name: e.target.value })} />,
-        <button className="icon-btn btn-danger-ghost" onClick={onRemove} title="删除节点 (Delete)">
+      {head(s.kind, <input className="np-name" readOnly={readOnly} value={s.name} placeholder="节点名称" aria-label="节点名称" onChange={(e) => onChange({ name: e.target.value })} />,
+        !readOnly && <button className="icon-btn btn-danger-ghost" onClick={onRemove} title="删除节点 (Delete)">
           <svg viewBox="0 0 16 16" width="14" height="14"><path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
         </button>)}
       <div className="np-tabs">
@@ -666,7 +669,9 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
         <button className={cls(tab === 'last' && 'on')} onClick={() => setTab('last')}>上次运行</button>
       </div>
       {tab === 'set' ? (
-        <div className="np-body form">
+        <fieldset disabled={readOnly} className="np-body form np-fieldset">
+          {/* 内置流程只读时也能看节点的 kind（f1b87395） */}
+          {readOnly && <label className="field"><span className="field-label">kind</span><input className="mono-input" value={s.kind} readOnly aria-label="kind" /></label>}
           <label className="field">
             <span className="field-label">类型<span className="field-hint">{typeOf(s.kind).desc}</span></span>
             <select value={s.kind} onChange={(e) => {
@@ -736,7 +741,7 @@ function NodePanel({ draft, nodeKey, runs, sopList, tried, onChange, onPatchSop,
             </div>
           </div>
           {!isBranching(s.kind) && <NextList kids={kids} onSelect={onSelect} onAdd={addBtn()} />}
-        </div>
+        </fieldset>
       ) : (
         <div className="np-body">
           {last ? (
@@ -843,9 +848,11 @@ type Drag =
   | { kind: 'node'; key: string; sx: number; sy: number; ox: number; oy: number; moved: boolean; before: Sop }
   | { kind: 'link'; from: string; caseKey?: string; sx: number; sy: number; at: { x: number; y: number } }
 
-export function SopEditor({ initial, creating, runs, sopList, hasSchedule = false, onCancel, onSave }: {
+export function SopEditor({ initial, creating, readOnly = initial.ownership === 'buildin', runs, sopList, hasSchedule = false, onCancel, onSave }: {
   initial: Sop
   creating: boolean
+  /** 内置流程（ownership = buildin，f1b87395）：只能看节点和配置，不能改、存、测试运行，也没有 AI 协助 */
+  readOnly?: boolean
   runs: SopRun[]
   /** 子流程节点可选的 SOP */
   sopList: { id: string; name: string }[]
@@ -859,12 +866,19 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
   const [offChoice, setOffChoice] = useState<'disable' | 'delete'>('disable')
   const [schedSaved, setSchedSaved] = useState(hasSchedule)
   const [draft, setDraft] = useState<Sop>(() => explicit(initial))
+  // 新建时的 ID 输入：留空用自动生成的那个
+  const autoId = useRef(initial.id)
+  const [idDraft, setIdDraft] = useState('')
   const [past, setPast] = useState<Sop[]>([])
   const [future, setFuture] = useState<Sop[]>([])
   const [savedJson, setSavedJson] = useState(() => (creating ? '' : JSON.stringify(explicit(initial))))
   const [sel, setSel] = useState<string | null>(null)
   const [selEdge, setSelEdge] = useState<{ from: string; to: string } | null>(null)
-  const [aiOpen, setAiOpen] = useState(() => window.matchMedia('(min-width: 1101px)').matches)
+  const [aiOpen, setAiOpen] = useState(() => !readOnly && window.matchMedia('(min-width: 1101px)').matches)
+  // 导入（f1b87395）：新建时粘贴一段 SOP JSON 当草稿
+  const [importOpen, setImportOpen] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [importError, setImportError] = useState('')
   const [palette, setPalette] = useState<{ at: { x: number; y: number }; from: string; caseKey?: string } | null>(null)
   const [zoom, setZoom] = useState(1)
   const [pan, setPan] = useState({ x: 0, y: 0 })
@@ -875,19 +889,20 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
   const canvasRef = useRef<HTMLDivElement>(null)
   const drag = useRef<Drag | null>(null)
 
-  const issues = checkSop(draft)
+  // 新建时自定 ID（f1b87395）：和已有流程重名算错误，要改了才能发布
+  const issues = [...checkSop(draft), ...(creating && draft.id && sopList.some((x) => x.id === draft.id) ? [{ level: 'error' as const, text: `ID ${draft.id} 已存在，请修改 ID` }] : [])]
   const errors = issues.filter((x) => x.level === 'error')
   const dirty = JSON.stringify(draft) !== savedJson
   const lay = useMemo(() => ({ ...autoLayout(draft), ...(draft.layout ?? {}) }), [draft])
   const triggers = useEnum('sop_trigger')
 
-  const commit = useCallback((next: Sop) => { setPast((p) => [...p.slice(-49), draft]); setFuture([]); setDraft(next) }, [draft])
+  const commit = useCallback((next: Sop) => { if (readOnly) return; setPast((p) => [...p.slice(-49), draft]); setFuture([]); setDraft(next) }, [draft, readOnly])
   const undo = () => { const prev = past[past.length - 1]; if (!prev) return; setFuture((f) => [draft, ...f]); setPast((p) => p.slice(0, -1)); setDraft(prev) }
   // AI 提案的撤销只撤这次提案：记下应用后的草稿，之后有别的改动就不再给「撤销」
   const [aiMark, setAiMark] = useState<Sop | null>(null)
   // 流程名连续输入只记一步撤销
   const nameEdit = useRef<Sop | null>(null)
-  const rename = (name: string) => { const next = { ...draft, name }; if (nameEdit.current === draft) setDraft(next); else commit(next); nameEdit.current = next }
+  const rename = (name: string) => { if (readOnly) return; const next = { ...draft, name }; if (nameEdit.current === draft) setDraft(next); else commit(next); nameEdit.current = next }
   const redo = () => { const nx = future[0]; if (!nx) return; setPast((p) => [...p, draft]); setFuture((f) => f.slice(1)); setDraft(nx) }
   const say = (t: string) => { setToast(t); window.setTimeout(() => setToast(''), 2400) }
 
@@ -950,7 +965,7 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = (e.target as HTMLElement).closest('input, textarea, select')
-      if (typing) return
+      if (typing || readOnly) return
       if ((e.key === 'Delete' || e.key === 'Backspace') && (selEdge || (sel && sel !== START))) {
         e.preventDefault()
         if (selEdge) removeEdge(selEdge.from, selEdge.to)
@@ -1000,6 +1015,9 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
     if (e.button !== 0) return
     const handle = t.closest<HTMLElement>('[data-out]')
     const node = t.closest<HTMLElement>('[data-node]')
+    // 只读：点节点只是选中，不拖、不连线
+    if (readOnly && node) { setSel(node.dataset.node!); setSelEdge(null); return }
+    if (readOnly && handle) return
     if (handle) {
       const r = handle.getBoundingClientRect()
       drag.current = { kind: 'link', from: handle.dataset.out!, caseKey: handle.dataset.case || undefined, sx: e.clientX, sy: e.clientY, at: { x: r.right + 8, y: r.top - 10 } }
@@ -1084,11 +1102,11 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
   const stepIssues = (key: string) => issues.filter((x) => x.step !== undefined && draft.steps[x.step]?.key === key)
 
   return (
-    <div className={cls('sop-editor', aiOpen && 'with-ai', sel && 'with-panel')}>
-      <PageTitle parent="SOP">{creating ? '新建 SOP' : `编排 · ${draft.name || '未命名'}`}</PageTitle>
+    <div className={cls('sop-editor', readOnly && 'sop-editor-readonly', aiOpen && 'with-ai', sel && 'with-panel')}>
+      <PageTitle parent="SOP">{creating ? '新建 SOP' : `${readOnly ? '详情' : '编排'} · ${draft.name || '未命名'}`}</PageTitle>
       {/* 收起只是藏起来，对话和没决定的提案在本次编排页里留着 */}
-      <AiPanel hidden={!aiOpen} draft={draft} selected={selStep ? draft.steps.indexOf(selStep) : null} onApply={applyAi}
-        onUndo={() => { undo(); setAiMark(null) }} canUndo={aiMark !== null && aiMark === draft && past.length > 0} onClose={() => setAiOpen(false)} />
+      {!readOnly && <AiPanel hidden={!aiOpen} draft={draft} selected={selStep ? draft.steps.indexOf(selStep) : null} onApply={applyAi}
+        onUndo={() => { undo(); setAiMark(null) }} canUndo={aiMark !== null && aiMark === draft && past.length > 0} onClose={() => setAiOpen(false)} />}
       <div ref={canvasRef} className={cls('canvas', drag.current?.kind === 'pan' && 'panning')}
         style={{ backgroundSize: `${20 * zoom}px ${20 * zoom}px`, backgroundPosition: `${pan.x}px ${pan.y}px` }}
         onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onWheel={onWheel}>
@@ -1102,7 +1120,7 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
               return (
                 <g key={`${ed.from}-${ed.to}`}>
                   <path d={d} className={cls('cv-edge', on && 'on', ed.caseKey && 'branch')} />
-                  {ed.from !== START && <path d={d} className="edge-hit" onPointerDown={(e) => { e.stopPropagation(); setSelEdge({ from: ed.from, to: ed.to }); setSel(null) }} />}
+                  {!readOnly && ed.from !== START && <path d={d} className="edge-hit" onPointerDown={(e) => { e.stopPropagation(); setSelEdge({ from: ed.from, to: ed.to }); setSel(null) }} />}
                 </g>
               )
             })}
@@ -1159,12 +1177,14 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
           <button className="icon-btn" onClick={onCancel} title={creating ? '取消' : '返回'}>
             <svg viewBox="0 0 16 16" width="14" height="14"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
-          <input className={cls('cv-title', tried && !draft.name.trim() && 'bad')} value={draft.name} placeholder="SOP 名称" onChange={(e) => rename(e.target.value)} />
-          <span className="cv-status">{creating && !savedJson ? '未保存' : dirty ? '有未保存的修改' : '已保存'}</span>
+          <input className={cls('cv-title', tried && !draft.name.trim() && 'bad')} readOnly={readOnly} value={draft.name} placeholder="SOP 名称" aria-label="SOP 名称" onChange={(e) => rename(e.target.value)} />
+          {creating && <input className="cv-title cv-id mono" aria-label="SOP ID" placeholder="SOP ID（留空自动生成）" value={idDraft} onChange={(e) => { setIdDraft(e.target.value); commit({ ...draft, id: e.target.value.trim() || autoId.current }) }} />}
+          <span className="cv-status">{readOnly ? '只读' : creating && !savedJson ? '未保存' : dirty ? '有未保存的修改' : '已保存'}</span>
         </div>
         <div className="cv-ui cv-top-right">
-          {!aiOpen && <button className="act ai-open" onClick={() => setAiOpen(true)}><span className="ai-mark ai-mark-sm">AI</span>AI 协助</button>}
-          <div className="menu-wrap">
+          {creating && <button className="act" onClick={() => { setImportError(''); setImportOpen(true) }}>导入</button>}
+          {!readOnly && !aiOpen && <button className="act ai-open" onClick={() => setAiOpen(true)}><span className="ai-mark ai-mark-sm">AI</span>AI 协助</button>}
+          {!readOnly && <div className="menu-wrap">
             <button className={cls('act', errors.length > 0 && 'act-danger', !errors.length && issues.length > 0 && 'act-warn')} onClick={() => setShowIssues(!showIssues)}>
               {issues.length ? `检查 ${issues.length}` : '检查通过'}
             </button>
@@ -1177,12 +1197,12 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
                 )) : <div className="io-empty">没发现问题</div>}
               </div>
             )}
-          </div>
-          <button className="btn btn-outline" onClick={() => save(true)}>
+          </div>}
+          {!readOnly && <button className="btn btn-outline" onClick={() => save(true)}>
             <svg viewBox="0 0 16 16" width="11" height="11"><path d="M4.5 3v10l8-5Z" fill="currentColor" /></svg>
             测试运行
-          </button>
-          <button className="btn btn-primary" onClick={() => save(false)}>{creating && !savedJson ? '发布' : '保存'}</button>
+          </button>}
+          {!readOnly && <button className="btn btn-primary" onClick={() => save(false)}>{creating && !savedJson ? '发布' : '保存'}</button>}
           {/* 从定时改成别的触发方式（TSK-0463）：保存前问那条定时任务停用还是删掉 */}
           {offAsk && (
             <div className="menu cv-issues sop-off-ask" role="dialog" aria-label="不再定时执行？">
@@ -1197,7 +1217,7 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
             </div>
           )}
         </div>
-        <div className="cv-ui cv-tools">
+        {!readOnly && <div className="cv-ui cv-tools">
           <button className="icon-btn" title="添加节点" onClick={(e) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); setPalette({ at: { x: r.right + 8, y: r.top }, from: sel ?? (draft.steps.length ? draft.steps[draft.steps.length - 1].key : START) }) }}>
             <svg viewBox="0 0 16 16" width="15" height="15"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M8 5v6M5 8h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
           </button>
@@ -1207,8 +1227,8 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
           <button className="icon-btn" title="适配视口" onClick={fit}>
             <svg viewBox="0 0 16 16" width="15" height="15"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
-        </div>
-        <div className="cv-ui cv-bottom-left">
+        </div>}
+        {!readOnly && <div className="cv-ui cv-bottom-left">
           <button className="icon-btn" disabled={!past.length} onClick={undo} title="撤销 (⌘Z)">
             <svg viewBox="0 0 16 16" width="14" height="14"><path d="M5 3 2.5 5.5 5 8M2.5 5.5h7a3.5 3.5 0 0 1 0 7H6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
@@ -1216,7 +1236,7 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
             <svg viewBox="0 0 16 16" width="14" height="14"><path d="M11 3l2.5 2.5L11 8M13.5 5.5h-7a3.5 3.5 0 0 0 0 7H10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
           </button>
           <span className="cv-hint">拖空白处平移，⌘ + 滚轮缩放，Delete 删除选中的节点或连线</span>
-        </div>
+        </div>}
         <div className="cv-ui cv-bottom-right">
           <button className="icon-btn" onClick={() => zoomAt(zoom / 1.15)} title="缩小">
             <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M5 7h4M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
@@ -1226,23 +1246,66 @@ export function SopEditor({ initial, creating, runs, sopList, hasSchedule = fals
             <svg viewBox="0 0 16 16" width="14" height="14"><circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M5 7h4M7 5v4M10.5 10.5 14 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
           </button>
         </div>
-        {!draft.steps.length && (
+        {!readOnly && !draft.steps.length && (
           <div className="cv-ui cv-empty">
             <div className="empty-title">从开始节点右边的 + 加第一个节点</div>
-            <div className="list-sub">或者在左边用一段话告诉 AI 这个流程怎么走</div>
-            {!aiOpen && <button className="act act-primary" onClick={() => setAiOpen(true)}>让 AI 帮我建</button>}
+            <div className="list-sub">或者在左边用一段话告诉 AI 这个流程怎么走，也可以导入一段 SOP JSON</div>
+            <div className="act-row">
+              {creating && <button className="act" onClick={() => { setImportError(''); setImportOpen(true) }}>导入</button>}
+              {!aiOpen && <button className="act act-primary" onClick={() => setAiOpen(true)}>让 AI 帮我建</button>}
+            </div>
           </div>
         )}
         {toast && <div className="cv-ui cv-toast">{toast}</div>}
       </div>
 
       {sel && (
-        <NodePanel draft={draft} nodeKey={sel} runs={runs} sopList={sopList.filter((x) => x.id !== draft.id)} tried={tried}
+        <NodePanel readOnly={readOnly} draft={draft} nodeKey={sel} runs={runs} sopList={sopList.filter((x) => x.id !== draft.id)} tried={tried}
           onChange={(p) => changeStep(sel, p)} onPatchSop={(p) => commit({ ...draft, ...p })}
           onRemove={() => removeNode(sel)} onRemoveEdge={removeEdge} onSelect={setSel}
           onAddNext={(at, from, caseKey) => setPalette({ at, from, caseKey })} onClose={() => setSel(null)} />
       )}
       {palette && <Palette at={palette.at} onClose={() => setPalette(null)} onPick={(p) => addNode(p, palette.from, palette.caseKey)} />}
+      {/* 导入 SOP（f1b87395）：粘贴 JSON（id、name、desc、trigger、fields、steps，可带 layout），校验通过后整体换成草稿，重复 ID 在草稿里改了再发布 */}
+      {importOpen && (
+        <div className="qs-mask" onMouseDown={(e) => { if (e.target === e.currentTarget) setImportOpen(false) }}>
+          <div className="qs sop-import" role="dialog" aria-label="导入 SOP">
+            <div className="qs-head"><b>导入 SOP</b></div>
+            <span className="list-sub">粘贴 JSON 后点击导入；重复 ID 请在草稿中修改后再发布。</span>
+            <div className="act-row">
+              <button className="act" onClick={() => { void navigator.clipboard?.readText().then(setImportText, () => setImportError('无法读取剪贴板，请在输入框中按 Ctrl+V / ⌘V')) }}>从剪贴板粘贴</button>
+            </div>
+            <textarea className="mono-area" aria-label="SOP JSON" rows={12} value={importText} onChange={(e) => setImportText(e.target.value)} placeholder="在这里按 Ctrl+V / ⌘V 粘贴 SOP JSON" />
+            {importError && <span className="field-err" role="alert">{importError}</span>}
+            <div className="qs-foot">
+              <span className="spacer" />
+              <button className="btn btn-ghost" onClick={() => setImportOpen(false)}>取消</button>
+              <button className="btn btn-primary" onClick={() => {
+                const r = parseSopJson(importText)
+                if (typeof r === 'string') { setImportError(r); return }
+                commit(explicit({ ...draft, ...r }))
+                setIdDraft(r.id)
+                setSel(null); fitted.current = false; setImportOpen(false); setShowIssues(true)
+              }}>导入</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
+/** 导入的 SOP JSON 校验（同正式产品 Editor.tsx 的导入）：通过回草稿要的字段，不通过回错误文字 */
+function parseSopJson(text: string): Pick<Sop, 'id' | 'name' | 'desc' | 'trigger' | 'fields' | 'steps' | 'layout'> | string {
+  let value: unknown
+  try { value = JSON.parse(text) } catch { return 'JSON 格式错误' }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return '请输入 SOP JSON 对象'
+  const v = value as Record<string, unknown>
+  if (typeof v.id !== 'string' || typeof v.name !== 'string' || !Array.isArray(v.fields) || !Array.isArray(v.steps)) return 'JSON 必须包含 id、name、fields、steps'
+  const bad = (x: unknown, keys: string[]) => !x || typeof x !== 'object' || keys.some((k) => typeof (x as Record<string, unknown>)[k] !== 'string')
+  if (v.fields.some((x) => bad(x, ['key', 'label', 'type'])) || v.steps.some((x) => bad(x, ['key', 'name', 'kind']))) return '输入字段或步骤格式不正确'
+  if (typeof v.desc !== 'string' || typeof v.trigger !== 'string') return 'desc、trigger 必须是字符串'
+  if (v.layout != null && (typeof v.layout !== 'object' || Array.isArray(v.layout))) return 'layout 必须是对象'
+  return { id: v.id, name: v.name, desc: v.desc, trigger: v.trigger, fields: v.fields as Sop['fields'], steps: v.steps as Sop['steps'], layout: (v.layout ?? undefined) as Sop['layout'] }
+}
+

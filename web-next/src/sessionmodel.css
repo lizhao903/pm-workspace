@@ -1,0 +1,24 @@
+/* 会话里看和换模型（TSK-0720，SPEC-sessions-1.46 到 1.50） */
+.ms-wrap { position: relative; display: inline-flex; min-width: 0; }
+.ms-btn { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 280px; height: 24px; padding: 0 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--muted); font-size: 12px; cursor: pointer; }
+.ms-btn:disabled { cursor: default; }
+.ms-btn.ms-bad { color: var(--danger, #c0352b); }
+.ms-tag { flex: none; padding: 0 5px; border-radius: 4px; background: var(--bg-2, #f1f0ec); color: var(--muted); font-size: 11px; }
+.ms-panel { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; width: 380px; max-width: calc(100vw - 32px); padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.ms-opt { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 4px 2px; }
+.ms-pick { display: flex; flex-direction: column; max-height: 300px; overflow: auto; border-top: 1px solid var(--line); padding-top: 4px; }
+.ms-pick .menu-item.on { background: var(--hover, rgba(0, 0, 0, .05)); font-weight: 500; }
+.ms-check { display: flex; align-items: center; gap: 6px; padding: 6px 2px 0; }
+.ms-confirm { padding: 8px; border-radius: var(--r-sm); background: var(--bg-2, #f1f0ec); }
+.ms-err { color: var(--danger, #c0352b); font-size: 12px; }
+.ms-foot { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; }
+.ai-notice { align-self: center; margin: 4px auto; color: var(--faint); font-size: 12px; text-align: center; }
+.ai-model { margin-top: 4px; color: var(--faint); font-size: 11px; visibility: hidden; }
+.ai-msg:hover .ai-model { visibility: visible; }
+@media (hover: none) { .ai-model { visibility: visible; } }
+.chat-item-model { font-size: 11px; color: var(--faint); }
+.chat-item-model.bad { color: var(--danger, #c0352b); }
+@media (max-width: 560px) { .ms-panel { position: fixed; left: 16px; right: 16px; top: 120px; width: auto; } }
+.ms-newbox { display: flex; flex-direction: column; gap: 4px; padding: 0 10px 6px; }
+.ms-newbox select { height: 30px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--bg); color: var(--text); }
+.agent-pick .ms-check { padding: 2px 10px 6px; font-size: 12px; }

@@ -6,6 +6,7 @@ import { seedModels, seedProviders } from './modeldata'
 import { CONTENT_CATEGORIES, seedContacts, seedContent } from './data'
 import { seedProjects } from './projectdata'
 import { runPresetsNow } from './runpresets'
+import { seedExecutors } from './executors'
 
 // SOP 节点类型表：画布、节点选择器、属性面板、执行引擎都从这里取。加一种节点 = 在 NODE_TYPES 里加一项
 // 这个文件不从 sopflow 取值（只取类型），sopflow 反过来依赖它，互相取值会在加载时拿到未初始化的东西
@@ -22,6 +23,7 @@ export type StepKind =
   | 'knowledge' | 'extract' | 'template' | 'aggregate' | 'code'
   | 'classifier' | 'iterate' | 'wait' | 'loopback'
   | 'http' | 'notify' | 'task' | 'local_append' | 'agent' | 'subflow' | 'claude_code' | 'task_run' | 'task_update'
+  | 'projects_kb_sync'
   | 'end'
 
 type Json = Record<string, unknown>
@@ -394,6 +396,15 @@ export const NODE_TYPES: NodeType[] = [
     kind: 'claude_code', label: 'Claude Code 执行', group: '外部', desc: '交给本机 Claude Code 在指定目录里做一件事，等它做完把结论交给下游', color: '#b0570b', ms: 3000,
     icon: <>{P('M3 4.5 6 8l-3 3.5M8 12h5')}</>,
     fields: [
+      // 执行器（7b454ca6）：设置「执行器」里管的本机 CLI 执行器；留空用原有 Claude Code 配置。停用、缺配置的照样能选，标出来
+      { key: 'executor', label: '执行器', type: 'select', default: '', hint: '在设置中管理本地执行器；留空使用原有 Claude Code 配置',
+        options: (_, c) => {
+          const list = [{ value: '', label: '默认 Claude Code' }, ...seedExecutors.map((e) => ({
+            value: e.id, label: `${e.name}${!e.enabled ? '（已停用）' : !e.provider_id && !(e.kind === 'codex' && e.use_cli_config) ? '（配置缺失）' : ''}${e.provider_id ? ` · ${seedProviders.find((p) => p.id === e.provider_id)?.name ?? ''}` : ''}`,
+          }))]
+          if (c.executor && !list.some((e) => e.value === c.executor)) list.push({ value: c.executor, label: `${c.executor}（不可用）` })
+          return list
+        } },
       { key: 'preset', label: '角色', type: 'select', default: '', hint: '执行要求和输出要求拼进提示词；权限留空时按角色',
         options: () => [{ value: '', label: '不选角色' }, ...runPresetsNow().map((p) => ({ value: p.id, label: p.scene }))] },
       { key: 'workdir', label: '工作目录', type: 'text', required: true, placeholder: '{{project.code_dir}}', hint: '本机绝对路径，或取输入里的字段' },
@@ -413,7 +424,7 @@ export const NODE_TYPES: NodeType[] = [
         result: verdict === 'pass' ? { verdict: 'pass', issues: [] } : { verdict: 'reject', issues: [{ title: '验收标准不可测', severity: 'blocker' }] },
       }
     },
-    summary: (c) => [runPresetsNow().find((p) => p.id === c.preset)?.scene, c.workdir].filter(Boolean).join(' · '),
+    summary: (c) => [c.executor ? seedExecutors.find((e) => e.id === c.executor)?.name ?? '执行器不可用' : '', runPresetsNow().find((p) => p.id === c.preset)?.scene, c.workdir].filter(Boolean).join(' · '),
   },
   {
     kind: 'task_run', label: '执行任务', group: '外部', desc: '把一条任务交给本机 Claude Code 去做：工作目录按任务、所属项目继承，等它做完', color: '#b0570b', ms: 3000,
@@ -465,6 +476,27 @@ export const NODE_TYPES: NodeType[] = [
     summary: (c) => [c.assignee ? `负责人 ${c.assignee}` : '', c.status ? `状态 ${c.status}` : ''].filter(Boolean).join(' · ') || '只读取',
   },
   {
+    // 项目资料同步到知识库（TSK-0721，项目插件 0.19.0，SPEC-sop-12.58）：把项目资料增量同步进项目知识库（SPEC-projects-16），没有知识库时新建并绑定
+    kind: 'projects_kb_sync', label: '项目资料同步到知识库', group: '项目', desc: '把项目的本机文件、笔记、链接、关联文档和文档目录增量同步进项目知识库，给项目 Agent 检索', color: '#2f9e44', ms: 1200,
+    icon: <><path d="M3 3.5h6.5L13 7v5.5H3Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />{P('M6 9.5h4M8 7.5v4')}</>,
+    fields: [
+      { key: 'project', label: '项目', type: 'text', default: '全部', placeholder: '全部', hint: '项目 id、编号或名字，支持 {{字段}}；留空或「全部」是所有没归档的项目' },
+      ...([['files', '收本机文件和文件夹'], ['notes', '收笔记'], ['links', '收链接'], ['docs', '收关联的文档'], ['docs_dir', '收文档目录']] as const).map(([key, label]) => (
+        { key, label, type: 'select' as const, default: 'yes', options: () => [{ value: 'yes', label: '收' }, { value: 'no', label: '不收' }] })),
+      { key: 'notify', label: '通知我', type: 'select', default: 'changed',
+        options: () => [{ value: 'never', label: '不通知' }, { value: 'changed', label: '有变化或失败时' }, { value: 'always', label: '每次都通知' }] },
+    ],
+    // 原型模拟：按配置的项目算条数，不真的写知识库
+    run: (c, input) => {
+      const want = render(c.project ?? '', input).trim()
+      const ps = !want || want === '全部' ? seedProjects : seedProjects.filter((p) => [p.id, p.name].includes(want))
+      const projects = ps.map((p, i) => ({ project: p.name, added: i === 0 ? 3 : 0, updated: i === 0 ? 1 : 0, removed: 0, failed: 0, skipped: 2 }))
+      const changed = projects.some((x) => x.added || x.updated || x.removed)
+      return { ...input, kb_sync: { projects, totals: { added: projects.reduce((n, x) => n + x.added, 0), updated: projects.reduce((n, x) => n + x.updated, 0) }, text: `同步了 ${projects.length} 个项目`, ok: true, changed, notified: c.notify === 'always' || (c.notify !== 'never' && changed) } }
+    },
+    summary: (c) => `${!c.project || c.project === '全部' ? '全部项目' : c.project}`,
+  },
+  {
     kind: 'end', label: '结束', group: '输出', desc: '流程到这里结束，挑出要留下的结果', color: '#2f7d43', ms: 200,
     icon: <><rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor" /></>,
     fields: [{ key: 'outputs', label: '保留哪些字段', type: 'text', placeholder: '留空保留全部，多个用逗号隔开' }],
@@ -475,7 +507,7 @@ export const NODE_TYPES: NodeType[] = [
 
 export const typeOf = (k: StepKind) => NODE_TYPES.find((t) => t.kind === k) ?? NODE_TYPES[0]
 export const isBranching = (k: StepKind) => !!typeOf(k).branching
-export const NODE_GROUPS = ['基础', '知识与数据', '逻辑', '人工', '外部', '输出']
+export const NODE_GROUPS = ['基础', '知识与数据', '逻辑', '人工', '外部', '项目', '输出']
 
 /** 新建节点时的默认配置 */
 export const defaultConfig = (k: StepKind): Cfg => Object.fromEntries((typeOf(k).fields ?? []).filter((f) => f.default !== undefined).map((f) => [f.key, f.default!]))

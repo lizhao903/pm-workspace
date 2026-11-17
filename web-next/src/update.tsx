@@ -26,8 +26,9 @@ const SOURCE = { repo: '/Users/me/pm-workspace', branch: 'main', dirty: 3 }
 const short = (sha: string) => sha.slice(0, 7)
 const when = (iso: string) => new Date(iso).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-export function UpdatePage() {
-  const [commit, setCommit] = useState(RUNNING.commit)
+/** done：本次打开原型里已经更新过（App 记着，切走再回来仍是已更新）；onDone 更新完成时通知 App 去掉「版本更新」的红点 */
+export function UpdatePage({ done = false, onDone }: { done?: boolean; onDone?: () => void } = {}) {
+  const [commit, setCommit] = useState(done ? AHEAD[0].sha : RUNNING.commit)
   const [steps, setSteps] = useState<StepState[] | null>(null)
   const [phase, setPhase] = useState<'idle' | 'running' | 'restarting' | 'updated' | 'failed'>('idle')
   const [asking, setAsking] = useState(false)
@@ -48,7 +49,7 @@ export function UpdatePage() {
     setSteps(next)
     if (i === STEP_LABELS.length - 1) {
       setPhase('restarting')
-      timer.current = window.setTimeout(() => { setCommit(AHEAD[0].sha); setPhase('updated'); setSteps(null) }, STEP_MS * 2)
+      timer.current = window.setTimeout(() => { setCommit(AHEAD[0].sha); setPhase('updated'); setSteps(null); onDone?.() }, STEP_MS * 2)
       return
     }
     timer.current = window.setTimeout(() => {
@@ -89,6 +90,9 @@ export function UpdatePage() {
           <div className="up-mono">{SOURCE.repo}</div>
         </section>
       </div>
+      {/* 有版本差异时的绿色提示（a501a2d1）：新提交数 / 不在同一分支 / 编译时带改动，说清楚为什么可以更新；更新中、更新完不显示 */}
+      {available && !busy && <DiffNotice ahead={ahead.length} dirty={SOURCE.dirty} />}
+
       {ahead.length > 0 && (
         <section className="up-commits" aria-label="新提交">
           <div className="section-label">新提交 {ahead.length} 条</div>
@@ -152,6 +156,23 @@ export function UpdatePage() {
           </div>
         </div>
       )}
+    </div>
+  )
+}
+
+/** 有版本差异：源码目录比正在运行的新 N 个提交；原型的演示状态总是「有新提交」，另两种（换过分支、只有未提交改动）只在正式产品出现 */
+function DiffNotice({ ahead, dirty, diverged = false }: { ahead: number; dirty: number; diverged?: boolean }) {
+  const why = ahead > 0
+    ? `源码目录比正在运行的新 ${ahead} 个提交`
+    : diverged
+      ? '正在运行的提交不在当前源码分支的历史里（换过分支或改过历史）'
+      : dirty > 0
+        ? `源码目录有 ${dirty} 个文件没提交`
+        : '正在运行的版本和源码目录不一样'
+  return (
+    <div className="up-notice" role="status">
+      <b>有版本差异</b>
+      <span>{why}，可以更新到最新代码并自动重启。</span>
     </div>
   )
 }

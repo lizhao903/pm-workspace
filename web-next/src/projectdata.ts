@@ -98,15 +98,18 @@ export type ProjectChat =
   | { id: string; kind: 'group'; channel: string; conversation: string }
   | { id: string; kind: 'dm'; contact_id: string }
 
+/** 内置的五个干系人角色。正式产品（TSK-0718）角色走枚举字典 project_role（设置 / 枚举值，enumdata.ts），可加、改名、停用、排序；
+ * 这里只是内置条目的 key 和兜底文案，显示名、顺序、默认角色都按字典取（projects.tsx 的 roleView） */
 export type StakeRole = 'decider' | 'contact' | 'owner' | 'member' | 'informed'
-export const STAKE_ROLE: Record<StakeRole, { label: string; desc: string }> = {
+export const STAKE_ROLE: Record<string, { label: string; desc: string }> = {
   decider: { label: '决策人', desc: '拍板、验收' },
   contact: { label: '对接人', desc: '日常沟通、需求来源' },
   owner: { label: '负责人', desc: '我方交付负责' },
   member: { label: '参与', desc: '一起做事' },
   informed: { label: '知会', desc: '有进展告诉他就行' },
 }
-export interface Stakeholder { contact_id: string; role: StakeRole; focus: string }
+/** role 是字典 project_role 的 key；内置五个之外，设置里加的角色也能用 */
+export interface Stakeholder { contact_id: string; role: string; focus: string }
 
 export interface Project {
   id: string
@@ -127,8 +130,14 @@ export interface Project {
   /** 详情页标签的先后（SPEC-projects-13.20）：标签 key 的顺序，概览、设置固定一头一尾不在里面；没有时按默认顺序，没列进来的新标签按默认位置插入 */
   tabs_order?: string[]
   stakeholders: Stakeholder[]
-  /** 关联的 SOP */
+  /** 关联的 SOP（手动关联、固定关联） */
   sop_ids: string[]
+  /** 设成「不自动关联」的 SOP（TSK-0718 后的自动反向关联，sop_ids_hidden） */
+  sop_ids_hidden?: string[]
+  /** 文档目录（TSK-0718，props.docs_dir）：相对本地项目目录或绝对路径；文档标签列出里面的文档文件，空串或没有是没设 */
+  docs_dir?: string
+  /** 项目知识库（TSK-0721，正式产品存在项目插件表 projects_kb）；没有是没绑 */
+  kb?: ProjectKb
   materials: Material[]
   docs: ProjectDoc[]
   prototypes: Prototype[]
@@ -138,6 +147,45 @@ export interface Project {
   proto_sync?: ProtoSyncInfo
   created_at: string
 }
+
+/** 项目知识库的一次同步结果（SPEC-projects-16.7）；error 有值是整个没同步成 */
+export interface KbSyncResult {
+  added: number; updated: number; removed: number; failed: number; skipped: number
+  failures: { title: string; reason: string }[]
+  skips: { title: string; reason: string }[]
+  /** 这次新建了知识库并绑定 */
+  created?: boolean
+  kb_name?: string
+  error?: string
+}
+/** 项目绑定的知识库：kb_id 指向 设置 / 知识库 里的一个；库被删了时照样留着 kb_id，页面按「已经删了」显示 */
+export interface ProjectKb { kb_id: string; auto_created?: boolean; last_sync_at?: string; last_result?: KbSyncResult }
+export const kbSyncLine = (r: KbSyncResult) => `新增 ${r.added}、更新 ${r.updated}、移除 ${r.removed}、失败 ${r.failed}、跳过 ${r.skipped}`
+
+/**
+ * 文档目录里的文件（正式产品 GET /api/objects/{id}/docs-dir/files）。原型读不了本机目录，按目录名给一份演示清单：
+ * rel 相对文档目录，kind 决定预览方式（text 读内容、pdf/image 内嵌、office 不预览）
+ */
+export interface DocDirFile { rel: string; name: string; ext: string; kind: 'text' | 'pdf' | 'image' | 'office'; modified: string; size: number }
+const df = (rel: string, mins: number, size = 4200): DocDirFile => {
+  const name = rel.split('/').pop()!
+  const ext = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1).toLowerCase() : ''
+  const kind = ext === 'pdf' ? 'pdf' : ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext) ? 'image' : ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'key', 'pages', 'numbers'].includes(ext) ? 'office' : 'text'
+  return { rel, name, ext, kind, modified: minsAgo(mins), size }
+}
+/** 演示：目录名 -> 里面认得的文件（隐藏项、node_modules 这类已跳过；空文件夹不在清单里，所以不上树） */
+// 用到时才建：minsAgo 在下面定义，模块加载时还不能调
+const demoDocsDirs = (): Record<string, DocDirFile[]> => ({
+  docs: [
+    df('README.md', 60 * 3), df('api-contract.md', 60 * 26, 86000), df('dev-decisions.md', 60 * 50, 120000),
+    df('prd/工作台新版 PRD.md', 60 * 24 * 2), df('prd/项目知识库 PRD.md', 60 * 24), df('prd/archive/旧版问题清单.docx', 60 * 24 * 30),
+    df('spec/projects.md', 60 * 5), df('spec/tasks.md', 60 * 8), df('spec/shots/projects/概览-1440-light.png', 60 * 5, 180000),
+    df('reviews/2026-11 评审纪要.pdf', 60 * 24 * 4, 420000),
+  ],
+  '方案文档': [df('欧盟数据驻留方案 v2.md', 60 * 24), df('存储架构评估.xlsx', 60 * 24 * 3), df('法务/审计日志保留期.md', 60 * 24 * 5)],
+})
+/** 文档目录的演示清单；不认识的目录当作空目录（没有认得的文件） */
+export const docsDirFiles = (dir: string): DocDirFile[] => demoDocsDirs()[dir.replace(/\/+$/, '').split('/').pop() ?? ''] ?? []
 
 export const PROJECT_COLORS = ['#3d4fd6', '#0f8a8a', '#7a4fd6', '#b0570b', '#2f7d43', '#c0352b']
 /** 这些端口有别的东西在用，原型不能占：7777 是在跑的真实工作台 */
@@ -196,6 +244,13 @@ export const seedProjects: Project[] = [
       { contact_id: 'ct_004', role: 'informed', focus: '回归用例和验收' },
     ],
     sop_ids: ['sop_meeting'],
+    docs_dir: 'docs',
+    kb: {
+      kb_id: 'kb_product', last_sync_at: minsAgo(60 * 24 * 2 + 30),
+      last_result: { added: 3, updated: 1, removed: 0, failed: 1, skipped: 2,
+        failures: [{ title: '旧版界面截图', reason: '文件夹读不到：盘没挂上' }],
+        skips: [{ title: 'prd/archive/旧版问题清单.docx', reason: '不支持的类型（只收 md、markdown、txt、text）' }, { title: '参考：Dify 工作流编排截图', reason: '不支持的类型（只收 md、markdown、txt、text）' }] },
+    },
     materials: [
       { id: 'mt1', name: '参考：Dify 工作流编排截图', kind: 'file', value: 'docs/refs/dify-canvas.png', tags: ['参考', 'SOP'], added_at: minsAgo(60 * 24) },
       { id: 'mt2', name: '旧版用起来的问题清单', kind: 'note', value: '侧栏太宽；列表页错误横幅太占地方；设置项散落在各页', tags: ['反馈'], added_at: minsAgo(60 * 30) },
@@ -258,6 +313,7 @@ export const seedProjects: Project[] = [
     root: '/Volumes/docs/方案/eu-residency',
     // 有关联文档目录、没登记原型：交给 Claude Code 的提示词里原型一项写「没有登记原型目录」（SPEC-tasks-6.13）
     related: [{ path: '/Volumes/docs/方案/eu-residency/方案文档', label: '方案文档' }],
+    docs_dir: '/Volumes/docs/方案/eu-residency/方案文档',
     agent_ids: ['ag_weekly'],
     chats: [{ id: 'ch7', kind: 'dm', contact_id: 'ct_008' }],
     stakeholders: [

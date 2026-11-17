@@ -6,7 +6,7 @@ import {
   GOVERNANCE_MAX, MODEL_CONCURRENCY_MAX, RERUN_MAX, RUN_STATUS, SOPS, depsOf, emptyIM, imFilterText, isHeld, flowChanged, sourceText, focusIndex, isFinished, isClaudeKind, isManualDecide, isModelKind, isProviderWait, isQueued, needsMe, ranks,
   RERUN_REASON_RELAUNCHED, runShow, runStatus, stepLook,
   isStoppable,
-  SOP_FOLDERS, UNCATEGORIZED, addFolder, folderNameError, folderOf, moveSops, newSopFolder, removeFolder, renameFolder,
+  SOP_FOLDERS, UNCATEGORIZED, addFolder, folderNameError, folderOf, isBuiltinSop, moveSops, newSopFolder, removeFolder, renameFolder, sopJson,
   type Governance, type Json, type RerunAction, type RerunResult, type RunAction, type RunStep, type Sop, type SopRun,
 } from './sopflow'
 import { KindTag, isBranching, ruleIsSentence, ruleSentenceError } from './nodetypes'
@@ -16,6 +16,8 @@ import { SearchSelect } from './searchselect'
 import { useEnum } from './enumdata'
 import { ListSegHead, ListSegMore } from './tasks'
 import { describeRule, flowSchedule, nextRun, whenText, type Schedule } from './scheduledata'
+import './sopsync.css'
+import { checkSop } from './sopedit'
 import type { TodayItem } from './today'
 
 /**
@@ -509,6 +511,8 @@ function SopLibraryPage({ sops, runs, onOpen, onNew, onChange }: { sops: Sop[]; 
   const [f, setF] = useState<LibFilter>('')
   // 文件夹筛选：'' 全部，'none' 未分类，其余是文件夹 id
   const [folder, setFolder] = useState('')
+  // 导出到剪贴板的结果（f1b87395）
+  const [message, setMessage] = useState('')
   const [, setTick] = useState(0)
   const changed = () => { setTick((n) => n + 1); onChange?.() }
   const last = useMemo(() => lastRunAt(runs), [runs])
@@ -554,6 +558,7 @@ function SopLibraryPage({ sops, runs, onOpen, onNew, onChange }: { sops: Sop[]; 
           <input placeholder="搜索流程名、说明、触发方式、文件夹" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
+      {message && <div className="sop-lib-msg" role="status">{message}</div>}
       <FolderBar sops={sops} current={key} searching={!!kw} onPick={setFolder} onChange={changed} />
       {!rows.length ? (
         <div className="empty">
@@ -561,8 +566,16 @@ function SopLibraryPage({ sops, runs, onOpen, onNew, onChange }: { sops: Sop[]; 
           <div className="list-sub">{kw || f ? '换个筛选条件试试' : key ? '在别的文件夹的卡片上点文件夹名移过来，或在这里新建' : '把反复做的事情编排成 SOP，每次按同样的步骤执行'}</div>
         </div>
       ) : (
+        <div>
+        {/* 我的 / 内置分两块（f1b87395）：内置流程只读，打开是「详情」 */}
+        {(['nobuild-in', 'buildin'] as const).map((own) => {
+          const part = rows.filter((s) => (s.ownership ?? 'nobuild-in') === own)
+          if (!part.length) return null
+          return (
+          <section key={own} className="sop-library-section">
+          <h2>{own === 'buildin' ? '内置 SOP（只读）' : '我的 SOP（只有我可以看见）'}</h2>
         <div className="sop-lib-grid">
-          {rows.map((s) => {
+          {part.map((s) => {
             const x = stat.get(s.id)
             const at = last.get(s.id)
             const fid = folderOf(s)
@@ -592,9 +605,15 @@ function SopLibraryPage({ sops, runs, onOpen, onNew, onChange }: { sops: Sop[]; 
               </div>
               <SchedLine sop={s} className="sop-lib-sched" />
               <IMLine sop={s} className="sop-lib-sched" />
+              <button className="act act-quiet sop-lib-export" title="把这个流程的 JSON 复制到剪贴板，新建 SOP 时能导入"
+                onClick={() => { void navigator.clipboard?.writeText(sopJson(s)).then(() => setMessage(`已导出「${s.name}」到剪贴板`), () => setMessage('无法写入剪贴板，请检查浏览器权限')) }}>导出</button>
               </div>
             )
           })}
+        </div>
+          </section>
+          )
+        })}
         </div>
       )}
     </div>
@@ -695,10 +714,11 @@ export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, de
   return (
     <div className="page page-fill">
       <PageTitle parent="SOP" desc={sop.desc} actions={<>
-        {onDelete && (confirmDel ? (
+        {onDelete && !isBuiltinSop(sop) && (confirmDel ? (
           <span className="sop-del-top"><span className="danger-text">{delText}</span>{delActs}</span>
         ) : <button className="btn btn-ghost btn-danger-ghost" onClick={() => setConfirmDel(true)}>删除</button>)}
-        <button className="btn btn-outline" onClick={onEdit}>编辑</button>
+        {/* 内置流程只读（f1b87395）：没有删除，「编辑」换成「详情」，打开只读的编排页 */}
+        <button className="btn btn-outline" onClick={onEdit}>{isBuiltinSop(sop) ? '详情' : '编辑'}</button>
         <button className="btn btn-primary" onClick={onStart}>
           <svg viewBox="0 0 16 16" width="12" height="12"><path d="M4.5 3v10l8-5Z" fill="currentColor" /></svg>
           执行
@@ -714,9 +734,26 @@ export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, de
           <div className="act-row"><button className="act act-primary" onClick={onEdit}>去改流程</button></div>
         </div>
       )}
+      {/* 保存校验提示（TSK-0490，SPEC-sop-5.20）：流程按现在的保存校验有问题（旧写法的条件、过不了新校验的旧流程）时列出来；
+          条件是一句话的已在上面「需修复」里写了，这里不重复 */}
+      {(() => {
+        const xs = checkSop(sop).filter((x) => x.step !== undefined && !(x.level === 'error' && /是一句话/.test(x.text)))
+        if (!xs.length) return null
+        const errs = xs.filter((x) => x.level === 'error').length
+        const warns = xs.length - errs
+        return (
+          <div className={cls('sop-check', errs ? 'err' : 'warn')} role="status">
+            <div><b>保存校验：</b>{errs ? `${errs} 处必须改${warns ? `，${warns} 处注意` : ''}。照常能执行，下次保存前要改掉「必须改」的` : `${warns} 处注意：能存、能执行，多半不是想要的`}</div>
+            {xs.slice(0, 6).map((x, i) => <div key={i}>第 {x.step! + 1} 步 {x.text}</div>)}
+            {xs.length > 6 && <div className="list-sub">还有 {xs.length - 6} 处，到编辑里看</div>}
+            {!isBuiltinSop(sop) && <div className="act-row"><button className="act" onClick={onEdit}>到编辑里改</button></div>}
+          </div>
+        )
+      })()}
       <div className="sop-facts sop-facts-top">
         {/* 所在文件夹（TSK-0482，SPEC-sop-5.19）：有文件夹时才写 */}
         {SOP_FOLDERS.length > 0 && <span>文件夹：{SOP_FOLDERS.find((x) => x.id === folderOf(sop))?.name ?? UNCATEGORIZED}</span>}
+        {isBuiltinSop(sop) && <span>内置流程，只读</span>}
         <span>触发：{triggerLabel(triggers, sop.trigger)}</span>
         <span>{sop.steps.length} 个步骤</span>
         <span>{decides} 个分支节点</span>

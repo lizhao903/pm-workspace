@@ -16,6 +16,7 @@ import { AgentSection, ReplyBarActions } from './msgagent'
 import { MaterialSection, notesOf } from './msgmaterial'
 import { clusterMessages, countLabel, isOpenMsg, nestThreads, previewText, rowTime, threadHint, threadOf, toRows, type MsgRow, type SessionIntent } from './msggroup'
 import { GroupAdminDrawer } from './groupadmin'
+import type { ContactOps } from './membercontacts'
 import { SendDialog, SentStrip, sentReplyOf, type Sent } from './msgsend'
 import { MentionBox, composeReply, quickReplyText, useReplyMention, type Member, type MentionPick } from './mention'
 import { ThreadReplies } from './msgthread'
@@ -91,6 +92,8 @@ export function withGroupProjects(messages: Message[], groupProjects: Record<str
     return pid && projects.some((p) => p.id === pid) ? { ...m, project_id: pid, project_source: 'conversation' as const } : m
   })
 }
+/** 项目筛选的「未归项目」，同正式产品 GET /api/im/messages?project_id=none（SPEC-messages-1.67） */
+const PROJECT_NONE = 'none'
 /** 列表按天分段 */
 const dayLabel = (iso: string) => {
   const d = new Date(iso), t = new Date()
@@ -180,7 +183,9 @@ const fmtMD = (iso: string) => new Date(iso).toLocaleString('zh-CN', { month: 'n
 /** 状态小标签按枚举颜色上色，和原来「已处理」的绿色标签同一种做法 */
 const stateStyle = (c: string): React.CSSProperties => ({ color: c, background: `color-mix(in srgb, ${c} 12%, transparent)` })
 
-export function MessagesPage({ messages, contacts, connectors, selected, onOpen, onAct, onGoConnectors, onToTask, taskOf, onSync, syncing, syncResult, projects, groupProjects, onSetGroupProject, sops, runs, onBatchTriage, onOpenQueue, onOpenTriage, selectedGroup, onOpenGroup, onStartSession, linksOf, onOpenSession, onToMaterial, onOpenMaterial, onStopRuns }: {
+export function MessagesPage({ messages, contacts, connectors, selected, onOpen, onAct, onGoConnectors, onToTask, taskOf, onSync, syncing, syncResult, projects, groupProjects, onSetGroupProject, sops, runs, onBatchTriage, onOpenQueue, onOpenTriage, selectedGroup, onOpenGroup, onStartSession, linksOf, onOpenSession, onToMaterial, onOpenMaterial, onStopRuns, contactOps }: {
+  /** 群组管理成员菜单的加为联系人、关联已有（TSK-0724） */
+  contactOps?: ContactOps
   /** 转项目资料（SPEC-messages-6）：带上这些消息打开弹窗；转过的去项目资料页定位那一条 */
   onToMaterial: (ids: string[]) => void
   onOpenMaterial: (projectId: string, materialId: string) => void
@@ -215,6 +220,8 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   const [q, setQ] = useState('')
   /** 只看某个会话：convKey */
   const [conv, setConv] = useState('')
+  /** 项目筛选（SPEC-messages-1.67，TSK-0723）：'' 全部项目；PROJECT_NONE 未归项目；否则项目 id */
+  const [project, setProject] = useState('')
   /** 合并显示，默认开（SPEC-messages-1.54） */
   const [merge, setMerge] = useState(true)
   /** 群组管理抽屉（SPEC-messages-7） */
@@ -245,25 +252,43 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
           : m.status === v
   const kw = q.trim().toLowerCase()
   const relOk = (m: Message) => !mine || (mine === 'at' ? relOf(m) === 'me' : relOf(m) !== null)
+  // 项目口径同 project_id：消息自己归的项目优先，其次所在群的默认项目（withGroupProjects 已算好），项目删了按没归
+  const projectOk = (m: Message, pj = project) => !pj || (pj === PROJECT_NONE ? !liveProject(m) : liveProject(m) === pj)
+  const liveProject = (m: Message) => (m.project_id && projects.some((p) => p.id === m.project_id) ? m.project_id : null)
+  const kwOk = (m: Message) => !kw || [m.text, m.sender_name, m.conversation, whoOf(m)?.name ?? '', m.sender_id].some((v) => v.toLowerCase().includes(kw))
   const rows = useMemo(() => messages
-    .filter((m) => inView(m, view) && (!channel || m.channel === channel) && convOk(m, conv) && (!unreadOnly || !m.read) && relOk(m)
-      && (!kw || [m.text, m.sender_name, m.conversation, whoOf(m)?.name ?? '', m.sender_id].some((v) => v.toLowerCase().includes(kw))))
+    .filter((m) => inView(m, view) && (!channel || m.channel === channel) && convOk(m, conv) && (!unreadOnly || !m.read) && relOk(m) && projectOk(m) && kwOk(m))
     .sort((a, b) => b.at.localeCompare(a.at)),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  [messages, people, rels, view, channel, conv, unreadOnly, mine, kw])
+  [messages, people, rels, view, channel, conv, unreadOnly, mine, kw, project, projects])
+  // 项目下拉的选项（SPEC-messages-1.67）：先「未归项目」，再按当前视图下（不算项目本身）的条数、再按名字排
+  const projectFilterOptions = useMemo(() => {
+    const counts = new Map<string, number>()
+    for (const m of messages) {
+      if (!(inView(m, view) && (!channel || m.channel === channel) && convOk(m, conv) && (!unreadOnly || !m.read) && relOk(m) && kwOk(m))) continue
+      const k = liveProject(m) ?? PROJECT_NONE
+      counts.set(k, (counts.get(k) ?? 0) + 1)
+    }
+    const n = (k: string) => counts.get(k) ?? 0
+    const live = projects.map((p) => ({ value: p.id, label: p.name, group: '项目', hint: `${n(p.id)} 条` }))
+      .sort((a, b) => n(b.value) - n(a.value) || a.label.localeCompare(b.label, 'zh-CN'))
+    return [{ value: PROJECT_NONE, label: '未归项目', hint: `${n(PROJECT_NONE)} 条` }, ...live]
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, people, rels, view, channel, conv, unreadOnly, mine, kw, projects])
 
   // 状态 seg：待处理、稍后 + 枚举里的状态；状态多时 seg 只放前几个，其余收进「更多状态」
   const views = msgEnum.items.flatMap((i) => (i.key === 'pending' ? [[i.key, i.label], ['snoozed', '稍后']] : [[i.key, i.label]])) as [View, string][]
   const segViews = views.length > VIEW_SEG_MAX + 1 ? views.slice(0, VIEW_SEG_MAX) : views
   const moreViews = views.slice(segViews.length)
-  const count = (v: View) => messages.filter((m) => inView(m, v) && (!channel || m.channel === channel) && convOk(m, conv) && relOk(m)).length
-  const atMe = messages.filter((m) => m.status === 'pending' && !isSnoozed(m) && relOf(m) === 'me').length
+  const count = (v: View) => messages.filter((m) => inView(m, v) && (!channel || m.channel === channel) && convOk(m, conv) && relOk(m) && projectOk(m)).length
+  const atMe = messages.filter((m) => m.status === 'pending' && !isSnoozed(m) && relOf(m) === 'me' && projectOk(m)).length
 
   // 会话筛选的选项：当前渠道下出现过的群和私聊，各自按待处理数排
   const convOptions = useMemo(() => {
     const acc = new Map<string, { m: Message; n: number; pending: number }>()
     for (const m of messages) {
       if (channel && m.channel !== channel) continue
+      if (!projectOk(m)) continue
       const k = convKey(m)
       const x = acc.get(k) ?? { m, n: 0, pending: 0 }
       x.n += 1
@@ -282,7 +307,8 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
     const by = (a: [string, { pending: number; m: Message }], b: [string, { pending: number; m: Message }]) => b[1].pending - a[1].pending || b[1].m.at.localeCompare(a[1].m.at)
     const xs = [...acc.entries()]
     return [...xs.filter(([k]) => k.startsWith('g:')).sort(by).map(opt), ...xs.filter(([k]) => k.startsWith('d:')).sort(by).map(opt)]
-  }, [messages, channel, people, msgEnum])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, channel, people, msgEnum, project, projects])
 
   // 群组标签：选了渠道后按群组归总。群按消息条数、再按群名排（不按待处理数排，处理消息时标签不跳），
   // 私聊合成一个「私聊」标签紧跟「全部」（群多时也看得到）；超过 GROUP_TAB_MAX 的群和单个私聊收进「更多」。数字是待处理（不含稍后）
@@ -290,7 +316,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
     if (!channel) return null
     const acc = new Map<string, { m: Message; n: number; pending: number }>()
     for (const m of messages) {
-      if (m.channel !== channel) continue
+      if (m.channel !== channel || !projectOk(m)) continue
       const k = convKey(m)
       const x = acc.get(k) ?? { m, n: 0, pending: 0 }
       x.n += 1
@@ -300,13 +326,14 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
     const xs = [...acc.entries()].map(([value, x]) => ({ value, label: x.m.conversation || people.get(senderKey(x.m))?.name || x.m.sender_name, n: x.n, pending: x.pending, group: !!x.m.conversation }))
     const groups = xs.filter((x) => x.group).sort((a, b) => b.n - a.n || a.label.localeCompare(b.label, 'zh-CN'))
     const dms = xs.filter((x) => !x.group)
-    const all = { value: '', label: '全部', n: 0, pending: messages.filter((m) => m.channel === channel && m.status === 'pending' && !isSnoozed(m)).length }
+    const all = { value: '', label: '全部', n: 0, pending: messages.filter((m) => m.channel === channel && m.status === 'pending' && !isSnoozed(m) && projectOk(m)).length }
     const dm = dms.length ? [{ value: dmTab(channel), label: '私聊', n: 0, pending: dms.reduce((a, x) => a + x.pending, 0) }] : []
     const more: SearchOption[] = [...groups.slice(GROUP_TAB_MAX), ...dms].map((x) => ({
       value: x.value, group: x.group ? '群聊' : '私聊', label: x.label, hint: x.pending ? `${x.pending} 条${msgEnum.label('pending')}` : `${x.n} 条`,
     }))
     return { tabs: [all, ...dm, ...groups.slice(0, GROUP_TAB_MAX)], more, moreGroups: Math.max(0, groups.length - GROUP_TAB_MAX), any: groups.length + dms.length > 0 }
-  }, [messages, channel, people, msgEnum])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages, channel, people, msgEnum, project, projects])
   const moreOn = !!tabs?.more.some((o) => o.value === conv)
   const lastTriage = useMemo(() => latestTriage(runs), [runs])
   const activeN = activeTriage(runs).length
@@ -316,7 +343,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   const projectOptions = projects.map((p) => ({ value: p.id, label: p.name }))
 
   // 先渲染 PAGE 条；筛选一变就回到第一页（按筛选条件记，不用 effect 清）
-  const sig = [view, channel, conv, unreadOnly, mine, kw, merge].join('|')
+  const sig = [view, channel, conv, unreadOnly, mine, kw, merge, project].join('|')
   const [lim, setLim] = useState({ sig, n: PAGE })
   const limit = lim.sig === sig ? lim.n : PAGE
   const clusters = useMemo(() => clusterMessages(messages), [messages])
@@ -537,7 +564,14 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
         {/* 选了渠道时由群组标签代替这个下拉 */}
         {!channel && convOptions.length > 1 && (
           <SearchSelect value={conv} onChange={setConv} noneLabel="全部会话" options={convOptions}
-            searchPlaceholder="搜群名、发信人" missingLabel={() => '这个渠道下没有这个会话'} aria-label="只看某个会话" />
+            searchPlaceholder="搜群名、发信人" missingLabel={() => (project ? '这个项目下没有这个会话' : '这个渠道下没有这个会话')} aria-label="只看某个会话" />
+        )}
+        {/* 项目筛选（SPEC-messages-1.67，TSK-0723）：都没有项目、也没选时不显示 */}
+        {(projects.length > 0 || project) && (
+          <span title="消息自己归的项目优先，其次所在群的默认项目；「未归项目」是两者都没有的">
+            <SearchSelect value={project} onChange={setProject} noneLabel="全部项目" options={projectFilterOptions}
+              searchPlaceholder="搜项目" missingLabel={() => '已删除的项目'} aria-label="按项目筛选" />
+          </span>
         )}
         <div className="spacer" />
         <div className="channel-filter">
@@ -714,12 +748,12 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
       )}
       {mutesOpen && (
         <MutesDrawer onClose={() => setMutesOpen(false)}
-          onShow={(name) => { setMutesOpen(false); setChannel(''); setConv(''); setMine(''); setUnreadOnly(false); setView('ignored'); setQ(name) }} />
+          onShow={(name) => { setMutesOpen(false); setChannel(''); setConv(''); setProject(''); setMine(''); setUnreadOnly(false); setView('ignored'); setQ(name) }} />
       )}
       {groupsOpen && (
-        <GroupAdminDrawer messages={messages} contacts={contacts} projects={projects} groupProjects={groupProjects} onSetGroupProject={onSetGroupProject}
+        <GroupAdminDrawer contactOps={contactOps} messages={messages} contacts={contacts} projects={projects} groupProjects={groupProjects} onSetGroupProject={onSetGroupProject}
           onClose={() => setGroupsOpen(false)} onSend={(key) => setSending({ key })}
-          onOpenConversation={(ch, key) => { setGroupsOpen(false); setChannel(ch); setConv(key) }} />
+          onOpenConversation={(ch, key) => { setGroupsOpen(false); setChannel(ch); setConv(key); setProject('') }} />
       )}
       {sending && (
         <SendDialog messages={messages} contacts={contacts} connectors={connectors} preset={sending.key} onCancel={() => setSending(null)}

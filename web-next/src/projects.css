@@ -1,0 +1,67 @@
+/* powered by dsh - https://github.com/deepseek-ai/deepseek-harness */
+
+/* 项目详情（原型同步 2026-11-17）：标签条移到顶栏项目名称同一行、定时任务标签、SOP 自动关联、文档目录树、项目知识库 */
+
+/* 顶栏里的标签条：占名称和按钮之间剩下的宽度，放不下时自己横向滚动，不露滚动条 */
+.tb-tabs { flex: 1 1 0; min-width: 0; display: flex; align-items: center; align-self: stretch; }
+/* 有标签条时项目名不让位：名称先留着（最多占一半），标签条在剩下的宽度里滚 */
+.tb-title:has(~ .tb-tabs) { flex: 0 0 auto; max-width: 50%; }
+.pj-tabs { display: flex; gap: 16px; min-width: 0; height: 100%; overflow-x: auto; scrollbar-width: none; }
+.pj-tabs::-webkit-scrollbar { display: none; }
+.pj-tabs button { flex: none; display: inline-flex; align-items: center; gap: 6px; height: 100%; font-size: 13px; color: var(--muted); border-bottom: 2px solid transparent; }
+.pj-tabs button.on { color: var(--text); font-weight: 600; border-bottom-color: var(--accent); }
+.pj-tabs button:hover { color: var(--text); }
+
+/* 概览的项目 Agent：只有名称和按钮 */
+.pj-ov-agent-text { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; }
+.pj-role-unknown { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+
+/* 干系人角色：停用的虚线框、弱化；不认识的标红 */
+.stake-role-off { border-style: dashed; color: var(--faint); }
+.stake-role-bad { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 8%, var(--panel)); color: var(--danger); }
+
+/* 定时任务标签：名称、什么时候、下次执行；停用的名称变淡 */
+.pj-sched { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 120px; align-items: center; gap: 12px; width: 100%; min-height: 42px; padding: 0 16px; border-bottom: 1px solid var(--line); text-align: left; font-size: 13px; }
+.pj-sched:last-child { border-bottom: 0; }
+.pj-sched:hover { background: var(--panel-2); }
+.pj-sched > :last-child { text-align: right; }
+.pj-sched.is-off > :first-child { color: var(--faint); }
+
+/* SOP 标签里自动反向关联出来的流程 */
+.pj-auto-tag { display: inline-flex; align-items: center; height: 16px; margin-left: 6px; padding: 0 5px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 500; vertical-align: 1px; }
+.pj-hidden-note { margin-top: 10px; display: flex; gap: 8px; align-items: center; }
+
+/* 文档目录 */
+.pj-docsdir-note { margin-bottom: 12px; }
+.pj-docsdir { margin-top: 16px; }
+.pj-sec-head { display: flex; align-items: baseline; gap: 10px; min-width: 0; margin-bottom: 8px; }
+.pj-tree-path { min-width: 0; font-family: var(--mono); font-size: 12px; }
+.pj-tree { border: 1px solid var(--line); border-radius: var(--r-md, 10px); background: var(--panel); overflow: hidden; }
+.pj-tree-row { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 36px; padding-right: 12px; border-bottom: 1px solid var(--line); font-size: 13px; text-align: left; min-width: 0; }
+.pj-tree-row:last-child { border-bottom: 0; }
+.pj-tree-dir:hover { background: var(--panel-2); }
+.pj-tree-chev { display: inline-flex; width: 10px; color: var(--faint); transition: transform 0.12s; }
+.pj-tree-chev.open { transform: rotate(90deg); }
+.pj-tree-icon { display: inline-flex; color: var(--muted); flex: none; }
+.pj-tree-name { flex: 1; min-width: 0; text-align: left; }
+.pj-tree-count { color: var(--faint); font-size: 12px; }
+.pj-tree-meta { color: var(--faint); font-size: 12px; white-space: nowrap; }
+@media (max-width: 760px) { .pj-tree-meta { display: none; } }
+
+/* 文档目录文件的预览抽屉：盖在页面右侧 */
+.pj-docfile-scrim { position: fixed; inset: 0; z-index: 60; background: color-mix(in srgb, #000 18%, transparent); display: flex; justify-content: flex-end; }
+.pj-docfile { width: min(560px, 100vw); height: 100%; }
+.pj-docfile-title { font-size: 17px; font-weight: 600; margin: 0 0 6px; word-break: break-all; }
+.pj-docfile-meta { margin-bottom: 14px; word-break: break-all; }
+.pj-docfile-meta code { font: 12px var(--mono); }
+.pj-docfile-text { white-space: pre-wrap; font: 13px/1.7 var(--mono); background: var(--panel-2); border-radius: 8px; padding: 14px; margin-top: 10px; }
+.pj-docfile-ph { margin-top: 10px; padding: 40px 16px; border: 1px dashed var(--line); border-radius: 8px; text-align: center; color: var(--muted); font-size: 13px; }
+
+/* 项目知识库 */
+.pj-kb-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.pj-grow { flex: 1 1 220px; min-width: 0; }
+.pj-kb-acts { flex-wrap: wrap; align-items: center; }
+.pj-kb-res { display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.pj-kb-problems { margin: 0; padding-left: 18px; font-size: 12.5px; }
+.pj-kb-strip { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; margin-bottom: 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--panel-2); }
+.pj-kb-strip > .list-sub { flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }

@@ -2,19 +2,22 @@
 
 import { useOpenUrl, useProtoDomain } from './openurl'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
-import type { Agent, Session } from './agentdata'
-import { AgentAvatar } from './agents'
+import type { Agent, KnowledgeBase, Session } from './agentdata'
 import type { Connector, Contact, ContentItem, Message } from './data'
 import { ProjectAttachmentsTab, projectAttachmentRows } from './attachments'
-import { CommsTab, ProjectAgentTab, ProjectSopTab, ProjectTasksTab, StakeholdersTab, projectMessages } from './projecttabs'
+import { CommsTab, ProjectAgentTab, ProjectSchedulesTab, ProjectSopTab, ProjectTasksTab, StakeholdersTab, projectMessages, sortStakes } from './projecttabs'
+import { ProjectKbBlock, ProjectKbStrip } from './projectkb'
+import { DocFilePreview, DocsDirTree, docsDirAbs } from './projectdocs'
+import { useEnumView } from './enumdata'
+import type { Schedule } from './scheduledata'
 import { contactIndex, isSnoozed, senderKey } from './messages'
 import { SearchSelect } from './searchselect'
 import type { Sop, SopRun } from './sopflow'
 import type { Task, TaskArtifact, TaskStatus } from './taskdata'
 import { isOpenTask } from './taskdata'
 import {
-  DOC_KINDS, DOC_STATUS, MATERIAL_KIND, PROTO_STATUS, STAKE_ROLE, portConflict,
-  type DocStatus, type Material, type MaterialKind, type Project, type ProjectDoc, type Prototype, type StakeRole,
+  DOC_KINDS, DOC_STATUS, MATERIAL_KIND, PROTO_STATUS, docsDirFiles, portConflict,
+  type DocDirFile, type DocStatus, type Material, type MaterialKind, type Project, type ProjectDoc, type Prototype,
 } from './projectdata'
 import { Mark, MarkEditor } from './imagepick'
 import { ALWAYS_TABS, TabPicks, orderTabs } from './tabpicks'
@@ -22,6 +25,7 @@ import { BrowserPage, type ProtoEntry } from './browser'
 import type { GoogleAccount } from './browserdata'
 import { TerminalPage, type TermTab } from './terminal'
 import { PageTitle } from './topbar'
+import './projects.css'
 import { ProjectProfileTab } from './projectprofile'
 import { cls, timeAgo } from './ui'
 import { newId } from './ids'
@@ -29,9 +33,9 @@ import { newId } from './ids'
 // 项目：把一个产品相关的东西串起来——沟通（私聊、群聊）、干系人、任务、文档、SOP、Agent、支持材料、原型、目录
 // 任务和会话本身记着属于哪个项目（project_id），其余是项目这边记的关联
 
-export type ProjectTab = 'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'deals' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'profile' | 'settings'
+export type ProjectTab = 'overview' | 'comms' | 'attachments' | 'stakeholders' | 'tasks' | 'schedules' | 'deals' | 'docs' | 'sop' | 'agents' | 'materials' | 'prototypes' | 'profile' | 'settings'
 const TABS: { key: ProjectTab; label: string }[] = [
-  { key: 'overview', label: '概览' }, { key: 'comms', label: '沟通' }, { key: 'attachments', label: '附件' }, { key: 'stakeholders', label: '干系人' }, { key: 'tasks', label: '任务' }, { key: 'deals', label: '商单' },
+  { key: 'overview', label: '概览' }, { key: 'comms', label: '沟通' }, { key: 'attachments', label: '附件' }, { key: 'stakeholders', label: '干系人' }, { key: 'tasks', label: '任务' }, { key: 'schedules', label: '定时任务' }, { key: 'deals', label: '商单' },
   { key: 'docs', label: '文档' }, { key: 'sop', label: 'SOP' }, { key: 'agents', label: 'Agent' },
   { key: 'materials', label: '支持材料' }, { key: 'prototypes', label: '原型' }, { key: 'profile', label: '档案' }, { key: 'settings', label: '设置' },
 ]
@@ -45,7 +49,6 @@ const PROTO_PEEK = 5
 const STAKE_PEEK = 6
 /** 原型页签：已停止的超过这么多个就折叠 */
 const STOPPED_FOLD = 6
-const STAKE_ORDER: StakeRole[] = ['decider', 'contact', 'owner', 'member', 'informed']
 /** 路径里的目录前缀：「materials/a.md」→「materials」；没有就默认放 materials 下 */
 const dirOf = (v: string) => (v.includes('/') ? v.slice(0, v.lastIndexOf('/')) : v.trim() ? '' : 'materials')
 
@@ -292,6 +295,16 @@ export interface ProjectLinks {
   imOn?: boolean
   /** 从消息上「已转资料」跳过来时高亮的那条材料（SPEC-projects-11.23） */
   focusMaterial?: string | null
+  /** 定时任务标签（826fe6d2）：归到项目的定时任务；打开、新建（预填所属项目）、去定时任务页看 */
+  schedules?: Schedule[]
+  onOpenSchedule?: (id: string) => void
+  onNewSchedule?: () => void
+  onAllSchedules?: () => void
+  /** 项目知识库（TSK-0721）：知识库列表，去知识库打开、新建、挂到 Agent */
+  kbs?: KnowledgeBase[]
+  onOpenKb?: (id: string) => void
+  onCreateKb?: (kb: KnowledgeBase) => void
+  onAttachKb?: (agentId: string, kbId: string) => void
 }
 
 export function ProjectPage({ project, projects, agents, content, tab, onTab, onChange, onDelete, onStart, onStop, onOpenDoc, onChat, onOpenAgent, links, delImpact, onAll, dock, onDock, deals, dealAlert, recent = [], onSwitch }: {
@@ -334,6 +347,13 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
   const agent = agents.find((a) => a.id === p.agent_ids[0])
   const openUrl = useOpenUrl()
   const L = links
+  const roles = useEnumView('project_role')
+  const kbEnv = { kbs: L.kbs ?? [], agents, content, onOpenKb: L.onOpenKb ?? (() => {}), onCreateKb: L.onCreateKb ?? (() => {}), onAttachKb: L.onAttachKb ?? (() => {}) }
+  // 文档目录里的文件（原型是演示清单）和正在预览的那个
+  const dirFiles = useMemo(() => (p.docs_dir ? docsDirFiles(p.docs_dir) : []), [p.docs_dir])
+  const [preview, setPreview] = useState<DocDirFile | null>(null)
+  // 标签条挤在标题行里横向滚动时，把当前标签滚进视野（只动标签条自己）
+  useEffect(() => { document.querySelector('.pj-tabs .on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' }) }, [tab])
   const people = useMemo(() => contactIndex(L.contacts), [L.contacts])
   const pmsgs = projectMessages(p, L.messages, L.contacts, people)
   const waiting = pmsgs.filter(awaitingReply).length
@@ -369,7 +389,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
 
   const actions = {
     overview: <button className="btn btn-outline" onClick={() => onTab('settings')}>项目设置</button>,
-    comms: null, attachments: null, stakeholders: null, tasks: null, deals: null, sop: null, agents: null, profile: null,
+    comms: null, attachments: null, stakeholders: null, tasks: null, schedules: null, deals: null, sop: null, agents: null, profile: null,
     materials: <button className="btn btn-primary" onClick={() => setNewMat({ name: '', kind: 'file', value: '', tags: [] })}>加材料</button>,
     docs: <button className="btn btn-primary" onClick={() => setNewDoc({ title: '', kind: 'PRD', type: 'library', ref: content[0]?.id ?? '' })}>加文档</button>,
     prototypes: <button className="btn btn-primary" onClick={() => setNewProto({ name: '', dir: '', command: 'npm run dev', port: freePort() })}>加原型</button>,
@@ -389,8 +409,22 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
 
   return (
     <div className="page page-fill project-page">
-      <PageTitle parent={onAll ? <button className="tb-parent-btn tb-parent-keep" onClick={onAll} title="回到项目列表">项目</button> : '项目'} desc={p.desc} actions={dockBtns ? <>{actions}{dockBtns}</> : actions}
-        icon={onSwitch ? undefined : <ProjectMark p={p} size={20} />}>
+      {/* 标签条在项目名称同一行的右侧（TSK-0718），项目说明不再显示在顶栏（设置里看、改） */}
+      <PageTitle parent={onAll ? <button className="tb-parent-btn tb-parent-keep" onClick={onAll} title="回到项目列表">项目</button> : '项目'} actions={dockBtns ? <>{actions}{dockBtns}</> : actions}
+        icon={onSwitch ? undefined : <ProjectMark p={p} size={20} />}
+        tabs={(
+          <div className="pj-tabs" role="tablist" aria-label="项目标签">
+            {orderTabs(TABS, p.tabs_order).filter((t) => (t.key !== 'deals' || deals) && (t.key !== 'attachments' || L.imOn !== false) && !hiddenTabs.includes(t.key)).map((t) => (
+          <button key={t.key} className={cls(tab === t.key && 'on')} onClick={() => onTab(t.key)}>
+            {t.label}
+            {t.key === 'prototypes' && running(p) > 0 && <span className="proto-light pl-running" />}
+            {t.key === 'comms' && waiting > 0 && <span className="side-dot" />}
+            {t.key === 'attachments' && attTodo > 0 && <span className="seg-n" title={`${attTodo} 个附件待决定`}>{attTodo}</span>}
+            {t.key === 'deals' && dealAlert && <span className="side-dot" />}
+          </button>
+        ))}
+          </div>
+        )}>
         {onSwitch ? (
           // 项目名点开是切换项目的菜单（SPEC-projects-2.9）：最近打开的在前，其余按名称，可搜；上下选、回车切、Esc 关
           <SearchSelect variant="plain" className="proj-switch" value={p.id} title="切换项目" aria-label="切换项目" searchPlaceholder="搜项目" noMatchText="没有匹配的项目" menuWidth={300}
@@ -401,18 +435,6 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
             }).map((x) => ({ value: x.id, label: x.name, keywords: `${x.desc} ${x.root}`, icon: <ProjectMark p={x} size={18} /> }))} />
         ) : p.name}
       </PageTitle>
-      <div className="project-tabs np-tabs">
-        {orderTabs(TABS, p.tabs_order).filter((t) => (t.key !== 'deals' || deals) && (t.key !== 'attachments' || L.imOn !== false) && !hiddenTabs.includes(t.key)).map((t) => (
-          <button key={t.key} className={cls(tab === t.key && 'on')} onClick={() => onTab(t.key)}>
-            {t.label}
-            {t.key === 'prototypes' && running(p) > 0 && <span className="proto-light pl-running" />}
-            {t.key === 'comms' && waiting > 0 && <span className="side-dot" />}
-            {t.key === 'attachments' && attTodo > 0 && <span className="seg-n" title={`${attTodo} 个附件待决定`}>{attTodo}</span>}
-            {t.key === 'deals' && dealAlert && <span className="side-dot" />}
-          </button>
-        ))}
-      </div>
-
       {tab === 'overview' && (
         <div className="proj-overview">
           <div className="stats">
@@ -420,7 +442,6 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
             <button className="stat stat-btn" onClick={() => onTab('tasks')}><div className="stat-label">未完成任务</div><div className="stat-value">{openTasks.length}</div></button>
             <button className="stat stat-btn" onClick={() => onTab('stakeholders')}><div className="stat-label">干系人</div><div className="stat-value">{p.stakeholders.length}</div></button>
             <button className="stat stat-btn" onClick={() => onTab('docs')}><div className="stat-label">产品文档</div><div className="stat-value">{p.docs.length}</div></button>
-            <button className="stat stat-btn" onClick={() => onTab('prototypes')}><div className="stat-label">原型运行中</div><div className="stat-value stat-ok">{running(p)} / {p.prototypes.length}</div></button>
           </div>
           <div className="proj-grid">
             <section className="hook-sec">
@@ -433,7 +454,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
                 : <div className="mount-empty">还没绑定沟通渠道。<button className="link-btn" onClick={() => onTab('comms')}>去绑定</button></div>}
             </section>
             <section className="hook-sec">
-              <div className="mount-head"><div className="field-group-title">进行中的任务</div><button className="act act-quiet" onClick={() => onTab('tasks')}>全部</button></div>
+              <div className="mount-head"><div className="field-group-title">未完成的任务</div><button className="act act-quiet" onClick={() => onTab('tasks')}>全部</button></div>
               {openTasks.length ? openTasks.sort((a, b) => a.priority.localeCompare(b.priority)).slice(0, 5).map((t) => (
                 <button key={t.id} className="proj-proto-line" onClick={() => L.onOpenTask(t.id)}>
                   <span className="task-ref">{t.ref}</span><span className="ellipsis">{t.title}</span><span className="spacer" /><span className="run-muted">{t.assignee}</span>
@@ -442,9 +463,14 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
             </section>
             <section className="hook-sec">
               <div className="mount-head"><div className="field-group-title">干系人</div><button className="act act-quiet" onClick={() => onTab('stakeholders')}>全部</button></div>
-              {p.stakeholders.length ? <div className="proj-stakes">{[...p.stakeholders].sort((a, b) => STAKE_ORDER.indexOf(a.role) - STAKE_ORDER.indexOf(b.role)).slice(0, STAKE_PEEK).map((x) => {
+              {p.stakeholders.length ? <div className="proj-stakes">{sortStakes(p.stakeholders, roles.items.map((r) => r.key)).slice(0, STAKE_PEEK).map((x) => {
                 const c = L.contacts.find((y) => y.id === x.contact_id)
-                return c && <button key={x.contact_id} className="tag kb-user" onClick={() => L.onOpenContact(c.id)} title={x.focus ? `${c.name}：${x.focus}` : c.name}><span className="kb-user-name">{c.name} · {STAKE_ROLE[x.role].label}</span></button>
+                // 角色名从字典 project_role 取（TSK-0718）；停用的标「（已停用）」，字典里没有的原样显示、标红
+                const role = roles.item(x.role)
+                const tip = x.focus ? `${c?.name}：${x.focus}` : c?.name
+                return c && <button key={x.contact_id} className={cls('tag kb-user', !role && 'pj-role-unknown')} onClick={() => L.onOpenContact(c.id)}
+                  title={role ? (role.enabled ? tip : `${tip}（角色「${role.label}」已停用）`) : `${tip}（不认识的角色「${x.role}」，去干系人标签改一个）`}>
+                  <span className="kb-user-name">{c.name} · {role ? role.label : x.role}{role && !role.enabled && '（已停用）'}</span></button>
               })}{p.stakeholders.length > STAKE_PEEK && <button className="tag" onClick={() => onTab('stakeholders')} title="看全部干系人">+{p.stakeholders.length - STAKE_PEEK}</button>}</div> : <div className="mount-empty">还没有干系人</div>}
             </section>
             <section className="hook-sec">
@@ -455,9 +481,9 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
             <section className="hook-sec">
               <div className="mount-head"><div className="field-group-title">项目 Agent</div><button className="act act-quiet" onClick={() => onTab('agents')}>全部</button></div>
               {agent ? (
+                // 只显示名称和「和它对话」，不带头像和说明（TSK-0718）；停用的标「已停用」
                 <div className="proj-agent">
-                  <AgentAvatar agent={agent} size={36} />
-                  <span className="mount-text"><b>{agent.name}</b><span className="list-sub">{agent.desc}</span></span>
+                  <span className="mount-text pj-ov-agent-text"><b className="ellipsis">{agent.name}</b>{!agent.enabled && <span className="list-sub">已停用</span>}</span>
                   <button className="act act-primary" disabled={!agent.enabled} onClick={() => onChat(agent.id)}>和它对话</button>
                 </div>
               ) : <div className="mount-empty">还没设置。<button className="link-btn" onClick={() => onTab('agents')}>去设置</button></div>}
@@ -497,12 +523,15 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
         onSkip={(ids, skip) => set({ skipped_attachments: skip ? [...new Set([...(p.skipped_attachments ?? []), ...ids])] : (p.skipped_attachments ?? []).filter((x) => !ids.includes(x)) })} />}
       {tab === 'stakeholders' && <StakeholdersTab p={p} contacts={L.contacts} messages={L.messages} onChange={set} onOpenContact={L.onOpenContact} onOpenMessage={L.onOpenMessage} />}
       {tab === 'deals' && deals}
+      {tab === 'schedules' && <ProjectSchedulesTab p={p} schedules={L.schedules ?? []} onOpen={(id) => L.onOpenSchedule?.(id)} onNew={() => L.onNewSchedule?.()} onAll={() => L.onAllSchedules?.()} />}
       {tab === 'tasks' && <ProjectTasksTab p={p} tasks={L.tasks} onNew={L.onNewTask} onOpen={L.onOpenTask} onStatus={L.onTaskStatus} onApprove={L.onApproveTask} artifacts={L.artifacts} />}
       {tab === 'sop' && <ProjectSopTab p={p} sops={L.sops} runs={L.runs} onChange={set} onStart={L.onStartSop} onOpenRun={L.onOpenRun} onOpenSop={L.onOpenSop} />}
       {tab === 'agents' && <ProjectAgentTab p={p} agents={agents} sessions={L.sessions} onChange={set} onChat={onChat} onOpenAgent={onOpenAgent} onOpenSession={L.onOpenSession} onAllSessions={L.onAllSessions}
         chatOpen={L.chatOpen ?? null} onChatOpen={L.onChatOpen} renderChat={L.renderChat} />}
       {tab === 'materials' && (
         <>
+          {/* 顶上「项目知识库」入口条（TSK-0721，SPEC-projects-11.27） */}
+          <ProjectKbStrip p={p} env={kbEnv} onSettings={() => onTab('settings')} />
           {newMat && (
             <div className="inline-form">
               <div className="seg seg-sm">{(Object.keys(MATERIAL_KIND) as MaterialKind[]).map((k) => <button key={k} className={cls(newMat.kind === k && 'on')} onClick={() => setNewMat({ ...newMat, kind: k })}>{MATERIAL_KIND[k]}</button>)}</div>
@@ -621,7 +650,9 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
               </div>
             </div>
           )}
-          {p.docs.length ? (
+          {/* 文档目录（TSK-0718）：没设提示去设置；设了的按目录层级列成树，在工作台文档表格下面（SPEC-projects-8.20、8.21） */}
+          {!p.docs_dir && <div className="mount-empty pj-docsdir-note">还没设文档目录，设了之后这里会列出目录里的文档文件。<button className="link-btn" onClick={() => onTab('settings')}>去设置</button></div>}
+          {p.docs.length > 0 && (
             <div className="task-table">
               <div className="pdoc-row task-th"><span>文档</span><span>类型</span><span>来源</span><span>状态</span><span>更新</span><span /></div>
               {p.docs.map((x) => (
@@ -640,7 +671,13 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
                 </div>
               ))}
             </div>
-          ) : !newDoc && <div className="empty"><div className="empty-title">还没有产品文档</div><div className="list-sub">可以关联「文档」里的 PRD，也可以指向项目目录里的文件</div></div>}
+          )}
+          {dirFiles.length > 0 && <DocsDirTree files={dirFiles} path={p.docs_dir!} onPreview={setPreview} />}
+          {!p.docs.length && !dirFiles.length && !newDoc && (
+            <div className="empty"><div className="empty-title">还没有产品文档</div>
+              <div className="list-sub">{p.docs_dir ? '可以关联「文档」里的 PRD，也可以指向项目目录里的文件；文档目录里还没有文档文件' : '可以关联「文档」里的 PRD，也可以指向项目目录里的文件；也可以在项目设置里指定文档目录，列出目录里的文档文件'}</div></div>
+          )}
+          {preview && <DocFilePreview key={preview.rel} file={preview} dir={docsDirAbs(p.docs_dir ?? '', p.root)} onClose={() => setPreview(null)} />}
         </>
       )}
 
@@ -712,9 +749,14 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
             <label className="field"><span className="field-label">说明</span><input value={p.desc} onChange={(e) => set({ desc: e.target.value })} /></label>
           </section>
           <section className="hook-sec">
-            <div className="field-group-title">本地项目目录<span className="field-hint">原型、文件类材料和文档的路径都相对它</span></div>
+            <div className="field-group-title">本地项目目录<span className="field-hint">原型、文件类材料和文档的路径都相对它；任务没设工作目录时用它</span></div>
             <PathInput value={p.root} placeholder="/Users/me/projects/xxx" onChange={(v) => set({ root: v })} />
           </section>
+          <section className="hook-sec">
+            <div className="field-group-title">文档目录<span className="field-hint">文档标签列出这里的文档文件（md、docx、pdf 等）；执行任务时告诉 Agent 文档写在这里。相对本地项目目录，也可以填绝对路径</span></div>
+            <PathInput value={p.docs_dir ?? ''} placeholder={p.root.trim() ? 'docs' : '/Users/me/projects/xxx/docs'} onChange={(v) => set({ docs_dir: v })} />
+          </section>
+          <ProjectKbBlock p={p} env={kbEnv} onChange={set} />
           <section className="hook-sec">
             <div className="mount-head">
               <div className="field-group-title">关联目录<span className="field-hint">和这个项目相关、但不在项目目录里的地方：设计稿、客户资料、别的仓库</span></div>

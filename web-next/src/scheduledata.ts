@@ -42,7 +42,19 @@ export type ScheduleAction =
    * out_dir 是产出放哪（相对 workdir，空为 workdir 本身），拼进提示词
    */
   | { kind: 'claude'; workdir: string; prompt: string; preset_id: string; allow_writes: boolean; out_dir: string }
-export const ACTION_LABEL: Record<ScheduleAction['kind'], string> = { task: '建一条任务', remind: '提醒', sop: '执行 SOP', agent: '让 Agent 去做', claude: '交给 Claude Code', publish: '发布视频', incident_sweep: '运行异常巡检' }
+  /** 拉取代码（77171f30）：到点在本机仓库里 git pull --ff-only；repo 绝对路径，remote、branch 空串时按仓库自己的上游拉，填了 branch 时 remote 必填 */
+  | { kind: 'git_pull'; repo: string; remote: string; branch: string }
+export const ACTION_LABEL: Record<ScheduleAction['kind'], string> = { task: '建一条任务', remind: '提醒', sop: '执行 SOP', agent: '让 Agent 去做', claude: '交给 Claude Code', publish: '发布视频', incident_sweep: '运行异常巡检', git_pull: '拉取代码' }
+/** 拉取代码的前端先挡：仓库要绝对路径，填了分支要填远端；是不是 git 仓库由后端在保存时查（原型不查） */
+export function gitPullError(a: { repo: string; remote: string; branch: string }): string {
+  const r = a.repo.trim()
+  if (!r) return '填仓库路径'
+  if (!r.startsWith('/') && !/^[A-Za-z]:[\\/]/.test(r)) return '仓库路径要写绝对路径'
+  if (a.branch.trim() && !a.remote.trim()) return '填了分支也要填远端'
+  return ''
+}
+/** 「git pull <仓库> [远端 [分支]]」 */
+export const gitPullText = (a: { repo: string; remote: string; branch: string }) => `git pull ${a.repo || '未填仓库'}${a.remote ? ` ${a.remote}${a.branch ? ` ${a.branch}` : ''}` : ''}`
 /** 「交给 Claude Code」的配置错误，空串为没问题（SPEC-tasks-8.27） */
 export function claudeActionError(a: { workdir: string; prompt: string; out_dir: string }): string {
   const w = a.workdir.trim()
@@ -79,6 +91,8 @@ export interface Schedule {
   action: ScheduleAction
   history: ScheduleRun[]
   created_at: string
+  /** 所属项目（正式产品 schedules.project_id，0055）：项目详情「定时任务」标签列它；动作是建任务时，建出来的任务也归到这个项目 */
+  project_id?: string
 }
 
 const pad = (n: number) => String(n).padStart(2, '0')
@@ -260,7 +274,17 @@ export function syncPublishSchedules(list: Schedule[], publishes: Publish[]): Sc
 
 export const seedSchedules: Schedule[] = [
   {
-    id: 'sc_weekly_agenda', name: '周会前整理议程', enabled: true, created_at: minsAgo(60 * 24 * 40),
+    // 拉取代码（77171f30）：每天 8:30 在本机仓库 git pull --ff-only，结果记执行记录
+    id: 'sc_git_pull', name: '每天早上拉 pm-workspace 代码', enabled: true, created_at: minsAgo(60 * 24 * 6), project_id: 'pj_pmw',
+    rule: { ...emptyRule(), freq: 'daily', time: '08:30' },
+    action: { kind: 'git_pull', repo: '/Volumes/project/example/pm-workspace', remote: '', branch: '' },
+    history: [
+      { at: minsAgo(60 * 9), ok: true, text: 'pm-workspace（main） 拉了 3 个新提交 8d9ff0c → 440999e' },
+      { at: minsAgo(60 * 33), ok: false, text: '没拉成：Not possible to fast-forward, aborting.（本地有没推的提交，和远端分叉了）' },
+    ],
+  },
+  {
+    id: 'sc_weekly_agenda', name: '周会前整理议程', enabled: true, created_at: minsAgo(60 * 24 * 40), project_id: 'pj_pmw',
     rule: { ...emptyRule(), freq: 'weekly', time: '09:00', weekdays: [1] },
     action: { kind: 'task', title: '整理本周产品周会议程', desc: '把上周遗留问题和本周要拍板的事列出来，会前发群里', priority: 'P2', assignee: '我', due_days: 0 },
     history: [{ at: minsAgo(60 * 24 * 2 + 300), ok: true, text: '建了任务 T-005', ref: 'T-005' }, { at: minsAgo(60 * 24 * 9 + 300), ok: true, text: '建了任务 T-002', ref: 'T-002' }],

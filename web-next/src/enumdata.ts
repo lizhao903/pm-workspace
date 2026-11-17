@@ -33,7 +33,7 @@ export interface EnumGroup {
   items: EnumItem[]
 }
 
-export const MODULES = ['任务', '联系人', '文档', 'IM 消息', 'SOP', '自定义']
+export const MODULES = ['任务', '联系人', '文档', 'IM 消息', 'SOP', '项目', '自定义']
 
 export const ENUM_COLORS = ['#3d4fd6', '#0c8599', '#2f7d43', '#b0570b', '#c0352b', '#7048e8', '#e8590c', '#a19d92']
 
@@ -71,6 +71,13 @@ export const seedEnums: EnumGroup[] = [
     desc: '编排 SOP 时开始节点可选的触发方式',
     // 定时只有一项（TSK-0463）：时间规则在开始节点里配，存在随流程管理的定时任务里；原来的 daily「每天 09:00」、weekly「每周一 18:00」并进来
     items: [it('manual', '手动', '#a19d92', '', true), it('im', 'IM 消息', '#2f7d43', '收到符合条件的 IM 消息时'), it('schedule', '定时', '#3d4fd6', '按开始节点里设的时间规则自动执行', true)],
+  },
+  {
+    // TSK-0718：项目干系人的角色走字典（SPEC-settings-17.34、SPEC-projects-0 StakeRole）；内置五个，可加、改名、停用、排序
+    key: 'project_role', name: '项目干系人角色', module: '项目', builtin: true, default_key: 'member',
+    desc: '项目干系人标签的角色下拉和排序，视频商单的联系人下拉也用它',
+    items: [it('decider', '决策人', '#c0352b', '拍板、验收'), it('contact', '对接人', '#b0570b', '日常沟通、需求来源'), it('owner', '负责人', '#3d4fd6', '我方交付负责'),
+      it('member', '参与', '#2f7d43', '一起做事'), it('informed', '知会', '#a19d92', '有进展告诉他就行')],
   },
   {
     key: 'customer_level', name: '客户等级', module: '自定义', builtin: false, default_key: 'B',

@@ -7,7 +7,7 @@ import './aiowner.css'
 
 export type AIKind = 'agent' | 'cli'
 
-/** 命令行执行器在名册里的名字（正式产品还有 DeepSeek，原型没有这个执行器） */
+/** 命令行执行器在名册里的名字：Claude Code、DeepSeek（TSK-0722，交给执行里能选） */
 export const CLI_MEMBERS = ['Claude Code', 'DeepSeek']
 
 /** 按负责人名字认是不是 AI 成员：CLI 名字或某个 Agent 的名字 */
