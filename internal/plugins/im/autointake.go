@@ -340,6 +340,10 @@ func (in *inbox) installIntake(ctx context.Context, c plugin.Core) error {
 	if _, err := in.installOnce(ctx, c, fdeForwardFlow()); err != nil {
 		c.Log().Warn("im fde forward flow install failed", "err", err)
 	}
+	// 我回复后标为已处理（0.31.0，replied.go）：单独写，只写一次；SOP 旧版不认触发方式 im_reply 也照样写进去，升级后生效
+	if _, err := in.installOnce(ctx, c, repliedDoneFlow()); err != nil {
+		c.Log().Warn("im replied done flow install failed", "err", err)
+	}
 	ok, err := in.installOnce(ctx, c, releasePipelineFlow())
 	if err != nil {
 		c.Log().Warn("im release pipeline flow install failed", "err", err)

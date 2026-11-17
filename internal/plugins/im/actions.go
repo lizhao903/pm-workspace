@@ -305,10 +305,13 @@ func (in *inbox) reply(w http.ResponseWriter, r *http.Request) {
 		fail(w, r, in.c, err)
 		return
 	}
-	if _, err := in.replyTo(ctx, m, text, mentions); err != nil {
+	done, err := in.replyTo(ctx, m, text, mentions)
+	if err != nil {
 		fail(w, r, in.c, err)
 		return
 	}
+	// 我在消息页回复的（0.31.0）：发 im.message_replied，SOP 的「我回复了消息」流程据此处理；SOP 节点的回复不走这里、不发
+	in.publishReplied(ctx, m.ID, done.ID, ReplyViaWorkbench, in.clock().UTC().Format(timeLayout))
 	set := `reply_error = '', is_read = 1`
 	if body.Done {
 		set += `, status = 'done', snooze_until = NULL, expired_at = NULL`

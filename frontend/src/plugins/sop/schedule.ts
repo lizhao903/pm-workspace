@@ -49,11 +49,15 @@ export function scheduleStateOf(f: Pick<SopFlow, 'trigger' | 'schedule'>, now: D
   }
 }
 
-const FALLBACK_TRIGGERS: { value: string; label: string }[] = ['manual', 'im', SCHEDULE].map((v) => ({ value: v, label: TRIGGER_LABEL[v] }))
+const IM_REPLY = 'im_reply'
+const FALLBACK_TRIGGERS: { value: string; label: string }[] = ['manual', 'im', IM_REPLY, SCHEDULE].map((v) => ({ value: v, label: TRIGGER_LABEL[v] }))
 
-/** 字典条目换成选项：去掉旧的定时类，保证正好一项「定时」（字典里有 schedule 用它的名字，没有排在最后补上） */
+/** 字典条目换成选项：去掉旧的定时类，保证正好一项「定时」（字典里有 schedule 用它的名字，没有排在最后补上）；
+ *  字典里有「IM 消息」没有「我回复了消息」（im_reply，SOP 0.21.0，字典是它之前建的）时补在「IM 消息」后面 */
 export function triggerOptionsOf(items: readonly { key: string; label: string }[]): { value: string; label: string }[] {
   const opts = items.filter((x) => !LEGACY_SCHEDULE_TRIGGERS.includes(x.key)).map((x) => ({ value: x.key, label: x.label }))
   if (!opts.length) return FALLBACK_TRIGGERS
+  const im = opts.findIndex((x) => x.value === 'im')
+  if (im >= 0 && !opts.some((x) => x.value === IM_REPLY)) opts.splice(im + 1, 0, { value: IM_REPLY, label: TRIGGER_LABEL[IM_REPLY] })
   return opts.some((x) => x.value === SCHEDULE) ? opts : [...opts, { value: SCHEDULE, label: TRIGGER_LABEL[SCHEDULE] }]
 }

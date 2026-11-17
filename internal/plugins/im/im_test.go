@@ -27,7 +27,7 @@ func TestManifestValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("清单不合法：%v", err)
 	}
-	if m.ID != "im" || m.TablePrefix != "im_" || len(m.Emits) != 2 || m.Emits[0] != EventReceived || m.Emits[1] != EventMuted {
+	if m.ID != "im" || m.TablePrefix != "im_" || len(m.Emits) != 3 || m.Emits[0] != EventReceived || m.Emits[1] != EventMuted || m.Emits[2] != EventReplied {
 		t.Fatalf("id=%s table_prefix=%s emits=%v", m.ID, m.TablePrefix, m.Emits)
 	}
 	for _, id := range plugin.ReservedIDs {

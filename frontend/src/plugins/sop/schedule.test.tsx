@@ -56,7 +56,9 @@ describe('流程的定时', () => {
   })
 
   it('触发方式选项：旧的定时类不列，正好一项定时', () => {
-    expect(triggerOptionsOf([]).map((x) => x.value)).toEqual(['manual', 'im', 'schedule'])
+    expect(triggerOptionsOf([]).map((x) => x.value)).toEqual(['manual', 'im', 'im_reply', 'schedule'])
+    // 字典是加「我回复了消息」之前建的：有 IM 消息就补在它后面
+    expect(triggerOptionsOf([{ key: 'manual', label: '手动' }, { key: 'im', label: 'IM 消息' }]).map((x) => x.value)).toEqual(['manual', 'im', 'im_reply', 'schedule'])
     const items = [{ key: 'manual', label: '手动' }, { key: 'daily', label: '每天 09:00' }, { key: 'weekly', label: '每周一 18:00' }]
     expect(triggerOptionsOf(items)).toEqual([{ value: 'manual', label: '手动' }, { value: 'schedule', label: '定时' }])
     expect(triggerOptionsOf([...items, { key: 'schedule', label: '按时间' }]).filter((x) => x.label.includes('时'))).toEqual([{ value: 'schedule', label: '按时间' }])

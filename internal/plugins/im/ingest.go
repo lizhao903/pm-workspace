@@ -185,7 +185,7 @@ func (in *inbox) ingestAs(ctx context.Context, a Adapter, msgs []Incoming, stric
 		}
 	}
 	for _, m := range mine {
-		if err := in.recordSelf(ctx, ch, m); err != nil {
+		if err := in.recordSelf(ctx, ch, m, history); err != nil {
 			return res, err
 		}
 	}
@@ -200,7 +200,9 @@ const sameReplySQL = `SELECT 1 FROM im_replies rp JOIN im_messages mm ON mm.id =
 // recordSelf 把「我」自己在渠道里发的一条（FromSelf，IM-06）记成回复：挂在同渠道、同连接器、同会话里
 // 发送时间不晚于它的最近一条消息上，状态 sent，时间用它的发送时间，那条标为已读，处理状态不动（要不要算处理完由人定）。
 // 同一外部编号已记过（在工作台里回复的，拉回来时又看到）、是工作台主动发出的（im_outbox）、没有会话编号、会话里还没收过消息的跳过。
-func (in *inbox) recordSelf(ctx context.Context, ch string, m Incoming) error {
+// 记下了、又是回在消息列（串）里或私聊里的，发 im.message_replied（0.31.0，replied.go）；群聊里不在串里发的只是挂在最近一条上，
+// 不一定是回它，不发；补全历史（history）时不发。
+func (in *inbox) recordSelf(ctx context.Context, ch string, m Incoming, history bool) error {
 	ext, conv := strings.TrimSpace(m.ExternalID), strings.TrimSpace(m.ConversationID)
 	if ext == "" || conv == "" {
 		return nil
@@ -237,17 +239,28 @@ func (in *inbox) recordSelf(ctx context.Context, ch string, m Incoming) error {
 		return err
 	}
 	// 查重和插入在同一条语句里：工作台回复正在落库时不会插进第二条；回复那边后落库的话由它清掉这一条（见 reply）
+	rid := idgen.Prefixed("rp")
 	res, err := in.c.Store().Exec(ctx, `INSERT INTO im_replies (id, message_id, text, status, external_id, created_at)
 		SELECT ?, ?, ?, 'sent', ?, ? WHERE NOT EXISTS (`+sameReplySQL+`)`,
-		idgen.Prefixed("rp"), msgID, clip(m.Text, maxText), ext, sentAt, ext, ch, strings.TrimSpace(m.ConnectorID), convExt)
+		rid, msgID, clip(m.Text, maxText), ext, sentAt, ext, ch, strings.TrimSpace(m.ConnectorID), convExt)
 	if err != nil {
 		return fmt.Errorf("record self reply: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return nil
 	}
-	_, err = in.c.Store().Exec(ctx, `UPDATE im_messages SET is_read = 1 WHERE id = ?`, msgID)
-	return err
+	if _, err = in.c.Store().Exec(ctx, `UPDATE im_messages SET is_read = 1 WHERE id = ?`, msgID); err != nil {
+		return err
+	}
+	if history {
+		return nil
+	}
+	via := ""
+	if strings.TrimSpace(m.ThreadParentID) != "" {
+		via = ReplyViaThread
+	}
+	in.publishReplied(ctx, msgID, rid, via, sentAt)
+	return nil
 }
 
 // row 是规整好、待插入的一条。

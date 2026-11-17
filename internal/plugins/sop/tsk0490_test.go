@@ -210,7 +210,7 @@ func TestNodeTypesAndTriggers(t *testing.T) {
 		}
 	}
 	code, out := call(t, h, "GET", "/api/sop/triggers", "")
-	if code != 200 || len(out["data"].([]any)) != 3 {
+	if code != 200 || len(out["data"].([]any)) != 4 {
 		t.Fatalf("%d %v", code, out)
 	}
 	im := out["data"].([]any)[1].(map[string]any)

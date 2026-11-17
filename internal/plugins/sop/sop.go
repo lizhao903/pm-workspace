@@ -124,6 +124,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	r.Subscribe(imReceivedEvent, st.onIMMessage)
 	// 被自动忽略的消息（IM 插件 0.28.0 起发 im.message_muted）记「没发起」的原因（TSK-0491，skips.go）
 	r.Subscribe(imMutedEvent, st.onIMMuted)
+	// 触发方式是 im_reply 的流程在我回复了 IM 消息时发起（IM 插件 0.31.0 起发 im.message_replied，imreply.go）
+	r.Subscribe(imRepliedEvent, st.onIMReplied)
 	// Claude Code 节点等的运行结束了叫醒它（AUTO-01，nodes_claude.go）；兜底还有轮询
 	r.Subscribe(plugin.RunFinishedEvent, e.onRunFinished)
 	r.TodayCard(plugin.TodayCardDef{Key: "sop_pending", Title: "SOP 待我处理", Order: 50, Load: pendingCard})

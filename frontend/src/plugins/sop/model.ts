@@ -64,7 +64,7 @@ export const kindLabel = (k: string) => KIND_LABEL[k] ?? sopNodeView(k)?.label ?
  * 定时（TSK-0463）只有一项 schedule，时间规则在随流程管理的定时任务里；旧的 daily、weekly、cron 后端转成 schedule，显示也按「定时」
  */
 export const TRIGGER_LABEL: Record<string, string> = {
-  manual: '手动', im: 'IM 消息', schedule: '定时', webhook: 'Webhook',
+  manual: '手动', im: 'IM 消息', im_reply: '我回复了消息', schedule: '定时', webhook: 'Webhook',
 }
 /** 旧的定时类触发方式，都按 schedule 看 */
 export const LEGACY_SCHEDULE_TRIGGERS: readonly string[] = ['daily', 'weekly', 'cron']

@@ -28,6 +28,10 @@ const EventReceived = "im.message_received"
 // EventMuted 是发信人被自动忽略、入库即已忽略的消息（0.28.0，TSK-0491），不发 EventReceived，改发它。
 const EventMuted = "im.message_muted"
 
+// EventReplied 是「我」回复了一条消息（0.31.0）：在工作台消息页回复发出去的、在渠道里本人回在消息列（串）里或私聊里的，
+// payload 见 Replied。SOP 的触发方式「我回复了消息」订阅它，内置流程「我回复后标为已处理」把消息标为已处理（replied.go）。
+const EventReplied = "im.message_replied"
+
 // Plugin 是 IM 插件的入口，cmd/pmw 用 Registry.Add 登记。适配器在 New 时给定，启用后不再变。
 type Plugin struct {
 	m        plugin.Manifest
