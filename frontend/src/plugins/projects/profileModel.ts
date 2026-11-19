@@ -26,6 +26,8 @@ export type ProfileForm = {
   otherPlatforms: string
   code_dir: string
   proto_dir: string
+  /** 原型库规则原文，多行 */
+  proto_rules: string
   prd_dir: string
   commands: Record<ProfileCommandKey, CommandDraft>
   owner_ids: string[]
@@ -59,6 +61,7 @@ export function formOfProfile(p: ProjectProfile): ProfileForm {
     platforms: p.platforms.filter(isPreset),
     otherPlatforms: p.platforms.filter((x) => !isPreset(x)).join('，'),
     code_dir: p.code_dir, proto_dir: p.proto_dir, prd_dir: p.prd_dir,
+    proto_rules: p.proto_rules ?? '',
     commands,
     owner_ids: p.owner_ids, acceptor_ids: p.acceptor_ids,
   }
@@ -114,6 +117,7 @@ export function profileDiff(f: ProfileForm, saved: ProfileForm): { patch: Projec
   if (f.intro.trim() !== saved.intro.trim()) patch.intro = f.intro.trim()
   if (!same(splitTags(f.keywords), splitTags(saved.keywords))) patch.keywords = splitTags(f.keywords)
   if (!same(platformsOf(f), platformsOf(saved))) patch.platforms = platformsOf(f)
+  if (f.proto_rules.trim() !== saved.proto_rules.trim()) patch.proto_rules = f.proto_rules.trim()
   const bad = PROFILE_COMMANDS.some(({ key }) => timeoutError(f.commands[key].timeout)) || !!readyError(f.commands.test_env.ready)
   if (!bad && !same(commandsOf(f), commandsOf(saved))) patch.commands = commandsOf(f)
   if (!same(f.owner_ids, saved.owner_ids)) patch.owner_ids = f.owner_ids
@@ -132,4 +136,12 @@ export function profileGaps(p: Pick<ProjectProfile, 'intro' | 'keywords' | 'code
   if (!p.proto_dir) out.push('原型库目录')
   if (!p.prd_dir) out.push('PRD 目录')
   return out
+}
+
+/** 规则在列表上的简短提示：第一条非空行，超过 n 字截断；没有规则回空串 */
+export function rulesPeek(rules: string, n = 40): string {
+  const lines = rules.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (!lines.length) return ''
+  const first = lines[0].length > n ? `${lines[0].slice(0, n)}…` : lines[0]
+  return lines.length > 1 ? `${first}（共 ${lines.length} 条）` : first
 }

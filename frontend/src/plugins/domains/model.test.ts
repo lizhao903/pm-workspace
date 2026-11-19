@@ -18,7 +18,7 @@ const route = (x: Partial<DomainRoute> & { id: string; host: string }): DomainRo
 })
 
 const proto = (id: string, name: string, project: string, status: TerminalPrototype['status'] = 'running'): TerminalPrototype => ({
-  id, project_id: 'p', name, dir: '/x', command: '', argv: [], port: 5170, url: '', status, error: '', pid: 0, started_at: null,
+  id, project_id: 'p', name, dir: '/x', command: '', argv: [], port: 5170, rules: '', url: '', status, error: '', pid: 0, started_at: null,
   last_crash: null, created_at: '', updated_at: '', project_title: project,
 })
 

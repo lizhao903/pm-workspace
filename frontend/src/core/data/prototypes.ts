@@ -47,6 +47,8 @@ export type ProjectPrototype = {
   command: string
   argv: string[]
   port: number
+  /** 原型规则（多行，可空）：交给 Claude Code 时跟在提示词里这个原型后面；原型在跑时也能单独改 */
+  rules: string
   url: string
   status: PrototypeStatus
   error: string
@@ -69,8 +71,8 @@ export type PrototypeLogLine = { seq: number; at: string; text: string }
 /** 前端攒下的日志：lastSeq 是已拿到的最后一行，下次只要比它新的 */
 export type PrototypeLogs = { lines: PrototypeLogLine[]; lastSeq: number; status: PrototypeStatus | '' }
 
-export type PrototypeInput = { name?: string; dir: string; command: string; port: number }
-export type PrototypePatch = { name?: string; dir?: string; command?: string; port?: number }
+export type PrototypeInput = { name?: string; dir: string; command: string; port: number; rules?: string }
+export type PrototypePatch = { name?: string; dir?: string; command?: string; port?: number; rules?: string }
 
 /** 后端每个原型最多留这么多行，前端也只攒这么多 */
 export const PROTOTYPE_LOG_MAX = 1000

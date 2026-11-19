@@ -16,7 +16,7 @@ const contacts = [
 function fakeBackend() {
   const patches: Record<string, unknown>[] = []
   let profile: Record<string, unknown> = {
-    project_id: 'obj_p', intro: '旧简介', keywords: ['工作台'], platforms: ['web'], code_dir: '', proto_dir: '', prd_dir: '',
+    project_id: 'obj_p', intro: '旧简介', keywords: ['工作台'], platforms: ['web'], code_dir: '', proto_dir: '', proto_rules: '', prd_dir: '',
     commands: {}, owner_ids: [], acceptor_ids: [], root: '/src/p', created_at: null, updated_at: null,
   }
   const json = (data: unknown, status = 200) => new Response(JSON.stringify(status < 300 ? { data } : data), { status })
@@ -61,6 +61,14 @@ describe('档案标签', () => {
     await userEvent.type(kw, '，原型')
     await waitFor(() => expect(patches.at(-1)).toEqual({ intro: '新简介', keywords: ['工作台', '原型'] }), { timeout: 2000 })
     await screen.findByText('已保存')
+  })
+
+  it('原型库规则：停手后存 proto_rules，不连着目录一起发', async () => {
+    const patches = fakeBackend()
+    mount()
+    await screen.findByDisplayValue('旧简介')
+    await userEvent.type(screen.getByLabelText('原型库规则'), '不做独立 HTML')
+    await waitFor(() => expect(patches.at(-1)).toEqual({ proto_rules: '不做独立 HTML' }), { timeout: 2000 })
   })
 
   it('点平台立即存；命令超时填错时提示且先不存命令', async () => {

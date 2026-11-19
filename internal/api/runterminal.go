@@ -45,8 +45,8 @@ const (
 
 // projectOf 拼任务所属项目的上下文；没挂项目、项目已删时回 nil。
 //
-// 文档目录取项目设置里的文档目录（props.docs_dir，TSK-0718），没设时取 props.related 的第一个关联目录；原型目录经插件钩子问项目插件
-// （原型登记在它自己的表里）。项目插件没启用或查询出错时按「没有登记原型目录」写，
+// 文档目录取项目设置里的文档目录（props.docs_dir，TSK-0718），没设时取 props.related 的第一个关联目录；原型目录和原型规则经插件钩子问项目插件
+// （档案的原型库和登记的原型都在它自己的表里）。项目插件没启用或查询出错时按「没有登记原型目录」写，
 // 不能因为辅助信息缺失让整次执行起不来。
 func (s *Server) projectOf(ctx context.Context, o *domain.Object) *runner.Project {
 	if o.ProjectID == nil || strings.TrimSpace(*o.ProjectID) == "" {
@@ -70,7 +70,7 @@ func (s *Server) projectOf(ctx context.Context, o *domain.Object) *runner.Projec
 		}
 		for _, x := range protos {
 			if d := strings.TrimSpace(x.Dir); d != "" {
-				out.Prototypes = append(out.Prototypes, runner.PrototypeDir{Name: strings.TrimSpace(x.Name), Dir: d})
+				out.Prototypes = append(out.Prototypes, runner.PrototypeDir{Name: strings.TrimSpace(x.Name), Dir: d, Rules: x.Rules})
 			}
 		}
 	}

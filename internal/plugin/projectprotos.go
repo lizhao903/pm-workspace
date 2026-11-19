@@ -21,10 +21,12 @@ const ProjectsModule = "projects"
 // ErrNoProjectPrototypes：没有在跑的插件登记原型查询入口（项目插件没装或停用）。
 var ErrNoProjectPrototypes = errors.New("no project prototype provider")
 
-// ProjectPrototype 是项目登记的一个原型：名字和目录（绝对路径）。
+// ProjectPrototype 是项目的一个原型：名字、目录（绝对路径）和规则（多行纯文本，可空）。
+// 规则是在这个原型上改时要守的约定（在哪个分支改、以哪份设计为准、改完在哪提交），原样写进提示词。
 type ProjectPrototype struct {
-	Name string
-	Dir  string
+	Name  string
+	Dir   string
+	Rules string
 }
 
 // ProjectPrototypeLister 列出一个项目登记的原型，按登记先后；项目没有原型回空切片。

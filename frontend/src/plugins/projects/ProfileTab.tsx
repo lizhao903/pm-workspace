@@ -132,6 +132,14 @@ function ProfileEditor({ profile }: { profile: ProjectProfile }) {
             <PathInput label={d.label} value={form[d.key]} placeholder={d.key === 'code_dir' && profile.root ? '留空沿用项目目录' : '/Users/me/projects/xxx'}
               start={form[d.key].trim() || profile.root} onChange={(v) => update({ [d.key]: v })} />
             {dirErr[d.key] && <span className="field-err" role="alert">没保存上：{dirErr[d.key]}</span>}
+            {d.key === 'proto_dir' && (
+              <label className="field pj-proto-rules-field">
+                <span className="field-label">原型库规则<span className="pj-hint">交给 Claude Code 时写进提示词、跟在原型库后面；一行一条</span></span>
+                <Textarea rows={3} autoGrow value={form.proto_rules} aria-label="原型库规则"
+                  placeholder={'新需求在这个基线上拉 cloud-v<MMDD>-<nn> 分支改，不做独立 HTML\n以 UI-chat 设计为准\n改完在原型仓提交'}
+                  onChange={(e) => update({ proto_rules: e.target.value })} />
+              </label>
+            )}
           </div>
         ))}
       </section>

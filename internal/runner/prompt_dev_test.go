@@ -42,6 +42,36 @@ func TestBuildPromptProjectContext(t *testing.T) {
 	}
 }
 
+// 原型带规则：规则缩进在对应原型下面，约束里加一句遵守原型规则；没有规则的原型不出「规则：」，
+// 没有任何规则时约束里也不加那句（锁住：规则不能串到别的原型、空规则不留空块）。
+func TestBuildPromptPrototypeRules(t *testing.T) {
+	p := BuildPrompt(Task{Title: "改原型", Workdir: "/w", Project: &Project{Name: "Octok", Prototypes: []PrototypeDir{
+		{Name: "原型库（项目档案）", Dir: "/p/base", Rules: "  在这个基线上拉 cloud-v<MMDD>-<nn> 分支改\r\n不做独立 HTML\n\n以 UI-chat 设计为准  \n"},
+		{Name: "旧原型", Dir: "/p/old"},
+	}}})
+	want := "原型在哪里操作：\n" +
+		"  - 原型库（项目档案）：/p/base\n" +
+		"    规则：\n" +
+		"      在这个基线上拉 cloud-v<MMDD>-<nn> 分支改\n" +
+		"      不做独立 HTML\n" +
+		"\n" +
+		"      以 UI-chat 设计为准\n" +
+		"  - 旧原型：/p/old\n\n"
+	if !strings.Contains(p, want) {
+		t.Fatalf("提示词里应有 %q:\n%s", want, p)
+	}
+	if strings.Count(p, "规则：") != 1 {
+		t.Fatalf("只有一个原型有规则:\n%s", p)
+	}
+	if !strings.Contains(p, "- 改原型必须遵守上面「原型在哪里操作」里各原型的规则") {
+		t.Fatalf("有原型规则时约束里要加一句:\n%s", p)
+	}
+	p = BuildPrompt(Task{Title: "x", Workdir: "/w", Project: &Project{Name: "A", Prototypes: []PrototypeDir{{Dir: "/p", Rules: " \n "}}}})
+	if strings.Contains(p, "规则") {
+		t.Fatalf("规则全是空白时不该出现规则:\n%s", p)
+	}
+}
+
 // 项目没有文档目录、没有登记原型：写明可在项目设置里补，不写项目工作目录那一行。
 func TestBuildPromptProjectWithoutDirs(t *testing.T) {
 	p := BuildPrompt(Task{Title: "x", Workdir: "/w", Project: &Project{Name: "Acme"}})

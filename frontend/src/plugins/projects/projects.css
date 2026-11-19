@@ -422,6 +422,8 @@ a.pj-att-name:hover { text-decoration: underline; }
 .pj-proto-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: var(--fs-sm); color: var(--muted); min-width: 0; }
 .pj-proto-meta > span { min-width: 0; overflow-wrap: anywhere; }
 .pj-proto-meta code { font: var(--fs-xs) var(--mono); color: var(--text); }
+.pj-proto-rules { white-space: pre-line; }
+.pj-proto-rules-field { margin-top: 8px; }
 .pj-proto-k { color: var(--faint); margin-right: 6px; }
 .pj-proto-warn { font-size: var(--fs-sm); color: var(--danger); overflow-wrap: anywhere; }
 .pj-proto-crash { display: flex; flex-direction: column; gap: var(--sp-3); }

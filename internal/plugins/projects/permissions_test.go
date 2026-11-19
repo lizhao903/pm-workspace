@@ -37,7 +37,7 @@ func TestPrototypeFileURLDir(t *testing.T) {
 		t.Fatalf("file:// 目录：%d %v", code, out)
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := d.W.Exec(`INSERT INTO projects_prototypes (`+protoCols+`) VALUES ('pt_f', 'obj_p1', 's2', ?, 'sleep 30', '["sleep","30"]', ?, ?, ?)`,
+	if _, err := d.W.Exec(`INSERT INTO projects_prototypes (`+protoCols+`) VALUES ('pt_f', 'obj_p1', 's2', ?, 'sleep 30', '["sleep","30"]', ?, '', ?, ?)`,
 		"file://"+dir, freePort(t), now, now); err != nil {
 		t.Fatal(err)
 	}

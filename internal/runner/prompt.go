@@ -58,7 +58,7 @@ type Source struct {
 
 // Project 是所属项目的上下文。DocsDir 取项目设置里的文档目录（DocsSetting 为 true，TSK-0718），
 // 没设时取 props.related 的第一个关联目录（DocsLabel 是它的名称），
-// Prototypes 是项目「原型」里登记的目录；都没有时提示词写明可在项目设置里补，
+// Prototypes 是项目档案的原型库和项目「原型」里登记的目录（各带规则）；都没有时提示词写明可在项目设置里补，
 // 不让模型自己猜一个位置。
 type Project struct {
 	Name      string
@@ -71,10 +71,38 @@ type Project struct {
 	Prototypes  []PrototypeDir
 }
 
-// PrototypeDir 是项目登记的一个原型。
+// PrototypeDir 是项目的一个原型（档案的原型库或「原型」里登记的）。
+// Rules 是在它上面改时要守的规则（多行，可空），渲染在这个原型下面、缩进成「规则：」块。
 type PrototypeDir struct {
-	Name string
-	Dir  string
+	Name  string
+	Dir   string
+	Rules string
+}
+
+// RuleLines 是规则按行拆开、去掉首尾空行后的结果，给模板逐行缩进用；没有规则回 nil。
+func (p PrototypeDir) RuleLines() []string {
+	r := strings.TrimSpace(strings.ReplaceAll(p.Rules, "\r\n", "\n"))
+	if r == "" {
+		return nil
+	}
+	lines := strings.Split(r, "\n")
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, " \t\r")
+	}
+	return lines
+}
+
+// HasProtoRules：有任何一个原型写了规则。约束里据此加一句「改原型必须遵守原型的规则」。
+func (p *Project) HasProtoRules() bool {
+	if p == nil {
+		return false
+	}
+	for _, x := range p.Prototypes {
+		if x.RuleLines() != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // WriteBack 是回写信息。RunID 在预览时还没有，用占位文字。
@@ -134,7 +162,9 @@ const promptTemplate = `你正在协助处理一个来自「产品工作台」�
 {{else}}文档在哪里操作：这个项目没有设文档目录，可在项目设置里补；需要写文档时先问用户放哪里。
 {{end}}{{if .Prototypes}}原型在哪里操作：
 {{range .Prototypes}}  - {{if .Name}}{{.Name}}：{{end}}{{.Dir}}
-{{end}}{{else}}原型在哪里操作：这个项目没有登记原型目录，可在项目设置里补；需要改原型时先问用户在哪里改。
+{{with .RuleLines}}    规则：
+{{range .}}{{if .}}      {{.}}{{end}}
+{{end}}{{end}}{{end}}{{else}}原型在哪里操作：这个项目没有登记原型目录，可在项目设置里补；需要改原型时先问用户在哪里改。
 {{end}}
 {{end}}{{with .Source}}## 来源消息
 这条任务来自 {{if .Channel}}{{.Channel}} {{end}}{{if .Conversation}}「{{.Conversation}}」里{{end}}{{if .Sender}} {{.Sender}} {{end}}的消息：
@@ -171,7 +201,8 @@ const promptTemplate = `你正在协助处理一个来自「产品工作台」�
 {{end}}## 约束
 {{if .Project}}- 所有产出只写在当前目录、以及上面「所属项目」里写明的文档目录和原型目录里，不要改动其他位置的文件。
 {{else}}- 所有产出只写在当前目录内，不要改动工作区之外的任何文件。
-{{end}}- 完成后用一段话说明你做了什么、改了哪些文件，以及还剩什么没做。
+{{end}}{{with .Project}}{{if .HasProtoRules}}- 改原型必须遵守上面「原型在哪里操作」里各原型的规则；规则和本任务的要求冲突时，先停下来说明冲突，不要自己挑一个做。
+{{end}}{{end}}- 完成后用一段话说明你做了什么、改了哪些文件，以及还剩什么没做。
 `
 
 var promptTmpl = template.Must(template.New("run-prompt").Parse(promptTemplate))

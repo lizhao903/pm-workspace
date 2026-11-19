@@ -31,13 +31,15 @@ const (
 
 // Prototype 是一个原型：定义加上当前的运行状态、最近一次崩溃。
 type Prototype struct {
-	ID        string    `json:"id"`
-	ProjectID string    `json:"project_id"`
-	Name      string    `json:"name"`
-	Dir       string    `json:"dir"`
-	Command   string    `json:"command"`
-	Argv      []string  `json:"argv"`
-	Port      int       `json:"port"`
+	ID        string   `json:"id"`
+	ProjectID string   `json:"project_id"`
+	Name      string   `json:"name"`
+	Dir       string   `json:"dir"`
+	Command   string   `json:"command"`
+	Argv      []string `json:"argv"`
+	Port      int      `json:"port"`
+	// Rules 是这个原型的规则（多行，可空，迁移 0013）：交给 Claude Code 时跟在提示词里这个原型后面
+	Rules     string    `json:"rules"`
 	URL       string    `json:"url"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
@@ -63,7 +65,7 @@ type prototypes struct {
 	m *manager
 }
 
-const protoCols = `id, project_id, name, dir, command, argv, port, created_at, updated_at`
+const protoCols = `id, project_id, name, dir, command, argv, port, rules, created_at, updated_at`
 
 func (h *prototypes) list(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -118,6 +120,12 @@ type protoInput struct {
 	Command *string   `json:"command"`
 	Argv    *[]string `json:"argv"`
 	Port    *int      `json:"port"`
+	Rules   *string   `json:"rules"`
+}
+
+// onlyRules：这次只改规则。规则不影响进程，原型在跑时也能改。
+func (in protoInput) onlyRules() bool {
+	return in.Rules != nil && in.Name == nil && in.Dir == nil && in.Command == nil && in.Argv == nil && in.Port == nil
 }
 
 func (h *prototypes) add(w http.ResponseWriter, r *http.Request) {
@@ -144,8 +152,8 @@ func (h *prototypes) add(w http.ResponseWriter, r *http.Request) {
 	p.ID = idgen.Prefixed("pt")
 	argv, _ := json.Marshal(p.Argv)
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := h.c.Store().Exec(ctx, `INSERT INTO projects_prototypes (`+protoCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, pid, p.Name, p.Dir, p.Command, string(argv), p.Port, now, now); err != nil {
+	if _, err := h.c.Store().Exec(ctx, `INSERT INTO projects_prototypes (`+protoCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, pid, p.Name, p.Dir, p.Command, string(argv), p.Port, p.Rules, now, now); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -169,7 +177,7 @@ func (h *prototypes) update(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	if h.m.active(p.ID) {
+	if h.m.active(p.ID) && !in.onlyRules() {
 		h.fail(w, r, apiErr(errConflict, "原型「%s」在运行，先停止再改", p.Name))
 		return
 	}
@@ -179,8 +187,8 @@ func (h *prototypes) update(w http.ResponseWriter, r *http.Request) {
 	}
 	argv, _ := json.Marshal(p.Argv)
 	now := time.Now().UTC().Format(time.RFC3339)
-	if _, err := h.c.Store().Exec(ctx, `UPDATE projects_prototypes SET name = ?, dir = ?, command = ?, argv = ?, port = ?, updated_at = ?
-		WHERE id = ? AND project_id = ?`, p.Name, p.Dir, p.Command, string(argv), p.Port, now, p.ID, p.ProjectID); err != nil {
+	if _, err := h.c.Store().Exec(ctx, `UPDATE projects_prototypes SET name = ?, dir = ?, command = ?, argv = ?, port = ?, rules = ?, updated_at = ?
+		WHERE id = ? AND project_id = ?`, p.Name, p.Dir, p.Command, string(argv), p.Port, p.Rules, now, p.ID, p.ProjectID); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -326,7 +334,7 @@ func (h *prototypes) get(ctx context.Context, pid, id string) (Prototype, error)
 func scanPrototype(row plugin.Row) (Prototype, error) {
 	var p Prototype
 	var argv, created, updated string
-	if err := row.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Dir, &p.Command, &argv, &p.Port, &created, &updated); err != nil {
+	if err := row.Scan(&p.ID, &p.ProjectID, &p.Name, &p.Dir, &p.Command, &argv, &p.Port, &p.Rules, &created, &updated); err != nil {
 		return Prototype{}, err
 	}
 	if err := json.Unmarshal([]byte(argv), &p.Argv); err != nil {
@@ -386,6 +394,13 @@ func applyPrototype(p *Prototype, in protoInput, self int) error {
 	}
 	if in.Name != nil {
 		p.Name = strings.TrimSpace(*in.Name)
+	}
+	if in.Rules != nil {
+		rules, err := cleanRules("rules", *in.Rules)
+		if err != nil {
+			return err
+		}
+		p.Rules = rules
 	}
 	if utf8.RuneCountInString(p.Name) > maxName {
 		return apiErr(errValidation, "name is limited to %d characters", maxName)
@@ -533,24 +548,76 @@ func joinCommand(argv []string) string {
 	return strings.Join(parts, " ")
 }
 
+// maxRules 是一段原型规则的上限（字）。
+const maxRules = 4000
+
+// cleanRules 去首尾空白、统一换行；超长或带 NUL 拒绝。空串表示没有规则。
+func cleanRules(field, s string) (string, error) {
+	s = strings.TrimSpace(strings.ReplaceAll(strings.ReplaceAll(s, "\r\n", "\n"), "\r", "\n"))
+	if strings.ContainsRune(s, 0) {
+		return "", apiErr(errValidation, "%s contains NUL", field)
+	}
+	if utf8.RuneCountInString(s) > maxRules {
+		return "", apiErr(errValidation, "%s is limited to %d characters", field, maxRules)
+	}
+	return s, nil
+}
+
+// protoLibName 是项目档案原型库在提示词里的名字。
+const protoLibName = "原型库（项目档案）"
+
 // prototypeDirs 是内核「项目原型目录」钩子的实现（docs/plugin-api.md 2.13）：
-// 交给 Claude Code 时把项目登记的原型目录写进提示词。只读名字和目录，按登记先后。
+// 交给 Claude Code 时把项目的原型目录和各自的规则写进提示词。
+//
+// 两个来源：项目档案的原型库（proto_dir + proto_rules）排第一，它是新需求的基线；
+// 之后是「原型」标签里登记的原型，按登记先后。原型库目录和某个登记原型是同一个目录时只出一条：
+// 用登记原型的名字（后面注明是原型库），规则先档案、后原型，两段相同只留一段。
 func prototypeDirs(c plugin.Core) plugin.ProjectPrototypeLister {
 	return func(ctx context.Context, projectID string) ([]plugin.ProjectPrototype, error) {
-		rows, err := c.Store().Query(ctx, `SELECT name, dir FROM projects_prototypes
+		var libDir, libRules string
+		err := c.Store().QueryRow(ctx, `SELECT proto_dir, proto_rules FROM projects_profiles WHERE project_id = ?`, projectID).Scan(&libDir, &libRules)
+		if err != nil && !errors.Is(err, plugin.ErrNoRows) {
+			return nil, err
+		}
+		rows, err := c.Store().Query(ctx, `SELECT name, dir, rules FROM projects_prototypes
 			WHERE project_id = ? ORDER BY created_at, rowid`, projectID)
 		if err != nil {
 			return nil, err
 		}
 		defer func() { _ = rows.Close() }()
-		out := []plugin.ProjectPrototype{}
+		var reg []plugin.ProjectPrototype
 		for rows.Next() {
 			var p plugin.ProjectPrototype
-			if err := rows.Scan(&p.Name, &p.Dir); err != nil {
+			if err := rows.Scan(&p.Name, &p.Dir, &p.Rules); err != nil {
 				return nil, err
 			}
-			out = append(out, p)
+			reg = append(reg, p)
 		}
-		return out, rows.Err()
+		if err := rows.Err(); err != nil {
+			return nil, err
+		}
+		out := []plugin.ProjectPrototype{}
+		libDir = strings.TrimSpace(libDir)
+		if libDir == "" {
+			return append(out, reg...), nil
+		}
+		lib := plugin.ProjectPrototype{Name: protoLibName, Dir: libDir, Rules: strings.TrimSpace(libRules)}
+		key := filepath.Clean(libDir)
+		for i, p := range reg {
+			if filepath.Clean(strings.TrimSpace(p.Dir)) != key {
+				continue
+			}
+			lib.Name = strings.TrimSpace(p.Name) + "（项目档案的原型库）"
+			if r := strings.TrimSpace(p.Rules); r != "" && r != lib.Rules {
+				if lib.Rules != "" {
+					lib.Rules += "\n"
+				}
+				lib.Rules += r
+			}
+			reg = append(reg[:i:i], reg[i+1:]...)
+			break
+		}
+		out = append(out, lib)
+		return append(out, reg...), nil
 	}
 }

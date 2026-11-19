@@ -2,10 +2,10 @@
 
 import { describe, expect, it } from 'vitest'
 import { PROFILE_COMMANDS, PROFILE_COMMAND_GROUPS, type ProjectProfile } from '../../core/data'
-import { commandsOf, formOfProfile, platformsOf, profileDiff, profileGaps, readyError, splitTags, timeoutError, timeoutOf } from './profileModel'
+import { commandsOf, formOfProfile, platformsOf, profileDiff, profileGaps, readyError, rulesPeek, splitTags, timeoutError, timeoutOf } from './profileModel'
 
 const base: ProjectProfile = {
-  project_id: 'obj_p', intro: '', keywords: [], platforms: [], code_dir: '', proto_dir: '', prd_dir: '',
+  project_id: 'obj_p', intro: '', keywords: [], platforms: [], code_dir: '', proto_dir: '', proto_rules: '', prd_dir: '',
   commands: {}, owner_ids: [], acceptor_ids: [], root: '/src/p', created_at: null, updated_at: null,
 }
 
@@ -89,5 +89,21 @@ describe('档案表单', () => {
   it('档案缺什么：代码库没设但有项目目录不算缺', () => {
     expect(profileGaps(base)).toEqual(['简介', '关键词', '原型库目录', 'PRD 目录'])
     expect(profileGaps({ ...base, root: '' })).toContain('代码库目录')
+  })
+})
+
+describe('原型规则', () => {
+  it('改了原型库规则才发 proto_rules，去首尾空白', () => {
+    const saved = formOfProfile({ ...base, proto_rules: '旧规则' })
+    expect(profileDiff({ ...saved, proto_rules: ' 旧规则 ' }, saved).patch).toEqual({})
+    expect(profileDiff({ ...saved, proto_rules: ' 新规则\n第二条 ' }, saved).patch).toEqual({ proto_rules: '新规则\n第二条' })
+  })
+
+  it('列表上的简短提示：第一条非空行，多条注明条数，过长截断', () => {
+    expect(rulesPeek('')).toBe('')
+    expect(rulesPeek('\n  \n')).toBe('')
+    expect(rulesPeek('\n只有一条\n')).toBe('只有一条')
+    expect(rulesPeek('甲\n\n乙\n丙')).toBe('甲（共 3 条）')
+    expect(rulesPeek('一二三四五', 3)).toBe('一二三…')
   })
 })

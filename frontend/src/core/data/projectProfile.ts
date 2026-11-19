@@ -43,6 +43,8 @@ export type ProjectProfile = {
   platforms: string[]
   code_dir: string
   proto_dir: string
+  /** 原型库的规则（多行，可空）：交给 Claude Code 时跟在提示词里原型库后面 */
+  proto_rules: string
   prd_dir: string
   /** 只含设了的命令 */
   commands: Partial<Record<ProfileCommandKey, ProfileCommand>>
@@ -57,7 +59,7 @@ export type ProjectProfile = {
 
 /** PATCH 每个字段整体替换，没传的不动；commands 也整体替换 */
 export type ProjectProfilePatch = Partial<Pick<ProjectProfile,
-  'intro' | 'keywords' | 'platforms' | 'code_dir' | 'proto_dir' | 'prd_dir' | 'commands' | 'owner_ids' | 'acceptor_ids'>>
+  'intro' | 'keywords' | 'platforms' | 'code_dir' | 'proto_dir' | 'proto_rules' | 'prd_dir' | 'commands' | 'owner_ids' | 'acceptor_ids'>>
 
 export type ProfileDirState = { path: string; state: 'ok' | 'missing' | 'unset'; inherited?: boolean }
 
@@ -79,7 +81,7 @@ const one = (id: string) => `/api/projects/${encodeURIComponent(id)}/profile`
 
 const norm = (p: ProjectProfile): ProjectProfile => ({
   ...p,
-  keywords: p.keywords ?? [], platforms: p.platforms ?? [], commands: p.commands ?? {},
+  keywords: p.keywords ?? [], platforms: p.platforms ?? [], commands: p.commands ?? {}, proto_rules: p.proto_rules ?? '',
   owner_ids: p.owner_ids ?? [], acceptor_ids: p.acceptor_ids ?? [],
 })
 

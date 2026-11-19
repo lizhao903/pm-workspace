@@ -44,7 +44,7 @@ const APP: DomainRoute = {
 type Opts = { protos?: ProjectPrototype[]; auto?: DomainRoute[]; later?: number }
 
 const PROTO: ProjectPrototype = {
-  id: 'pp_1', project_id: 'obj_p1', name: 'Demo', dir: '/x', command: 'npm run dev', argv: [], port: 5173, url: 'http://127.0.0.1:5173',
+  id: 'pp_1', project_id: 'obj_p1', name: 'Demo', dir: '/x', command: 'npm run dev', argv: [], port: 5173, rules: '', url: 'http://127.0.0.1:5173',
   status: 'running', error: '', pid: 1, started_at: null, last_crash: null, created_at: '', updated_at: '',
 }
 

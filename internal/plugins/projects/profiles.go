@@ -60,7 +60,9 @@ type Profile struct {
 	Platforms []string `json:"platforms"`
 	CodeDir   string   `json:"code_dir"`
 	ProtoDir  string   `json:"proto_dir"`
-	PRDDir    string   `json:"prd_dir"`
+	// ProtoRules 是原型库的规则（多行，可空，迁移 0013）：交给 Claude Code 时跟在提示词里原型库后面
+	ProtoRules string `json:"proto_rules"`
+	PRDDir     string `json:"prd_dir"`
 	// Commands 只含设了的命令，key 见 CommandKeys
 	Commands    map[string]Command `json:"commands"`
 	OwnerIDs    []string           `json:"owner_ids"`
@@ -97,6 +99,7 @@ type profilePatch struct {
 	Platforms   *[]string           `json:"platforms"`
 	CodeDir     *string             `json:"code_dir"`
 	ProtoDir    *string             `json:"proto_dir"`
+	ProtoRules  *string             `json:"proto_rules"`
 	PRDDir      *string             `json:"prd_dir"`
 	Commands    *map[string]Command `json:"commands"`
 	OwnerIDs    *[]string           `json:"owner_ids"`
@@ -133,7 +136,7 @@ func (h *profiles) update(w http.ResponseWriter, r *http.Request) {
 		sent bool
 	}{
 		{"intro", in.Intro != nil}, {"keywords", in.Keywords != nil}, {"platforms", in.Platforms != nil},
-		{"code_dir", in.CodeDir != nil}, {"proto_dir", in.ProtoDir != nil}, {"prd_dir", in.PRDDir != nil},
+		{"code_dir", in.CodeDir != nil}, {"proto_dir", in.ProtoDir != nil}, {"proto_rules", in.ProtoRules != nil}, {"prd_dir", in.PRDDir != nil},
 		{"commands", in.Commands != nil}, {"owner_ids", in.OwnerIDs != nil}, {"acceptor_ids", in.AcceptorIDs != nil},
 	} {
 		if c.sent {
@@ -143,10 +146,10 @@ func (h *profiles) update(w http.ResponseWriter, r *http.Request) {
 	sets = append(sets, "updated_at = excluded.updated_at")
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err = h.c.Store().Exec(ctx, `INSERT INTO projects_profiles
-		(project_id, intro, keywords, platforms, code_dir, proto_dir, prd_dir, commands, owner_ids, acceptor_ids, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(project_id, intro, keywords, platforms, code_dir, proto_dir, proto_rules, prd_dir, commands, owner_ids, acceptor_ids, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (project_id) DO UPDATE SET `+strings.Join(sets, ", "),
-		pid, cur.Intro, enc(cur.Keywords), enc(cur.Platforms), cur.CodeDir, cur.ProtoDir, cur.PRDDir,
+		pid, cur.Intro, enc(cur.Keywords), enc(cur.Platforms), cur.CodeDir, cur.ProtoDir, cur.ProtoRules, cur.PRDDir,
 		enc(cur.Commands), enc(cur.OwnerIDs), enc(cur.AcceptorIDs), now, now)
 	if err != nil {
 		h.fail(w, r, err)
@@ -189,6 +192,11 @@ func (h *profiles) apply(ctx context.Context, p *Profile, in profilePatch) error
 			continue
 		}
 		if *d.out, err = checkProfileDir(d.name, *d.in); err != nil {
+			return err
+		}
+	}
+	if in.ProtoRules != nil {
+		if p.ProtoRules, err = cleanRules("proto_rules", *in.ProtoRules); err != nil {
 			return err
 		}
 	}
@@ -357,7 +365,7 @@ func (h *profiles) liveProject(ctx context.Context, id string) (plugin.ObjectInf
 	return o, err
 }
 
-const profileCols = `project_id, intro, keywords, platforms, code_dir, proto_dir, prd_dir, commands, owner_ids, acceptor_ids, created_at, updated_at`
+const profileCols = `project_id, intro, keywords, platforms, code_dir, proto_dir, proto_rules, prd_dir, commands, owner_ids, acceptor_ids, created_at, updated_at`
 
 // load 读一个项目的档案，没有行时回空档案。人员按名册过滤掉已经删掉的联系人。
 func (h *profiles) load(ctx context.Context, o plugin.ObjectInfo) (Profile, error) {
@@ -400,7 +408,7 @@ func emptyProfile(pid string) Profile {
 func scanProfile(row plugin.Row) (Profile, error) {
 	var p Profile
 	var kw, pf, cmds, owners, acceptors, created, updated string
-	if err := row.Scan(&p.ProjectID, &p.Intro, &kw, &pf, &p.CodeDir, &p.ProtoDir, &p.PRDDir, &cmds, &owners, &acceptors, &created, &updated); err != nil {
+	if err := row.Scan(&p.ProjectID, &p.Intro, &kw, &pf, &p.CodeDir, &p.ProtoDir, &p.ProtoRules, &p.PRDDir, &cmds, &owners, &acceptors, &created, &updated); err != nil {
 		return Profile{}, err
 	}
 	e := emptyProfile(p.ProjectID)

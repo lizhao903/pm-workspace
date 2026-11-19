@@ -8,7 +8,7 @@ import {
 } from './model'
 
 const proto = (o: Partial<TerminalPrototype>): TerminalPrototype => ({
-  id: 'pt_1', project_id: 'obj_p', project_title: '产品工作台新版', name: '新版前端原型', dir: '/w', command: 'npm run dev', argv: [], port: 7778,
+  id: 'pt_1', project_id: 'obj_p', project_title: '产品工作台新版', name: '新版前端原型', dir: '/w', command: 'npm run dev', argv: [], port: 7778, rules: '',
   url: '', status: 'running', error: '', pid: 0, started_at: null, last_crash: null, created_at: '', updated_at: '', ...o,
 })
 

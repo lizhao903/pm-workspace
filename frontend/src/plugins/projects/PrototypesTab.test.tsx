@@ -11,7 +11,7 @@ const ROOT = '/p/app'
 
 function pt(p: Partial<ProjectPrototype>): ProjectPrototype {
   return {
-    id: 'pt_1', project_id: 'obj_p', name: '看板', dir: `${ROOT}/web`, command: 'python3 -m http.server', argv: [], port: 8101,
+    id: 'pt_1', project_id: 'obj_p', name: '看板', dir: `${ROOT}/web`, command: 'python3 -m http.server', argv: [], port: 8101, rules: '',
     url: 'http://127.0.0.1:8101', status: 'stopped', error: '', pid: 0, started_at: null, last_crash: null,
     created_at: '2026-10-29T00:00:00Z', updated_at: '2026-10-29T00:00:00Z', ...p,
   }
@@ -166,6 +166,21 @@ describe('原型标签', () => {
     await userEvent.click(within(form).getByRole('button', { name: '保存' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
     expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ dir: `${ROOT}/site`, port: 8200 })
+  })
+
+  it('规则：卡片上显示第一条，运行中也能改，只发 rules', async () => {
+    const calls = fakeBackend([pt({ status: 'running', pid: 9, started_at: new Date().toISOString(), rules: '拉 cloud-v<MMDD>-<nn> 分支改\n不做独立 HTML' })])
+    mount()
+    const card = await screen.findByRole('group', { name: '看板' })
+    expect(within(card).getByText('拉 cloud-v<MMDD>-<nn> 分支改（共 2 条）')).toBeInTheDocument()
+    await userEvent.click(within(card).getByRole('button', { name: '改规则' }))
+    const form = within(card).getByRole('group', { name: '原型规则' })
+    const box = within(form).getByRole('textbox')
+    await userEvent.clear(box)
+    await userEvent.type(box, '  以 UI-chat 设计为准 ')
+    await userEvent.click(within(form).getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
+    expect(calls.find((c) => c.method === 'PATCH')!.body).toEqual({ rules: '以 UI-chat 设计为准' })
   })
 
   it('停着且没有日志时「看日志」置灰；有日志就能点', async () => {

@@ -123,6 +123,13 @@ func TestPrototypesAPI(t *testing.T) {
 	if code, _ := call(t, h, "PATCH", sleepPath, `{"name":"x"}`); code != 409 {
 		t.Fatalf("运行中改应 409：%d", code)
 	}
+	// 只改规则不碰进程，运行中也能改；规则和别的字段一起改仍然 409
+	if code, out := call(t, h, "PATCH", sleepPath, `{"rules":"  在基线上拉分支改\n不做独立 HTML  "}`); code != 200 || out["data"].(map[string]any)["rules"] != "在基线上拉分支改\n不做独立 HTML" {
+		t.Fatalf("运行中只改规则应 200：%d %v", code, out)
+	}
+	if code, _ := call(t, h, "PATCH", sleepPath, `{"name":"x","rules":"y"}`); code != 409 {
+		t.Fatalf("运行中连名字一起改应 409：%d", code)
+	}
 	if code, _ := call(t, h, "DELETE", sleepPath, ""); code != 409 {
 		t.Fatalf("运行中删应 409：%d", code)
 	}

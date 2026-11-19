@@ -1775,7 +1775,7 @@ export interface SessionSourceRegistry { register(def: SessionSourceDef): Dispos
 
 ```go
 // internal/plugin/projectprotos.go
-type ProjectPrototype struct{ Name, Dir string }
+type ProjectPrototype struct{ Name, Dir, Rules string } // Rules：多行原型规则，可空（项目插件 0.20.0 起有值）
 type ProjectPrototypeLister func(ctx context.Context, projectID string) ([]ProjectPrototype, error)
 // Registrar.ProjectPrototypes(fn ProjectPrototypeLister)
 // Registry.ProjectPrototypes(ctx, projectID) ([]ProjectPrototype, error)，没人登记回 ErrNoProjectPrototypes
@@ -1785,11 +1785,11 @@ type ProjectPrototypeLister func(ctx context.Context, projectID string) ([]Proje
 - 谁能调：清单 `provides.modules` 含 `projects` 的插件，在 `Register` 里登记一次，重复登记、传 nil 都是登记错误；按插件登记顺序第一个在跑的生效。插件 panic 转成错误。
 - 权限：不要权限，只读插件自己的表。
 - 内核的用法：没人登记（项目插件没装或停用）或查询出错时，提示词按「这个项目没有登记原型目录，可在项目设置里补」写，不让执行失败；出错记一条 warn 日志。
-- 现在的登记：项目插件 `projects`（0.10.0 起），按登记先后回每个原型的 `name`、`dir`。
+- 现在的登记：项目插件 `projects`（0.10.0 起），按登记先后回每个原型的 `name`、`dir`；0.20.0 起带 `rules`，且档案的原型库（`proto_dir`，规则 `proto_rules`）排第一，和登记原型同目录时合成一条（见 `docs/api-contract.md`「项目原型 / 原型规则」）。内核把规则缩进写在提示词里对应原型下面。
 
 ```go
 r.ProjectPrototypes(func(ctx context.Context, projectID string) ([]plugin.ProjectPrototype, error) {
-	rows, err := c.Store().Query(ctx, `SELECT name, dir FROM projects_prototypes WHERE project_id = ? ORDER BY created_at, rowid`, projectID)
+	rows, err := c.Store().Query(ctx, `SELECT name, dir, rules FROM projects_prototypes WHERE project_id = ? ORDER BY created_at, rowid`, projectID)
 	// ...
 })
 ```

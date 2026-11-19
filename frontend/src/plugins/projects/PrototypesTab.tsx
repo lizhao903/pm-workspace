@@ -9,8 +9,9 @@ import {
   PROTOTYPE_EXTERNAL_START, PROTOTYPE_EXTERNAL_STOP, PROTOTYPE_STATUS, errorText, prototypeUp, useAddPrototype, usePatchPrototype, usePrototypeLogs, useProjectPrototypes, useRemovePrototype,
   useStartPrototype, useStopPrototype, type ProjectPrototype, type PrototypePatch,
 } from '../../core/data'
-import { Button, EmptyState, ErrorState, Field, Input, LoadingState, Pill, cls } from '../../core/ui'
+import { Button, EmptyState, ErrorState, Field, Input, LoadingState, Pill, Textarea, cls } from '../../core/ui'
 import { ago } from './model'
+import { rulesPeek } from './profileModel'
 import {
   DEFAULT_COMMAND, PROTO_PEEK, STOPPED_FOLD, absDir, defaultPort, portConflict, relDir, runningFor, sortProtos, startLabel, type ProtoView,
 } from './protoModel'
@@ -18,6 +19,9 @@ import {
 const NEED_ABS = '没设项目目录，目录要填绝对路径（以 / 开头），或先在设置里填本地项目目录'
 
 type Draft = { name: string; port: string; dir: string; command: string }
+
+const RULES_HINT = '交给 Claude Code 时写进提示词、跟在这个原型后面；一行一条'
+const RULES_PLACEHOLDER = '在这个基线上拉 cloud-v<MMDD>-<nn> 分支改，不做独立 HTML\n以 UI-chat 设计为准\n改完在原型仓提交'
 
 /** 表单里的端口：空或不是整数时给 NaN，冲突检查报范围 */
 const portOf = (s: string) => (/^\d+$/.test(s.trim()) ? Number(s.trim()) : NaN)
@@ -72,6 +76,7 @@ function AddForm({ projectId, projectName, root, rows, onClose }: {
 }) {
   const add = useAddPrototype(projectId)
   const [d, setD] = useState<Draft>(() => ({ name: '', port: String(defaultPort(rows)), dir: '', command: DEFAULT_COMMAND }))
+  const [rules, setRules] = useState('')
   const [err, setErr] = useState('')
   const conflict = portConflict(portOf(d.port), '', rows, projectName)
   const put = (patch: Partial<Draft>) => setD({ ...d, ...patch })
@@ -80,7 +85,7 @@ function AddForm({ projectId, projectName, root, rows, onClose }: {
     const dir = absDir(d.dir, root)
     if (dir === null) { setErr(NEED_ABS); return }
     setErr('')
-    add.mutate({ name: d.name.trim(), dir, command: d.command.trim(), port: portOf(d.port) }, {
+    add.mutate({ name: d.name.trim(), dir, command: d.command.trim(), port: portOf(d.port), ...(rules.trim() ? { rules: rules.trim() } : {}) }, {
       onSuccess: onClose,
       onError: (e) => setErr(`没加上：${errorText(e)}`),
     })
@@ -94,6 +99,7 @@ function AddForm({ projectId, projectName, root, rows, onClose }: {
       </div>
       <Input aria-label="目录" className="mono" value={d.dir} spellCheck={false} placeholder="目录（相对项目目录），比如 prototype" onChange={(e) => put({ dir: e.target.value })} />
       <Input aria-label="启动命令" className="mono" value={d.command} spellCheck={false} placeholder="启动命令" onChange={(e) => put({ command: e.target.value })} />
+      <Textarea aria-label="规则" rows={2} autoGrow value={rules} placeholder={`规则（可空）：${RULES_HINT}`} onChange={(e) => setRules(e.target.value)} />
       {conflict && <span className="field-err">{conflict}</span>}
       {err && <div className="pj-err" role="alert">{err}</div>}
       <div className="pj-act-row">
@@ -112,6 +118,7 @@ function ProtoCard({ p, rows, projectId, projectName, root }: {
   const stop = useStopPrototype(projectId)
   const remove = useRemovePrototype(projectId)
   const [edit, setEdit] = useState(false)
+  const [rulesOpen, setRulesOpen] = useState(false)
   const [logsOpen, setLogsOpen] = useState(false)
   // 有没有日志：和日志框同一份缓存，状态一变（启动完成、停下、崩溃）补取一次，收尾的那行不会漏
   const logs = usePrototypeLogs(projectId, p.id, { enabled: true, live: false })
@@ -159,6 +166,7 @@ function ProtoCard({ p, rows, projectId, projectName, root }: {
         <span><span className="pj-proto-k">命令</span><code>{p.command}</code></span>
         <span><span className="pj-proto-k">端口</span><code>{p.port}</code></span>
         {live && p.started_at && <span><span className="pj-proto-k">已运行</span>{runningFor(p.started_at, now)}</span>}
+        {p.rules?.trim() && <span className="pj-proto-rules" title={p.rules}><span className="pj-proto-k">规则</span>{rulesPeek(p.rules)}</span>}
       </div>
       {conflict && <div className="pj-proto-warn">{conflict}，换一个端口再启动</div>}
       {actErr && <div className="pj-proto-warn" role="alert">{actErr}</div>}
@@ -175,10 +183,12 @@ function ProtoCard({ p, rows, projectId, projectName, root }: {
       <div className="pj-act-row pj-proto-acts">
         <Button size="sm" disabled={noLogs && !logsOpen} title={noLogs ? '还没有日志' : undefined} onClick={() => setLogsOpen(!logsOpen)} aria-expanded={logsOpen}>{logsOpen ? '收起日志' : '看日志'}</Button>
         <Button size="sm" disabled={live || busy} title={live ? '先停下来再改' : undefined} onClick={() => setEdit(!edit)}>{edit ? '收起设置' : '修改'}</Button>
+        <Button size="sm" aria-expanded={rulesOpen} title="规则不影响进程，在跑时也能改" onClick={() => setRulesOpen(!rulesOpen)}>{rulesOpen ? '收起规则' : p.rules?.trim() ? '改规则' : '加规则'}</Button>
         <span className="spacer" />
         <Button size="sm" variant="danger-ghost" disabled={live || busy || remove.isPending} onClick={() => act(remove)}>移除</Button>
       </div>
       {logsOpen && <ProtoLogs projectId={projectId} p={p} />}
+      {rulesOpen && <RulesForm p={p} projectId={projectId} onClose={() => setRulesOpen(false)} />}
       {edit && !live && !busy && <EditForm p={p} rows={rows} projectId={projectId} projectName={projectName} root={root} onClose={() => setEdit(false)} />}
     </div>
   )
@@ -260,6 +270,30 @@ function EditForm({ p, rows, projectId, projectName, root, onClose }: {
   )
 }
 
+/** 原型规则：只改 rules，后端在原型运行中也放行 */
+function RulesForm({ p, projectId, onClose }: { p: ProjectPrototype; projectId: string; onClose: () => void }) {
+  const save = usePatchPrototype(projectId)
+  const [rules, setRules] = useState(p.rules ?? '')
+  const [err, setErr] = useState('')
+  const submit = () => {
+    if (rules.trim() === (p.rules ?? '').trim()) { onClose(); return }
+    setErr('')
+    save.mutate({ protoId: p.id, patch: { rules: rules.trim() } }, { onSuccess: onClose, onError: (e) => setErr(`没保存：${errorText(e)}`) })
+  }
+  return (
+    <div className="pj-proto-edit" role="group" aria-label="原型规则">
+      <Field label="规则" hint={RULES_HINT}>
+        <Textarea rows={3} autoGrow value={rules} placeholder={RULES_PLACEHOLDER} onChange={(e) => setRules(e.target.value)} />
+      </Field>
+      {err && <div className="pj-err" role="alert">{err}</div>}
+      <div className="pj-act-row">
+        <Button variant="primary" size="sm" disabled={save.isPending} onClick={submit}>保存</Button>
+        <Button size="sm" onClick={onClose}>取消</Button>
+      </div>
+    </div>
+  )
+}
+
 /** 标签条「原型」上的绿灯：有运行中的原型时亮（SPEC-projects-2.3） */
 export function ProtoTabLight({ projectId }: { projectId: string }) {
   const list = useProjectPrototypes(projectId)
@@ -300,6 +334,7 @@ function ProtoLine({ p, rows, projectId, projectName }: { p: ProjectPrototype; r
     <div className="pj-proto-line" title={err || undefined}>
       <span className={cls('pj-proto-light', `pj-pl-${status}`)} />
       <span className="ellipsis">{p.name}</span><code>:{p.port}</code>
+      {p.rules?.trim() && <span className="pj-muted" title={p.rules}>有规则</span>}
       {err && <span className="pj-err ellipsis" role="alert">{err}</span>}
       <span className="spacer" />
       {status === 'external' ? (

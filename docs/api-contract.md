@@ -1242,7 +1242,7 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 **两种执行方式（0048）**
 
 - `TaskRun` 多一个字段 `mode`：`stream`（工作台起进程流式回推，0048 之前的都是）或 `terminal`（在终端里交互执行）。终端执行的开始时间是发起时，结束和结论由终端里的 claude 经 MCP 回写，或用户手动标记结束。读记录时不会因为「进程不在本工作台手上」把终端执行判成失败；对终端执行 `POST /api/runs/{id}/cancel` 只把记录标成 `canceled`，`error` 写「在终端里执行的会话不归工作台管，记录已标记为取消；终端标签需要自己关」。
-- 两种方式的提示词都带「所属项目」一节（任务挂在项目下才有）：名称、编号、项目工作目录（有才写）。文档目录取项目设置里的文档目录（`props.docs_dir`，TSK-0718，解析规则见「项目文档目录」，写「（项目设置里的文档目录）」），没设时取 `props.related` 第一个有路径的目录（`file://` 去掉前缀）；原型目录经插件钩子 `Registrar.ProjectPrototypes` 由项目插件给出（项目插件 0.10.0）。没有时写明「这个项目没有设文档目录 / 没有登记原型目录，可在项目设置里补」。有项目时约束放宽到这两类目录。终端方式另加「回写到工作台」一节（`pmw_update_object`、`pmw_append_progress`、`pmw_record_artifact` 带 `run_id`、`pmw_finish_run`）；流式（Claude Code）按后台执行口径也加这一节（TSK-0499，见上「后台执行的权限」）。
+- 两种方式的提示词都带「所属项目」一节（任务挂在项目下才有）：名称、编号、项目工作目录（有才写）。文档目录取项目设置里的文档目录（`props.docs_dir`，TSK-0718，解析规则见「项目文档目录」，写「（项目设置里的文档目录）」），没设时取 `props.related` 第一个有路径的目录（`file://` 去掉前缀）；原型目录经插件钩子 `Registrar.ProjectPrototypes` 由项目插件给出（项目插件 0.10.0；0.20.0 起档案的原型库也在里面、排第一，每个原型带规则，见「项目原型 / 原型规则」）。有规则的原型在「原型在哪里操作」里那一行下面缩进写「规则：」，每行一条（空行保留成空行）；只要有一个原型有规则，约束里加一句「改原型必须遵守上面「原型在哪里操作」里各原型的规则；规则和本任务的要求冲突时，先停下来说明冲突，不要自己挑一个做」。没有时写明「这个项目没有设文档目录 / 没有登记原型目录，可在项目设置里补」。有项目时约束放宽到这两类目录。终端方式另加「回写到工作台」一节（`pmw_update_object`、`pmw_append_progress`、`pmw_record_artifact` 带 `run_id`、`pmw_finish_run`）；流式（Claude Code）按后台执行口径也加这一节（TSK-0499，见上「后台执行的权限」）。
 - MCP 配置是 `{"mcpServers":{"pmw-run":{"type":"stdio","command":<MCP 程序>,"args":["--api",<public-url 去掉末尾斜杠>]}}}`，不含凭证；终端交接、后台执行、插件交给 Claude Code 的运行共用同一份生成逻辑（`runner.MCPConfigJSON`）。server 名 TSK-0499 起由 `pm-workspace` 改为 `pmw-run`：不和工作目录 `.mcp.json` 里同名的 `pm-workspace`（可能指向别的工作台实例）撞名，两者并存，提示词只认 `pmw-run`。MCP 新增工具 `pmw_finish_run`（收终端执行，也收 SOP 自动交给 Claude Code 的执行；可选参数 `result` 是结构化结论，至少带 `verdict`），`pmw_record_artifact` 加可选参数 `run_id`。
 
 **交给工作台 Agent（TSK-0460，`harness=agent`）**
@@ -1893,7 +1893,7 @@ CORE-10a。工作台是一套菜单：开哪些模块、怎么分组、默认打
 
 ## 项目插件 projects
 
-PJ-01b。插件 `projects`（`internal/plugins/projects`，清单 `plugin.json`）。项目仍是 `type=project` 的工作对象，读写走上面的 `/api/objects`，插件不另开项目接口；插件自己的表放项目干系人、绑定的会话、项目资料、原型定义、项目档案（0.11.0，插件迁移 `0005_profiles.sql`）和工作区（0.13.0，插件迁移 `0006_worktrees.sql`，表 `projects_worktrees`、`projects_worktree_settings`；SOP 节点 `projects_prepare_worktree`；订阅 `object.status_changed`、`object.stage_changed`；发 `projects.worktree_changed`；设置分节 `worktrees`）和测试环境（0.14.0，插件迁移 `0007_test_runs.sql`，表 `projects_test_runs`；SOP 节点 `projects_run_test`；发 `projects.test_changed`）和发布（0.16.0，插件迁移 `0009_releases.sql`，表 `projects_releases`；SOP 节点 `projects_prepare_release`、`projects_release`；发 `projects.release_changed`）和原型同步（0.17.0，插件迁移 `0010_proto_syncs.sql`，表 `projects_proto_syncs`、`projects_proto_sync_settings`；SOP 节点 `projects_proto_sync_range`、`projects_proto_sync_branch`、`projects_proto_sync_classify`、`projects_proto_sync_verdict`、`projects_proto_sync_commit`、`projects_proto_sync_record`；订阅 `run.finished`；发 `projects.proto_sync_changed`）。0.12.0 加 SOP 节点 `projects_list_profiles`、`projects_get_profile`（AUTO-06）。0.19.0 加项目知识库（TSK-0721，插件迁移 `0012_kb.sql`，表 `projects_kb`、`projects_sop_templates`；接口 `GET`/`PUT /api/projects/{id}/kb`、`POST /api/projects/{id}/kb/sync`；SOP 节点 `projects_kb_sync`；内置流程 `sop_projects_kb_weekly`；全部节点声明副作用），见「项目知识库」。项目插件未安装或停用时，本节 `/api/projects/...` 接口回 `not_found` 404（同「插件路由」），项目对象本身照常能读写。
+PJ-01b。插件 `projects`（`internal/plugins/projects`，清单 `plugin.json`）。项目仍是 `type=project` 的工作对象，读写走上面的 `/api/objects`，插件不另开项目接口；插件自己的表放项目干系人、绑定的会话、项目资料、原型定义、项目档案（0.11.0，插件迁移 `0005_profiles.sql`）和工作区（0.13.0，插件迁移 `0006_worktrees.sql`，表 `projects_worktrees`、`projects_worktree_settings`；SOP 节点 `projects_prepare_worktree`；订阅 `object.status_changed`、`object.stage_changed`；发 `projects.worktree_changed`；设置分节 `worktrees`）和测试环境（0.14.0，插件迁移 `0007_test_runs.sql`，表 `projects_test_runs`；SOP 节点 `projects_run_test`；发 `projects.test_changed`）和发布（0.16.0，插件迁移 `0009_releases.sql`，表 `projects_releases`；SOP 节点 `projects_prepare_release`、`projects_release`；发 `projects.release_changed`）和原型同步（0.17.0，插件迁移 `0010_proto_syncs.sql`，表 `projects_proto_syncs`、`projects_proto_sync_settings`；SOP 节点 `projects_proto_sync_range`、`projects_proto_sync_branch`、`projects_proto_sync_classify`、`projects_proto_sync_verdict`、`projects_proto_sync_commit`、`projects_proto_sync_record`；订阅 `run.finished`；发 `projects.proto_sync_changed`）。0.12.0 加 SOP 节点 `projects_list_profiles`、`projects_get_profile`（AUTO-06）。0.19.0 加项目知识库（TSK-0721，插件迁移 `0012_kb.sql`，表 `projects_kb`、`projects_sop_templates`；接口 `GET`/`PUT /api/projects/{id}/kb`、`POST /api/projects/{id}/kb/sync`；SOP 节点 `projects_kb_sync`；内置流程 `sop_projects_kb_weekly`；全部节点声明副作用），见「项目知识库」。0.20.0 加原型规则（TSK-0841 复盘，插件迁移 `0013_proto_rules.sql`，`projects_prototypes.rules`、`projects_profiles.proto_rules` 两列），见「项目原型」「项目档案」和「原型规则」。项目插件未安装或停用时，本节 `/api/projects/...` 接口回 `not_found` 404（同「插件路由」），项目对象本身照常能读写。
 
 ### 项目字段
 
@@ -2028,16 +2028,16 @@ PJ-04a。表 `projects_prototypes`、`projects_prototype_crashes`（插件迁移
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
 | GET | `/api/projects/{id}/prototypes` | `ProjectPrototype[]` + `meta.total`，不分页，按添加先后 |
-| POST | `/api/projects/{id}/prototypes` | `{dir, command 或 argv, port, name?}`，回 201 + `ProjectPrototype` |
+| POST | `/api/projects/{id}/prototypes` | `{dir, command 或 argv, port, name?, rules?}`，回 201 + `ProjectPrototype` |
 | GET | `/api/projects/{id}/prototypes/{prototype_id}` | 一条 `ProjectPrototype` |
-| PATCH | `/api/projects/{id}/prototypes/{prototype_id}` | 只传要改的：`name` / `dir` / `command` 或 `argv` / `port`；在跑时 409 |
+| PATCH | `/api/projects/{id}/prototypes/{prototype_id}` | 只传要改的：`name` / `dir` / `command` 或 `argv` / `port` / `rules`；在跑时 409，**只传 `rules` 时在跑也放行**（规则不影响进程） |
 | DELETE | `/api/projects/{id}/prototypes/{prototype_id}` | 删定义和崩溃记录，不动目录；在跑时 409；`data` 为 `null` |
 | POST | `/api/projects/{id}/prototypes/{prototype_id}/start` | 启动，回 `ProjectPrototype`（`status=starting`）；冲突 409（含 `external`）、命令找不到 400 |
 | POST | `/api/projects/{id}/prototypes/{prototype_id}/stop` | 停止，等进程退出后回 `ProjectPrototype`；没在跑也回 200；`external` 不发任何信号，回 200 且状态不变 |
 | GET | `/api/projects/{id}/prototypes/{prototype_id}/logs` | `PrototypeLogLine[]`，`?after=<seq>` 只要更新的（轮询），`?limit=` 1 到 1000，默认 200 取最新的；`meta: {last_seq, status}` |
 | GET | `/api/projects/{id}/prototypes/{prototype_id}/crashes` | `PrototypeCrash[]`，新的在前，最多 50 条 |
 
-`ProjectPrototype`：`{id, project_id, name, dir, command, argv, port, url, status, error, pid, started_at, last_crash, created_at, updated_at}`。`url` 是 `http://127.0.0.1:<port>`；`pid`、`started_at` 只在 `starting` / `running` 时有值（否则 `0` / `null`，`external` 也是）；`last_crash` 是最近一条 `PrototypeCrash` 或 `null`，跨重启保留。
+`ProjectPrototype`：`{id, project_id, name, dir, command, argv, port, rules, url, status, error, pid, started_at, last_crash, created_at, updated_at}`。`rules` 是原型规则（0.20.0），见下面「原型规则」。`url` 是 `http://127.0.0.1:<port>`；`pid`、`started_at` 只在 `starting` / `running` 时有值（否则 `0` / `null`，`external` 也是）；`last_crash` 是最近一条 `PrototypeCrash` 或 `null`，跨重启保留。
 
 `PrototypeLogLine`：`{seq, at, text}`。
 
@@ -2053,6 +2053,29 @@ PJ-04a。表 `projects_prototypes`、`projects_prototype_crashes`（插件迁移
 - 进程起在自己的进程组里，停止时先对整个进程组发 `SIGTERM`，5 秒没退再 `SIGKILL`；进程退出后再对进程组补一次 `SIGKILL`，清掉它拉起的子进程。只按本插件记下的进程组号发信号，不按名字找进程。
 - `{id}` 不是项目、不存在或在回收站里 404；原型不在这个项目里 404。硬删项目时定义和崩溃记录一起删（外键 `ON DELETE CASCADE`）；软删项目不动。
 - 暂不记审计、不发事件，同项目干系人。
+
+#### 原型规则
+
+TSK-0841 复盘（后台执行没在基础原型上改，另做了一个独立 HTML）。插件 0.20.0，插件迁移 `0013_proto_rules.sql`：`projects_prototypes` 加 `rules`、`projects_profiles` 加 `proto_rules`，都是 `TEXT NOT NULL DEFAULT ''`，老数据读出来是空规则。
+
+- 写在哪：登记的每个原型的 `rules`（新增、修改原型时传），项目档案原型库的 `proto_rules`（改档案时传）。多行纯文本，一行一条，例如「新需求在这个基线上拉 `cloud-v<MMDD>-<nn>` 分支改，不做独立 HTML」「以 UI-chat 设计为准」「改完在原型仓提交」。
+- 校验：存时 `\r\n`、`\r` 统一成 `\n`，去首尾空白；空串是没有规则；最多 4000 字，超了或带 NUL 400 `validation`（message 如 `rules is limited to 4000 characters`、`proto_rules is limited to 4000 characters`）。
+- 进提示词：内核钩子 `Registrar.ProjectPrototypes`（`docs/plugin-api.md` 2.13）回的每个原型带 `Rules`。项目插件按这个顺序给：档案的原型库（`proto_dir` 设了才有）排第一，名字「原型库（项目档案）」，规则是 `proto_rules`；之后是登记的原型，按添加先后。原型库目录和某个登记原型是同一个目录（`filepath.Clean` 后相等）时只出一条：名字是「<登记原型名>（项目档案的原型库）」，规则先档案、后原型，两段相同只留一段。提示词怎么写见「任务执行 runs」。
+- 提示词渲染样例：
+
+  ```text
+  原型在哪里操作：
+    - 原型库（项目档案）：/Volumes/project/github/ai-octok-platform-proto-base
+      规则：
+        新需求在这个基线上拉 cloud-v<MMDD>-<nn> 分支改，不做独立 HTML
+        以 UI-chat 设计为准
+        改完在原型仓提交
+    - 旧原型：/p/old
+  ```
+
+- 依赖：任务要挂在项目下（`project_id` 非空）才有「所属项目」一节，规则才进提示词；没挂项目的任务（比如 IM 转出、还没归项目的）看不到任何原型规则。
+
+**升级说明（0.20.0）。** 已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（`id=projects`）升级，升级时应用插件迁移 `0013_proto_rules.sql`；没有新增权限。迁移没应用完的插件启动时不加载（项目页、原型、档案接口 404），升级完即恢复。没写规则时提示词与 0.19.0 相比只多一处：设了原型库目录（`proto_dir`）的项目，「原型在哪里操作」里多一行「原型库（项目档案）」。
 
 ### 项目汇总
 
@@ -2088,6 +2111,7 @@ AUTO-04。给分类 Agent 和各 pipeline 用的项目信息（SPEC-projects-15�
 | `keywords` | string[] | 关键词，最多 50 个，每个最多 30 字 |
 | `platforms` | string[] | 平台标签（web、H5、桌面、云端、移动端、小程序或自填），最多 10 个，每个最多 30 字 |
 | `code_dir` / `proto_dir` / `prd_dir` | string | 代码库、原型库、PRD 目录，本机绝对路径；空串是没设 |
+| `proto_rules` | string | 原型库的规则（0.20.0），多行，最多 4000 字，空串是没有；交给 Claude Code 时跟在提示词里原型库后面，见「项目原型 / 原型规则」 |
 | `commands` | object | key 是 `build`（构建）、`test`（测试）、`test_env`（起测试环境）、`smoke`（冒烟，测试环境上）、`version`（版本号与更新日志）、`package`（打包）、`preflight`（发布前检查：备份与密钥核对）、`release`（发布）、`prod_smoke`（线上冒烟）、`rollback`（回滚）；值 `{command, dir, timeout_sec, ready?}`，`ready` 只有 `test_env` 有（见下）。只含设了的命令。`smoke` 一直是测试环境上的冒烟（AUTO-08 起就由测试环境跑），线上冒烟是 AUTO-10 新加的 `prod_smoke`；新 key 只是 JSON 里多几个键，已有档案不用迁 |
 | `owner_ids` / `acceptor_ids` | string[] | 负责人、验收人员，联系人（干系人名册）id |
 | `root` | string | 只读：项目自身的目录（对象 `workdir` 列），没设为空串 |
