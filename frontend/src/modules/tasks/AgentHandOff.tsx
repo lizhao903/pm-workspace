@@ -15,7 +15,8 @@ import { Button, Checkbox, Field, IconButton, IconClose, Input, Select, Textarea
 import { ProviderModelFields } from './ProviderModelFields'
 import { restoreFocus, trapTab } from '../../core/ui/focus'
 import { AGENT_RUN_DEFAULTS, agentRunRequest, canResume, clampInt, pickAgent, providerOptions } from './agentHandoffModel'
-import { NO_PRESET, defaultWorkdir, pickedPreset, roleOptionLabel, roleReadOnly } from './handoffModel'
+import { HANDOFF_TITLE, NO_PRESET, defaultWorkdir, pickedPreset, roleOptionLabel, roleReadOnly } from './handoffModel'
+import { QuickNotes } from './QuickNotes'
 import { startRun } from './runLive'
 import './handoff.css'
 
@@ -110,7 +111,7 @@ export function AgentRunDialog({ task, workdir, inherit, onStart, onClose, picke
     <div className="dialog-scrim ho-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
       <div ref={ref} className="ho" role="dialog" aria-modal="true" aria-labelledby={`${id}-t`} tabIndex={-1}>
         <div className="ho-head">
-          <b id={`${id}-t`}>交给工作台 Agent</b>
+          <b id={`${id}-t`}>{HANDOFF_TITLE}</b>
           <span className="ho-sub ellipsis" title={`${task.ref} ${task.title}`}>{task.ref} {task.title}</span>
           <span className="spacer" />
           <IconButton label="关闭 (Esc)" onClick={onClose}><IconClose /></IconButton>
@@ -164,6 +165,7 @@ export function AgentRunDialog({ task, workdir, inherit, onStart, onClose, picke
           </span>
         </div>
 
+        <QuickNotes value={extra} onChange={setExtra} onManage={onClose} target="补充说明" />
         <Field label="补充说明">
           <Textarea rows={3} value={extra} placeholder="可选：这次要特别注意的事，会接在任务内容后面发给 Agent" onChange={(e) => setExtra(e.target.value)} />
         </Field>

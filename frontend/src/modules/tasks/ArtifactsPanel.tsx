@@ -6,7 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   QueryState, errorText, useObjectArtifacts, useRecordArtifact, type Artifact, type ArtifactSource, type WorkObject,
 } from '../../core/data'
-import { Button, Input, Tag } from '../../core/ui'
+import { Button, InfoTip, Input, Tag } from '../../core/ui'
 import { groupArtifacts, locationOf, shortSha, type ParsedNote } from './artifactNote'
 import { timeAgo } from './model'
 import './artifacts.css'
@@ -67,14 +67,22 @@ function AddForm({ objectId, onDone }: { objectId: string; onDone: () => void })
   )
 }
 
-/** focused：从任务行、看板、产出物视图点产出标记进来（?focus=artifacts，TSK-0497），打开后滚到这一块 */
-export function ArtifactsPanel({ task, focused }: { task: WorkObject; focused?: boolean }) {
+/**
+ * focused：从任务行、看板、产出物视图点产出标记进来（?focus=artifacts，TSK-0497），打开后滚到这一块。
+ * addSignal：抽屉「更多」里点「登记产出物」的次数（SPEC-tasks-4.87）。给了就不显示标题旁的「登记产出物」，每变一次展开登记表单并滚过来
+ */
+export function ArtifactsPanel({ task, focused, addSignal }: { task: WorkObject; focused?: boolean; addSignal?: number }) {
   const q = useObjectArtifacts(task.id)
   const [adding, setAdding] = useState(false)
   const ref = useRef<HTMLElement>(null)
   useEffect(() => {
     if (focused) ref.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
   }, [focused, task.id])
+  useEffect(() => {
+    if (!addSignal) return
+    setAdding(true)
+    ref.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+  }, [addSignal])
   const [copied, setCopied] = useState('')
   const items = q.data?.data ?? []
   const groups = groupArtifacts(items)
@@ -84,9 +92,10 @@ export function ArtifactsPanel({ task, focused }: { task: WorkObject; focused?: 
   return (
     <section ref={ref} className="dev-slot" data-slot="artifacts" data-task={task.id} aria-label="产出物">
       <div className="dev-slot-head">
-        <span className="field-group-title">产出物<span className="art-hint">提交、分支、PR、文件</span></span>
+        <span className="field-group-title">产出物</span>
+        <InfoTip label="产出物说明">提交、分支、PR、文件；执行器经工作台 MCP 登记，也可以手工登记</InfoTip>
         <span className="art-spacer" />
-        {!adding && <Button size="sm" onClick={() => setAdding(true)}>登记产出物</Button>}
+        {!adding && addSignal === undefined && <Button size="sm" onClick={() => setAdding(true)}>登记产出物</Button>}
       </div>
       <QueryState query={q} compact>{() => (
         <>

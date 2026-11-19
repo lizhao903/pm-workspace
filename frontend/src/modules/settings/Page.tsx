@@ -20,6 +20,7 @@ import { IncidentsSection } from './incidents/IncidentsSection'
 import { RunPresetsSection } from './runprompts/RunPresetsSection'
 import { ExecutorsSection } from './executors/ExecutorsSection'
 import { RunPermsSection } from './runperms/RunPermsSection'
+import { RunNotesSection } from './runnotes/RunNotesSection'
 import { RunnersSection } from './runners/RunnersSection'
 import { UpdateSection } from './update/UpdateSection'
 
@@ -36,6 +37,8 @@ const KERNEL: SubnavItem<string>[] = [
   { key: 'run-prompts', label: '角色', desc: '交给 Claude Code 的角色：执行要求、权限、输出要求' },
   // TSK-0499：后台执行放行什么（工作台 MCP、只读命令、写入档位、自定义白名单）
   { key: 'run-permissions', label: '执行权限', desc: '交给 Claude Code 后台执行时放行的工具和命令' },
+  // SPEC-settings-32（用户 2026-11-19 提）：交给执行弹窗里附加说明上面的快捷选项
+  { key: 'run-quick-notes', label: '快捷说明', desc: '交给执行时一点就填进附加说明的常用说明' },
   // TSK-0722：交给执行能选的执行器装没装、缺什么，DeepSeek 的集成检查
   { key: 'runners', label: '执行器', desc: 'Claude Code、DeepSeek、工作台 Agent 能不能用，集成检查' },
   { key: 'kbs', label: '知识库', desc: 'Agent 检索用的资料' },
@@ -90,6 +93,7 @@ export default function Page() {
         : kernel!.key === 'agents' ? <AgentsSection />
         : kernel!.key === 'run-prompts' ? <RunPresetsSection />
         : kernel!.key === 'run-permissions' ? <RunPermsSection />
+        : kernel!.key === 'run-quick-notes' ? <RunNotesSection />
         : kernel!.key === 'runners' ? <RunnersSection />
         : kernel!.key === 'kbs' ? <KbSection />
         : kernel!.key === 'skills' ? <SkillsSection />

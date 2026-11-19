@@ -40,10 +40,14 @@ function run(p: Partial<TaskRun>): TaskRun {
   }
 }
 
-function stub(t: WorkObject, extra: { progress?: Progress[]; runs?: TaskRun[] } = {}) {
+function stub(t: WorkObject, extra: { progress?: Progress[]; runs?: TaskRun[]; patchFail?: string } = {}) {
   const json = (data: unknown) => new Response(JSON.stringify({ data }), { status: 200 })
-  const fn = vi.fn(async (input: RequestInfo | URL, _init?: RequestInit) => {
+  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const u = new URL(String(input), 'http://x')
+    if (init?.method === 'PATCH' && extra.patchFail) {
+      return new Response(JSON.stringify({ error: { code: 'validation', message: extra.patchFail } }), { status: 400 })
+    }
+    if (init?.method === 'PATCH') return json({ ...t, ...JSON.parse(String(init.body)) })
     if (u.pathname.endsWith('/progress')) return json(extra.progress ?? (t.status === 'review' ? [review] : []))
     if (u.pathname.endsWith('/runs')) return json(extra.runs ?? [])
     if (u.pathname.startsWith('/api/runs/')) return json((extra.runs ?? []).find((r) => u.pathname.endsWith(r.id)))
@@ -64,14 +68,14 @@ function Where() {
 }
 const where = () => screen.getByTestId('where').textContent
 
-function open(t: WorkObject, opts: { url?: string; progress?: Progress[]; runs?: TaskRun[]; onClose?: () => void } = {}) {
+function open(t: WorkObject, opts: { url?: string; progress?: Progress[]; runs?: TaskRun[]; onClose?: () => void; patchFail?: string; projects?: WorkObject[] } = {}) {
   const fn = stub(t, opts)
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   render(
     <QueryClientProvider client={qc}>
       <MemoryRouter initialEntries={[opts.url ?? '/tasks']}>
         <Where />
-        <TaskDrawer task={t} statuses={statuses} priorities={[]} projects={[]} onClose={opts.onClose ?? (() => {})} onCreated={() => {}} />
+        <TaskDrawer task={t} statuses={statuses} priorities={[]} projects={opts.projects ?? []} onClose={opts.onClose ?? (() => {})} onCreated={() => {}} />
       </MemoryRouter>
     </QueryClientProvider>,
   )
@@ -127,10 +131,10 @@ describe('待验收的任务抽屉', () => {
     }
     // 执行记录在自己的标签里，任务字段在基础信息里
     expect(within(drawer).queryByRole('region', { name: '执行记录' })).not.toBeInTheDocument()
-    expect(within(drawer).queryByRole('radiogroup', { name: '状态' })).not.toBeInTheDocument()
+    expect(within(drawer).queryByRole('combobox', { name: '状态' })).not.toBeInTheDocument()
 
     await userEvent.click(within(drawer).getByRole('tab', { name: '基础信息' }))
-    expect(within(drawer).getByRole('radiogroup', { name: '状态' })).toBeInTheDocument()
+    expect(within(drawer).getByRole('combobox', { name: '状态' })).toBeInTheDocument()
     expect(within(drawer).getByDisplayValue('导出改成分批写')).toBeInTheDocument()
     // 正文默认预览，完整显示
     const bodyMode = within(drawer).getByRole('group', { name: '正文的显示方式' })
@@ -156,7 +160,7 @@ describe('任务详情的标签', () => {
     const { drawer } = open(task({ status: 'doing', props: {} }))
     await waitFor(() => expect(tabNames(drawer)).toEqual(['基础信息']))
     expect(selected(drawer)).toBe('基础信息')
-    expect(within(drawer).getByRole('radiogroup', { name: '状态' })).toBeInTheDocument()
+    expect(within(drawer).getByRole('combobox', { name: '状态' })).toBeInTheDocument()
     expect(within(drawer).getByRole('region', { name: '提醒' })).toBeInTheDocument()
     expect(within(drawer).queryByRole('group', { name: '开发' })).not.toBeInTheDocument()
     const bodyMode = within(drawer).getByRole('group', { name: '正文的显示方式' })
@@ -169,10 +173,11 @@ describe('任务详情的标签', () => {
     expect(where()).toBe('/tasks?tab=dev')
   })
 
-  it('有开发字段的任务：开发任务、执行记录标签；执行记录带条数，有在跑的带绿点', async () => {
+  it('有开发字段的任务：开发任务、执行记录标签，默认停在开发任务；执行记录带条数，有在跑的带绿点', async () => {
     const { drawer } = open(task({ status: 'doing' }), { runs: [run({ id: 'run_a', status: 'running', finished_at: null }), run({ id: 'run_b' })] })
     expect(tabNames(drawer)).toEqual(['基础信息', '开发任务', '执行记录'])
-    expect(selected(drawer)).toBe('基础信息')
+    expect(selected(drawer)).toBe('开发任务')
+    expect(where()).toBe('/tasks')
     const runsTab = within(drawer).getByRole('tab', { name: /执行记录/ })
     await waitFor(() => expect(within(runsTab).getByText('2')).toHaveClass('seg-n'))
     expect(runsTab.querySelector('.tab-light')).toHaveAttribute('title', '有执行在跑')
@@ -180,7 +185,7 @@ describe('任务详情的标签', () => {
 
     await userEvent.click(runsTab)
     expect(within(drawer).getByRole('region', { name: '执行记录' })).toBeInTheDocument()
-    expect(within(drawer).queryByRole('radiogroup', { name: '状态' })).not.toBeInTheDocument()
+    expect(within(drawer).queryByRole('combobox', { name: '状态' })).not.toBeInTheDocument()
     expect(where()).toBe('/tasks?tab=runs')
   })
 
@@ -202,8 +207,8 @@ describe('任务详情的标签', () => {
 
     act(() => reg.dispose())
     expect(tabNames(drawer)).toEqual(['基础信息', '开发任务', '执行记录'])
-    // 停在被撤掉的标签上时回默认
-    expect(selected(drawer)).toBe('基础信息')
+    // 停在被撤掉的标签上时回默认（开发任务）
+    expect(selected(drawer)).toBe('开发任务')
   })
 
   it('地址上的 ?tab= 打开时就停在那个标签；不认识的标签回默认', async () => {
@@ -215,7 +220,7 @@ describe('任务详情的标签', () => {
   it('不在跑的插件标签回默认', async () => {
     const { drawer } = open(task({ status: 'doing' }), { url: '/tasks?tab=sop' })
     expect(tabNames(drawer)).not.toContain('SOP')
-    expect(selected(drawer)).toBe('基础信息')
+    expect(selected(drawer)).toBe('开发任务')
   })
 
   it('跳到某次执行（?run=）：切到执行记录，那一条展开高亮；切别的标签后定位参数去掉', async () => {
@@ -270,7 +275,7 @@ describe('正文高度随内容撑开', () => {
     let content = 60
     const spy = vi.spyOn(HTMLTextAreaElement.prototype, 'scrollHeight', 'get').mockImplementation(() => content)
     try {
-      const { drawer } = open(task({ status: 'doing', body: '短' }))
+      const { drawer } = open(task({ status: 'doing', body: '短' }), { url: '/tasks?tab=info' })
       const box = within(drawer).getByRole('textbox', { name: '正文' }) as HTMLTextAreaElement
       expect(box).toHaveClass('grow')
       expect(box.rows).toBe(6)
@@ -283,5 +288,79 @@ describe('正文高度随内容撑开', () => {
     } finally {
       spy.mockRestore()
     }
+  })
+})
+
+// 任务详情精简（用户 2026-11-19 提，SPEC-tasks-4.85 到 4.88）
+describe('任务详情精简', () => {
+  const proj = task({ id: 'obj_p1', type_id: 'project', ref: 'PRJ-0001', title: '工作台', status: 'doing', props: {}, workdir: '/w/pm' })
+  const patches = (fn: ReturnType<typeof vi.fn>) =>
+    fn.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH').map(([, init]) => JSON.parse(String((init as RequestInit).body)))
+
+  it('所属项目、优先级、状态是同一行的三个下拉；改状态马上只 PATCH 这一项，不算未保存的改动', async () => {
+    const { drawer, fn } = open(task({ status: 'doing', props: {} }))
+    const row = within(drawer).getByRole('group', { name: '所属项目、优先级、状态' })
+    expect(within(row).getByRole('button', { name: '所属项目' })).toBeInTheDocument()
+    expect(within(row).getByRole('combobox', { name: '优先级' })).toBeInTheDocument()
+    const status = within(row).getByRole('combobox', { name: '状态' })
+    // 选项是类型状态集的显示名，值是 key
+    expect(within(status).getAllByRole('option').map((o) => [o.getAttribute('value'), o.textContent])).toEqual(
+      statuses.map((x) => [x.key, x.label]))
+    await userEvent.selectOptions(status, 'done')
+    await waitFor(() => expect(patches(fn)).toEqual([{ status: 'done' }]))
+    expect(status).toHaveValue('done')
+    // 关抽屉不问「未保存」
+    await userEvent.click(within(drawer).getByRole('button', { name: '取消' }))
+    expect(screen.queryByText('有未保存的修改，关闭后会丢掉。')).not.toBeInTheDocument()
+  })
+
+  it('字典里没有的优先级照样留在下拉选项里，标「已停用」', async () => {
+    const { drawer } = open(task({ status: 'doing', props: {}, priority: 'P2' }))
+    const prio = within(drawer).getByRole('combobox', { name: '优先级' })
+    expect(prio).toHaveValue('P2')
+    expect(within(prio).getByRole('option', { name: 'P2（已停用）' })).toBeInTheDocument()
+  })
+
+  it('改状态没改成：退回原值，下面红字说原因', async () => {
+    const { drawer } = open(task({ status: 'doing', props: {} }), { patchFail: '状态不认识' })
+    const status = within(drawer).getByRole('combobox', { name: '状态' })
+    await userEvent.selectOptions(status, 'done')
+    expect(await within(drawer).findByRole('alert')).toHaveTextContent('状态没改成：状态不认识')
+    expect(status).toHaveValue('doing')
+  })
+
+  it('挂在项目下的任务算开发任务，默认停在开发任务；摆在开发任务的插件区块（工作区）在开发组后面，不在基础信息', async () => {
+    const reg = objectSectionRegistry('projects').register({
+      key: 'worktree', typeIds: ['task'], order: 40, hostTab: 'dev',
+      section: lazy(async () => ({ default: () => <section aria-label="工作区">wt</section> })),
+    })
+    try {
+      const { drawer } = open(task({ status: 'doing', props: {}, project_id: 'obj_p1' }), { projects: [proj] })
+      expect(tabNames(drawer)).toEqual(['基础信息', '开发任务', '执行记录'])
+      expect(selected(drawer)).toBe('开发任务')
+      const wt = await within(drawer).findByRole('region', { name: '工作区' })
+      const dev = within(drawer).getByRole('group', { name: '开发' })
+      expect(dev.compareDocumentPosition(wt) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+      await userEvent.click(within(drawer).getByRole('tab', { name: '基础信息' }))
+      expect(within(drawer).queryByRole('region', { name: '工作区' })).not.toBeInTheDocument()
+    } finally {
+      reg.dispose()
+    }
+  })
+
+  it('开发任务标签只露「交给执行」：记进展、登记产出物在「更多」里，点了展开对应表单', async () => {
+    const { drawer } = open(task({ status: 'doing' }))
+    expect(within(drawer).getByRole('button', { name: '交给执行' })).toBeInTheDocument()
+    expect(within(drawer).queryByRole('button', { name: '登记产出物' })).not.toBeInTheDocument()
+    expect(within(drawer).queryByRole('button', { name: '+ 记一条进展' })).not.toBeInTheDocument()
+    // 说明收进 info 图标
+    expect(within(drawer).getByRole('button', { name: '产出物说明' })).toHaveAccessibleDescription(/提交、分支、PR、文件/)
+
+    await userEvent.click(within(drawer).getByRole('button', { name: '更多' }))
+    await userEvent.click(within(drawer).getByRole('menuitem', { name: '记一条进展' }))
+    expect(within(drawer).getByRole('textbox', { name: '记一条进展' })).toBeInTheDocument()
+    await userEvent.click(within(drawer).getByRole('button', { name: '更多' }))
+    await userEvent.click(within(drawer).getByRole('menuitem', { name: '登记产出物' }))
+    expect(await within(drawer).findByRole('form', { name: '登记产出物' })).toBeInTheDocument()
   })
 })

@@ -520,6 +520,11 @@ export type RunPermissions = {
   mcp_server: string
 }
 export type RunPermissionsInput = { write_profile: RunWriteProfile; custom: string[] }
+/**
+ * 交给执行的快捷附加说明（SPEC-tasks-6.40、SPEC-settings-32），GET / PUT /api/run-quick-notes：
+ * label 是弹窗里芯片上的短名，text 是点了追加进附加说明的文字。没设过时后端回内置的一组
+ */
+export type RunQuickNote = { label: string; text: string }
 
 // ---- 执行器（TSK-0722）----
 

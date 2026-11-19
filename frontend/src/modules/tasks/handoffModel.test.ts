@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import type { AgentProvider, RunnerStatus, TaskRun } from '../../core/data'
 import {
+  appendQuickNote,
   canResumeDSH, deepseekRunRequest, dshProviderOptions, pickWho, writeProfileOptions,
   NO_PRESET, TERMINAL_OFF_HINT, pickedWriteProfile, writeProfileHint, defaultWorkdir, effectiveAllow, launchFailSummary, modeHint, pickedPreset, roleOptionLabel, runRequest, runningOf, submitLabel, terminalRequest,
 } from './handoffModel'
@@ -122,5 +123,14 @@ describe('交给谁', () => {
     expect(deepseekRunRequest(base, { providerId: 'a', model: 'm', resume: true })).toMatchObject({ provider_id: 'a', model: 'm', resume_session: true })
     expect(canResumeDSH([{ harness: 'agent', harness_session: 's' } as TaskRun])).toBe(false)
     expect(canResumeDSH([{ harness: 'deepseek', harness_session: 'session-1' } as TaskRun])).toBe(true)
+  })
+})
+
+describe('快捷说明（SPEC-tasks-6.40）', () => {
+  it('追加到附加说明末尾另起一行；空的直接用；已经有的不重复加；空文字不动', () => {
+    expect(appendQuickNote('', '整理需求及对应原型')).toBe('整理需求及对应原型')
+    expect(appendQuickNote('先看 a.go\n\n', ' 整理需求及对应原型 ')).toBe('先看 a.go\n整理需求及对应原型')
+    expect(appendQuickNote('x\n整理需求及对应原型', '整理需求及对应原型')).toBe('x\n整理需求及对应原型')
+    expect(appendQuickNote('x', '  ')).toBe('x')
   })
 })

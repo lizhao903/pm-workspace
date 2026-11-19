@@ -83,6 +83,8 @@ export const dataKeys = {
     presets: ['run-presets'] as const,
     /** 后台执行的权限（TSK-0499），同理不在 runs 前缀下 */
     permissions: ['run-permissions'] as const,
+    /** 交给执行的快捷附加说明（SPEC-settings-32），同理不在 runs 前缀下 */
+    quickNotes: ['run-quick-notes'] as const,
     /** 执行器状态与 DeepSeek 集成检查（TSK-0722），同理不在 runs 前缀下 */
     runners: ['runners'] as const,
     smoke: ['runners', 'smoke', 'deepseek'] as const,

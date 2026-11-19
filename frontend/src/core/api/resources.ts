@@ -45,6 +45,7 @@ import type {
   FinishRunInput,
   RunPermissions,
   RunPermissionsInput,
+  RunQuickNote,
   RunnerSmoke,
   RunnerSmokeInput,
   RunnerStatus,
@@ -200,6 +201,9 @@ export const runs = {
   // 后台执行的权限档位与自定义白名单（TSK-0499）：PUT 整体替换，回同 GET
   permissions: (signal?: AbortSignal) => request<RunPermissions>('GET', '/api/run-permissions', { signal }),
   savePermissions: (body: RunPermissionsInput) => request<RunPermissions>('PUT', '/api/run-permissions', { body }),
+  // 交给执行的快捷附加说明（SPEC-tasks-6.40、SPEC-settings-32）：PUT 整组替换，回替换后的列表
+  quickNotes: (signal?: AbortSignal) => request<RunQuickNote[]>('GET', '/api/run-quick-notes', { signal }),
+  saveQuickNotes: (items: RunQuickNote[]) => request<RunQuickNote[]>('PUT', '/api/run-quick-notes', { body: { items } }),
 }
 
 // 执行器状态与 DeepSeek 集成检查（TSK-0722）：refresh 跳过后端一分钟的检测缓存

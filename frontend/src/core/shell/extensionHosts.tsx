@@ -3,7 +3,9 @@
 // 插件扩展点在内核页面里的宿主位置（CORE-02b）：今日页的插件卡片、设置页的插件分节，对象详情的插件区块（SOP-06）。
 // 每块包一层出错边界，一个插件渲染出错只影响它自己那一块
 import { Component, Suspense, type ReactNode } from 'react'
-import { sortCards, useObjectSections, useTodayCards, type ObjectSectionProps, type ObjectSectionTab, type PluginSettingsSection } from '../plugin'
+import {
+  sectionPlace, sortCards, useObjectSections, useTodayCards, type ObjectSectionHostTab, type ObjectSectionProps, type ObjectSectionTab, type PluginSettingsSection,
+} from '../plugin'
 import { ErrorState, LoadingState, PageTitle } from '../ui'
 import './extensions.css'
 
@@ -65,11 +67,14 @@ export function PluginSettingsPage({ section }: { section: PluginSettingsSection
 
 /**
  * 对象详情里插件登记的区块（SOP-06），按 order 摆；每块单独出错边界，加载时不占位。
- * tab 给了只摆这个标签里的区块，给 null 只摆没登记标签的；不给全摆
+ * tab 给了只摆这个标签里的区块；给 null 只摆没登记标签、摆在宿主标签 host（默认基础信息）里的；不给全摆
  */
-export function ObjectSections({ object, returnTo, focus, tab }: ObjectSectionProps & { tab?: string | null }) {
+export function ObjectSections({ object, returnTo, focus, tab, host = 'info' }: ObjectSectionProps & { tab?: string | null; host?: ObjectSectionHostTab }) {
   const all = useObjectSections(object.type_id)
-  const secs = tab === undefined ? all : all.filter((s) => (s.tab?.key ?? null) === tab)
+  const secs = tab === undefined ? all : all.filter((s) => {
+    const at = sectionPlace(s)
+    return tab === null ? 'host' in at && at.host === host : 'tab' in at && at.tab === tab
+  })
   if (!secs.length) return null
   return (
     <>

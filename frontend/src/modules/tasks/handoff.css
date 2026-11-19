@@ -50,3 +50,10 @@
 
 /* 交给谁（TSK-0722）：不能用的执行器一行一句缺什么，链接去设置「执行器」 */
 .ho-who-off a { color: var(--accent); }
+
+/* 快捷说明（SPEC-tasks-6.40） */
+.ho-quick { display: flex; flex-direction: column; gap: var(--sp-3); }
+.ho-quick .ho-preset-head { align-items: center; gap: 4px; }
+.ho-quick-chips { display: flex; flex-wrap: wrap; gap: var(--sp-3); }
+.ho-quick-chips .chip { height: 28px; padding: 0 var(--sp-5); }
+.ho-mode-label .info-tip, .ho-preset-head .info-tip { margin-left: 4px; }

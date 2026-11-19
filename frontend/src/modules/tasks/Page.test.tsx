@@ -95,7 +95,7 @@ describe('任务页走数据访问层', () => {
     await waitFor(() => expect(router.state.location.search).toBe(''))
   })
 
-  it('在抽屉里改状态保存后，不刷新页面，列表分段和逾期徽标都更新', async () => {
+  it('在抽屉里改状态（改了就存）后，不刷新页面，列表分段和逾期徽标都更新', async () => {
     const calls = fakeBackend([task('obj_0001', '过期没做的', { due_at: yesterday }), task('obj_0002', '没截止的')])
     renderPage()
 
@@ -105,10 +105,11 @@ describe('任务页走数据访问层', () => {
 
     await userEvent.click(within(overdue).getByRole('button', { name: /过期没做的/ }))
     const drawer = await screen.findByRole('dialog')
-    await userEvent.click(within(within(drawer).getByRole('radiogroup', { name: '状态' })).getByRole('radio', { name: '已完成' }))
+    await userEvent.click(within(drawer).getByRole('tab', { name: '基础信息' }))
+    await userEvent.selectOptions(within(drawer).getByRole('combobox', { name: '状态' }), '已完成')
+    await waitFor(() => expect(calls).toContain('PATCH /api/objects/obj_0001'))
     await userEvent.click(within(drawer).getByRole('button', { name: '保存' }))
 
-    expect(calls).toContain('PATCH /api/objects/obj_0001')
     // 默认只看未完成：逾期段消失，徽标跟着变
     await waitFor(() => expect(screen.queryByRole('group', { name: '逾期' })).not.toBeInTheDocument())
     expect(await screen.findByText('没有逾期的任务')).toBeInTheDocument()

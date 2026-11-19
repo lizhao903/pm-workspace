@@ -1715,6 +1715,7 @@ api.objectSections.register({ key: 'sop-runs', typeIds: ['task'], order: 50, sec
 ```
 
 - 区块可以放进对象详情的标签（只增不减，老写法照常）：`ObjectSectionDef.tab?: { key: string; label: string; badge?: LazyExoticComponent<ComponentType<ObjectSectionProps>>; focusParam?: string }`。同 key 的区块合在一个标签里，按 `order` 排；插件停用后标签跟着消失；不给 `tab` 的区块摆在基础信息末尾。`badge` 是标签名后面的计数或状态点；地址带 `focusParam` 这个参数时自动切到这个标签，参数值作为 `focus` 传给区块。`ObjectSectionProps` 新增 `focus?: string`。SOP 插件登记的是 `tab: { key: 'sop', label: 'SOP', badge, focusParam: 'sop_run' }`（任务详情分标签：基础信息、开发任务、SOP、执行记录）。
+- 不给 `tab` 的区块可以指定摆在宿主的哪个标签（只增不减，任务详情精简，用户 2026-11-19 提）：`ObjectSectionDef.hostTab?: 'info' | 'dev'`，默认 `'info'`（基础信息末尾），`'dev'` 摆在任务详情「开发任务」标签里「开发」组后面；宿主没有这个标签（不是开发任务）时不显示。给了 `tab` 时不看这一项。项目插件的「工作区」登记的是 `hostTab: 'dev'`（`SPEC-tasks-4.86`）。
 
 #### 2.13.22 前端扩展点 `sessionTools`
 

@@ -1,9 +1,10 @@
 // powered by dsh - https://github.com/deepseek-ai/deepseek-harness
 
 // 工作目录：可以手填，也可以用 /api/fs/browse 选；改动后停手片刻就用 /api/agent/workdir/check 校验（SPEC-tasks-4.27）。
+// 「没设时用所属项目的目录」收进标题旁的 info 图标（SPEC-tasks-4.88），下面只留校验结果。
 import { useEffect, useId, useState } from 'react'
 import { errorText, useWorkdirCheck, workdirUsable } from '../../core/data'
-import { Button, cls } from '../../core/ui'
+import { Button, InfoTip, cls } from '../../core/ui'
 import { DirPicker } from '../../core/ui/DirPicker'
 
 // 停手多久再校验
@@ -29,9 +30,7 @@ export function WorkdirField({ value, onChange, inherit }: {
 
   let hint = null
   if (!value.trim()) {
-    hint = inherit
-      ? <span className="field-hint-line">没设时用所属项目「{inherit.project}」的目录</span>
-      : null
+    hint = null
   } else if (!typing && check.data) {
     hint = workdirUsable(check.data)
       ? <span className="field-hint-line wd-ok">目录可用</span>
@@ -44,7 +43,10 @@ export function WorkdirField({ value, onChange, inherit }: {
   return (
     // 选目录时占满一行，目录列表不至于挤在半格里
     <div className={cls('field', picking && 'wd-wide')}>
-      <span className="field-label" id={labelId}>工作目录</span>
+      <span className="field-label wd-label">
+        <span id={labelId}>工作目录</span>
+        {inherit && <InfoTip label="工作目录说明">没设时用所属项目「{inherit.project}」的目录：{inherit.dir}</InfoTip>}
+      </span>
       <div className="wd-row">
         <input className={cls('input mono-input', bad && 'bad')} aria-labelledby={labelId} aria-invalid={bad || undefined}
           value={value} onChange={(e) => onChange(e.target.value)}

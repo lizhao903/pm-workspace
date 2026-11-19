@@ -6,16 +6,19 @@
 // ?run= / ?sop_run= 定位到某次执行时自动切到那个标签。归类和显示条件在 drawerTabs.ts。
 // 待验收时验收是主要动作（PR-07，product-review A-04、C-02）：默认停在「开发任务」，顶上是等你验收栏，再是改动、产出物、进展，开发字段在最后。
 // 新建不分标签：基础字段加可展开的开发字段。
-import { useId, useState, type CSSProperties, type ReactNode } from 'react'
+// 任务详情精简（用户 2026-11-19 提，SPEC-tasks-4.85 到 4.88）：基础信息里「状态」「优先级」「所属项目」是同一行的三个下拉，
+// 已有任务上改了就单独保存这一项（失败退回原值并说原因），不等底栏「保存」；「工作区」挪到开发任务标签；
+// 打开时默认停在开发任务（不是开发任务时仍是基础信息）；开发任务标签只露「交给执行」，记进展、登记产出物收进「更多」。
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import {
   errorText, isApiError, useAgents, useArtifactCount, useCreateObject, useDeleteObject, useObject, usePatchObject, useProgress, useStakeholders,
   useTaskRuns, type DictItem, type ObjectStatus, type WorkObject,
 } from '../../core/data'
 import {
-  Button, ConfirmDialog, Drawer, EmptyState, Field, Input, SearchSelect, Tag, Tags, Textarea, cls, type SearchOption,
+  Button, ConfirmDialog, Drawer, EmptyState, Field, InfoTip, Input, SearchSelect, Select, Tag, Tags, Textarea, cls, type SearchOption,
 } from '../../core/ui'
 import { ObjectSectionBadge, ObjectSections } from '../../core/shell/extensionHosts'
-import { DevSlots, RunsSlot } from './DevSlots'
+import { DevSlots, RunsSlot, type DevAdds } from './DevSlots'
 import { FOCUS_PARAM, HOST_TABS, RUN_PARAM, currentTab, isDevTask, useTaskTabParams, visibleTabs, wantedTab, type HostTab } from './drawerTabs'
 import { HandOffButton } from './HandOff'
 import { AiBadge } from './OwnerMark'
@@ -71,8 +74,16 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
 
   const deleted = !!task && (!!live.data?.deleted_at || isApiError(live.error, 'not_found'))
   const reviewing = !!task && (live.data?.status ?? task.status) === REVIEW
-  // 打开时的默认标签：待验收的先看开发任务（验收栏在那里）；验收完状态变了也不跳走
-  const [fallbackTab] = useState<HostTab>(() => (reviewing ? 'dev' : 'info'))
+  // 打开时的默认标签：开发任务（用户 2026-11-19 提「默认为开发任务状态」；待验收的验收栏也在那里），
+  // 不是开发任务、没有这个标签时 currentTab 回基础信息
+  const fallbackTab: HostTab = 'dev'
+  // 状态、优先级、所属项目在已有任务上改了就单独保存（SPEC-tasks-4.85）：保存成功的值记在这里，
+  // 底栏「保存」拿它补到打开时的任务上再比，不重复提交；正在存的那一项下拉置灰
+  const [inline, setInline] = useState<Partial<Pick<WorkObject, 'status' | 'priority' | 'project_id'>>>({})
+  const [inlineBusy, setInlineBusy] = useState<InlineKey | null>(null)
+  const [inlineErr, setInlineErr] = useState('')
+  // 开发任务标签「更多」里点的「记一条进展」「登记产出物」：每点一次加一，对应区块展开表单并滚过去
+  const [adds, setAdds] = useState<DevAdds>({ progress: 0, artifact: 0 })
   // 验收或退回后状态在后端已改，基准和表单一起跟上，不算未保存的改动
   const reviewed = (status: string) => {
     setBase((b) => ({ ...b, status }))
@@ -84,7 +95,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
   const want = wantedTab(tabs.params, tabs.refs)
   const runRows = task ? runs.data ?? [] : []
   const dev = isDevTask({
-    acceptance: d.acceptance, workdir: d.workdir, repo: d.repo, opened: devOpen, reviewing,
+    acceptance: d.acceptance, workdir: d.workdir, repo: d.repo, project: d.project_id, opened: devOpen, reviewing,
     progress: progress.data?.length ?? 0, artifacts: artifactN.data ?? 0, runs: runRows.length,
   })
   const visible = visibleTabs(dev, tabs.refs, want)
@@ -111,7 +122,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
       if (!task) {
         onCreated(await create.mutateAsync(buildCreate(d)))
       } else {
-        await save.mutateAsync(buildSave(task, d))
+        await save.mutateAsync(buildSave({ ...task, ...inline }, d))
         close()
       }
     } catch (e) {
@@ -127,6 +138,32 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
     } catch (e) {
       setAskDelete(false)
       setError(errorText(e))
+    }
+  }
+
+  // 状态、优先级、所属项目（SPEC-tasks-4.85）：新建时只改表单；已有任务上先改表单和基准（乐观，不算未保存的改动），
+  // 再只 PATCH 这一项，失败退回原值、下拉下面红字说原因
+  const pickInline = async (key: InlineKey, v: string) => {
+    if (!task) {
+      set({ [key]: v })
+      return
+    }
+    const prev = d[key]
+    if (prev === v) return
+    setInlineErr('')
+    set({ [key]: v })
+    setBase((b) => ({ ...b, [key]: v }))
+    setInlineBusy(key)
+    const value = key === 'project_id' ? v || null : v
+    try {
+      await save.mutateAsync({ id: task.id, patch: { [key]: value } })
+      setInline((x) => ({ ...x, [key]: value }))
+    } catch (e) {
+      setD((x) => (x[key] === v ? { ...x, [key]: prev } : x))
+      setBase((b) => (b[key] === v ? { ...b, [key]: prev } : b))
+      setInlineErr(`${INLINE_LABEL[key]}没改成：${errorText(e)}`)
+    } finally {
+      setInlineBusy(null)
     }
   }
 
@@ -147,6 +184,7 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
   const ownerRef = ownerSh?.ai_ref || (task && task.owner_id === d.owner_id ? task.owner_ai_ref : undefined)
   const ownerName = ownerSh?.name ?? (d.owner_id ? nameOf(d.owner_id) : undefined) ?? ''
   const ownerLook = ownerAI === 'agent' && ownerRef ? agentList.data?.find((a) => a.id === ownerRef) : undefined
+  const prioColor = (k: string) => priorities.find((p) => p.key === k)?.color || 'var(--faint)'
   const projectOpts: SearchOption[] = projects.map((p) => ({ value: p.id, label: p.title, hint: p.ref }))
   const project = projects.find((p) => p.id === d.project_id)
   const inherit = project?.workdir ? { project: project.title, dir: project.workdir } : undefined
@@ -165,13 +203,26 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
       </Field>
       <MdField label="正文" value={d.body} rows={6} placeholder="支持 Markdown" defaultPreview={reviewing}
         onChange={(v) => set({ body: v })} />
-      <Field label="状态" wrap={false}>
-        <SegPick label="状态" options={statusOpts} value={d.status} onChange={(v) => set({ status: v })} />
-      </Field>
-      <Field label="优先级" wrap={false}>
-        <SegPick label="优先级" options={prioOpts} value={d.priority} onChange={(v) => set({ priority: v })}
-          color={(k) => priorities.find((p) => p.key === k)?.color} />
-      </Field>
+      {/* 同一行三个下拉（SPEC-tasks-4.85），窄了自动换行 */}
+      <div className="field-row tk-pick-row" role="group" aria-label="所属项目、优先级、状态">
+        <Field label="所属项目" wrap={false}>
+          <SearchSelect variant="field" aria-label="所属项目" value={d.project_id} noneLabel="不属于项目" placeholder="不属于项目"
+            searchPlaceholder="搜项目" options={projectOpts} missingLabel={() => task?.project_title ?? '已删除的项目'}
+            disabled={inlineBusy === 'project_id'} onChange={(v) => void pickInline('project_id', v)} />
+        </Field>
+        <Field label="优先级">
+          <span className="tk-pick">
+            <span className="tk-pick-dot" aria-hidden="true" style={{ background: prioColor(d.priority) }} />
+            <Select aria-label="优先级" value={d.priority} options={selectOpts(prioOpts)} disabled={inlineBusy === 'priority'}
+              onValueChange={(v) => void pickInline('priority', v)} />
+          </span>
+        </Field>
+        <Field label="状态">
+          <Select aria-label="状态" value={d.status} options={selectOpts(statusOpts)} disabled={inlineBusy === 'status'}
+            onValueChange={(v) => void pickInline('status', v)} />
+        </Field>
+      </div>
+      {inlineErr && <span className="field-err" role="alert">{inlineErr}</span>}
       <div className="field-row">
         <Field label={<>负责人{d.owner_id && ownerAI && <AiBadge kind={ownerAI} name={ownerName} look={ownerLook} />}</>} wrap={false}
           hint={!d.owner_id && task && !task.owner_id && task.owner ? `原来记的是「${task.owner}」，选一位干系人替换`
@@ -189,11 +240,6 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
           searchPlaceholder="搜干系人" options={peopleOpts} missingLabel={(id) => nameOf(id) ?? '已归档的干系人'}
           onChange={(v) => set({ participant_ids: v })} />
       </Field>
-      <Field label="所属项目" wrap={false}>
-        <SearchSelect variant="field" aria-label="所属项目" value={d.project_id} noneLabel="不属于项目" placeholder="不属于项目"
-          searchPlaceholder="搜项目" options={projectOpts} missingLabel={() => task?.project_title ?? '已删除的项目'}
-          onChange={(v) => set({ project_id: v })} />
-      </Field>
       {task && task.tags.length > 0 && (
         <Field label="标签" wrap={false}>
           <Tags>{task.tags.map((t) => <Tag key={t}>{t}</Tag>)}</Tags>
@@ -205,10 +251,19 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
     <div className="field-group" role="group" aria-label="开发">
       <div className="mount-head">
         <span className="field-group-title">开发</span>
+        {task && (
+          <InfoTip label="开发说明">
+            填验收标准、工作目录、关联仓库后「交给执行」，交给 Claude Code、DeepSeek 或工作台 Agent 去做；过程在「执行记录」标签里，
+            它回写的进展、产出物在下面
+          </InfoTip>
+        )}
         <span className="spacer" />
         {task && (
           <HandOffButton task={task} workdir={d.workdir} inherit={inherit}
             onShowRun={(runId) => tabs.select('runs', runId ? { [RUN_PARAM]: runId } : undefined)} />
+        )}
+        {task && (
+          <DevMore onPick={(k) => setAdds((x) => ({ ...x, [k]: x[k] + 1 }))} />
         )}
       </div>
       <MdField label="验收标准" value={d.acceptance} rows={4} mono placeholder="- [ ] 一条一行，写成能检查的样子"
@@ -244,8 +299,10 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
         <>
           {reviewing && <ReviewBar task={task} statuses={statuses} acceptance={base.acceptance} onReviewed={reviewed} />}
           {!reviewing && devFields}
-          <DevSlots task={task} reviewing={reviewing} focus={tabs.params.get(FOCUS_PARAM) || undefined} />
+          {!reviewing && <ObjectSections object={task} returnTo={returnTo} tab={null} host="dev" />}
+          <DevSlots task={task} reviewing={reviewing} focus={tabs.params.get(FOCUS_PARAM) || undefined} adds={adds} />
           {reviewing && devFields}
+          {reviewing && <ObjectSections object={task} returnTo={returnTo} tab={null} host="dev" />}
         </>
       )
     } else if (tab === 'runs') {
@@ -320,31 +377,58 @@ export function TaskDrawer({ task, statuses, priorities, projects, init, returnT
   )
 }
 
+/**
+ * 开发任务标签「开发」组右上的「更多」（SPEC-tasks-4.87）：页面上只露「交给执行」，记进展、登记产出物收在这里，
+ * 点了对应区块展开表单并滚过去。Esc 只收菜单，不关抽屉
+ */
+function DevMore({ onPick }: { onPick: (k: keyof DevAdds) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.preventDefault()
+      setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+  const pick = (k: keyof DevAdds) => {
+    setOpen(false)
+    onPick(k)
+  }
+  return (
+    <div className="tk-more" ref={ref}>
+      <Button size="sm" variant="ghost" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>更多</Button>
+      {open && (
+        <div className="menu" role="menu" aria-label="更多操作">
+          <button type="button" role="menuitem" className="menu-item" onClick={() => pick('progress')}>记一条进展</button>
+          <button type="button" role="menuitem" className="menu-item" onClick={() => pick('artifact')}>登记产出物</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 type SegOption = { key: string; label: string; title?: string }
+const STALE = '已停用的取值'
+
+/** 基础信息里改了就单独保存的三项（SPEC-tasks-4.85） */
+type InlineKey = 'status' | 'priority' | 'project_id'
+const INLINE_LABEL: Record<InlineKey, string> = { status: '状态', priority: '优先级', project_id: '所属项目' }
+
+/** 下拉的选项：已停用的取值后面写明 */
+const selectOpts = (opts: SegOption[]) => opts.map((o) => ({ value: o.key, label: o.title === STALE ? `${o.label}（已停用）` : o.label }))
 
 /** 当前值已被停用或删除时仍留在选项里 */
 function withCurrent(opts: SegOption[], cur: string): SegOption[] {
-  return !cur || opts.some((o) => o.key === cur) ? opts : [...opts, { key: cur, label: cur, title: '已停用的取值' }]
-}
-
-function SegPick({ label, options, value, onChange, color }: {
-  label: string
-  options: SegOption[]
-  value: string
-  onChange: (v: string) => void
-  color?: (key: string) => string | undefined
-}) {
-  return (
-    <div className="seg seg-full" role="radiogroup" aria-label={label}>
-      {options.map((o) => (
-        <button key={o.key} type="button" role="radio" aria-checked={value === o.key} title={o.title}
-          className={cls(value === o.key && 'on')} onClick={() => onChange(o.key)}
-          style={color ? { '--c': color(o.key) || 'var(--faint)' } as CSSProperties : undefined}>
-          {color && <span className="seg-dot" aria-hidden="true" />}{o.label}
-        </button>
-      ))}
-    </div>
-  )
+  return !cur || opts.some((o) => o.key === cur) ? opts : [...opts, { key: cur, label: cur, title: STALE }]
 }
 
 /** Markdown 输入：编辑和预览切换；编辑框高度随内容撑开 */

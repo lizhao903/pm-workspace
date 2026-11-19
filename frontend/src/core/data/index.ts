@@ -28,7 +28,7 @@ export {
 export { REVISION_LIMIT, useObjectRevisions, groupRevisions, rejectText, useReject } from './revisions'
 export type { RevisionGroup } from './revisions'
 export { useArtifacts, useObjectArtifacts, useArtifactStats, useArtifactCount, useRecordArtifact, useArtifactsByObject } from './artifacts'
-export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun, decideRunCall, useRunPrompt, startTerminalRun, finishTerminalRun, useFinishRun, useRunPresets, useSaveRunPresets, useRunPermissions, useSaveRunPermissions } from './runs'
+export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun, decideRunCall, useRunPrompt, startTerminalRun, finishTerminalRun, useFinishRun, useRunPresets, useSaveRunPresets, useRunPermissions, useSaveRunPermissions, useRunQuickNotes, useSaveRunQuickNotes } from './runs'
 export { useRunners, useDetectRunners, useDeepSeekSmoke, useStartDeepSeekSmoke } from './runners'
 export { workdirUsable, useWorkdirCheck, useFsBrowse, useFsShortcuts, useFsRoots, useAddFsRoot, useRemoveFsRoot, fsCrumbs } from './fs'
 export {

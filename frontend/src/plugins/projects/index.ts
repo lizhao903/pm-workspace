@@ -80,8 +80,8 @@ export default definePlugin({
         items: rows.map(({ project, proto: x }) => todayProtoItem(project, x)),
       }),
     })
-    // 需求工作区（AUTO-07）：任务详情基础信息末尾的「工作区」、设置里的端口范围、SOP 的「准备工作区」节点
-    api.objectSections.register({ key: 'worktree', typeIds: ['task'], order: 40, section: lazy(() => import('./WorktreeSection')) })
+    // 需求工作区（AUTO-07）：任务详情「开发任务」标签里的「工作区」（2026-11-19 起，原在基础信息末尾）、设置里的端口范围、SOP 的「准备工作区」节点
+    api.objectSections.register({ key: 'worktree', typeIds: ['task'], order: 40, hostTab: 'dev', section: lazy(() => import('./WorktreeSection')) })
     api.settings.register({ key: 'worktrees', label: '工作区', desc: '需求工作区的端口范围、测试环境保留时长', page: lazy(() => import('./WorktreeSettings')) })
     api.sopNodes.register({
       kind: 'projects_prepare_worktree', label: '准备工作区', group: '项目', color: '#1971c2',

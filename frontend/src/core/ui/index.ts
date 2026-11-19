@@ -39,7 +39,9 @@ export { EmptyState, ErrorState, LoadingState } from './states'
 export { Markdown } from './Markdown'
 export { parseBlocks, mdHeadings } from './mdParse'
 export type { Block as MdBlock, MdHeading } from './mdParse'
-export { IconCheck, IconChevronDown, IconChevronRight, IconClose, IconSearch } from './icons'
+export { IconCheck, IconChevronDown, IconChevronRight, IconClose, IconInfo, IconSearch } from './icons'
+// 说明文字收进 info 图标，悬停或键盘聚焦时以气泡显示（任务详情精简，用户 2026-11-19 提）
+export { InfoTip } from './InfoTip'
 export { ChatPanel } from './ChatPanel'
 export type { ChatMessage, ChatPanelProps } from './ChatPanel'
 // 定时规则编辑（定时任务抽屉、SOP 流程的定时触发共用，TSK-0463）

@@ -190,3 +190,12 @@ button.out-badge:focus-visible { outline: 2px solid var(--accent-line); outline-
   .outs-row > .outs-kinds { grid-row: 2; grid-column: 3; }
   .outs-detail { padding: var(--sp-4) var(--sp-6); }
 }
+
+/* 任务详情精简（用户 2026-11-19 提，SPEC-tasks-4.85 到 4.88） */
+.tk-pick-row { grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); align-items: start; }
+.tk-pick { position: relative; display: block; }
+.tk-pick .select { width: 100%; padding-left: 26px; }
+.tk-pick-dot { position: absolute; left: 11px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 99px; pointer-events: none; }
+.wd-label { display: inline-flex; align-items: center; gap: 4px; }
+.mount-head .info-tip, .dev-slot-head .info-tip { margin-left: calc(-1 * var(--sp-2)); }
+.tk-more { position: relative; }

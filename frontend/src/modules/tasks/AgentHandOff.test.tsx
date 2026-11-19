@@ -94,7 +94,7 @@ describe('交给工作台 Agent', () => {
     await user.click(screen.getByRole('button', { name: '开始执行' }))
     await waitFor(() => expect(bodies).toHaveLength(1))
     expect(bodies[0].body).toEqual({ harness: 'agent', agent_id: 'ag_b', preset_id: 'rp_ro', extra_prompt: '先看 A 家' })
-    expect(screen.queryByRole('dialog', { name: '交给工作台 Agent' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '交给 AI' })).not.toBeInTheDocument()
   })
 
   it('没选场景时用第一个启用的；有上次的会话能勾续跑，续跑不带 agent_id', async () => {

@@ -3,7 +3,7 @@
 // 执行记录的读写（DEV-08c 起，CORE-03a 迁进数据访问层）：某个对象的执行历史、单条详情、取消，以及发起执行的流。
 // 执行开始报 run-started，收尾报 run-settled（执行过程中可能改了对象、登记了产出物），取消报 run-canceled。
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { runObject, runs, type FinishRunInput, type RunDone, type RunEvent, type RunPermissionsInput, type RunPreset, type RunPromptParams, type RunRequest, type StreamOptions, type TaskRun, type TerminalRunRequest } from '../api'
+import { runObject, runs, type FinishRunInput, type RunDone, type RunEvent, type RunPermissionsInput, type RunPreset, type RunQuickNote, type RunPromptParams, type RunRequest, type StreamOptions, type TaskRun, type TerminalRunRequest } from '../api'
 import { streamDecision } from './agent'
 import { notifyChange, useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
@@ -127,5 +127,19 @@ export function useSaveRunPermissions() {
   return useMutation({
     mutationFn: (body: RunPermissionsInput) => runs.savePermissions(body),
     onSuccess: (v) => qc.setQueryData(dataKeys.runs.permissions, v),
+  })
+}
+
+/** 交给执行的快捷附加说明（SPEC-tasks-6.40、SPEC-settings-32）：没设过时后端回内置的一组 */
+export function useRunQuickNotes() {
+  return useQuery({ queryKey: dataKeys.runs.quickNotes, queryFn: ({ signal }) => runs.quickNotes(signal) })
+}
+
+/** 整组保存，响应写回缓存；400 的 message 由调用方显示 */
+export function useSaveRunQuickNotes() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (items: RunQuickNote[]) => runs.saveQuickNotes(items),
+    onSuccess: (list) => qc.setQueryData(dataKeys.runs.quickNotes, list),
   })
 }

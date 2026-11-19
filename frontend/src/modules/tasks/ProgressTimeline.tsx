@@ -18,7 +18,11 @@ const fmtTime = (iso: string) => {
   return `${d.getMonth() + 1}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
 }
 
-export function ProgressTimeline({ task }: { task: WorkObject }) {
+/**
+ * addSignal：抽屉「更多」里点「记一条进展」的次数（SPEC-tasks-4.87）。给了就不再显示底部的「+ 记一条进展」，
+ * 每变一次展开表单并滚过去；不给时同以前，底部有入口
+ */
+export function ProgressTimeline({ task, addSignal }: { task: WorkObject; addSignal?: number }) {
   const notify = useNotifyChange()
   const live = useObject(task.id)
   const status = live.data?.status ?? task.status
@@ -59,7 +63,9 @@ export function ProgressTimeline({ task }: { task: WorkObject }) {
       ) : q.isError && !q.data ? (
         <ErrorState error={q.error} onRetry={() => void q.refetch()} />
       ) : !list.length ? (
-        <div className="dev-slot-empty">还没有进展。Claude Code 领取任务后会在这里记它每一步做了什么，也可以在下面手工记一条。</div>
+        <div className="dev-slot-empty">
+          还没有进展。Claude Code 领取任务后会在这里记它每一步做了什么，也可以{addSignal === undefined ? '在下面' : '从「更多」'}手工记一条。
+        </div>
       ) : (
         <>
           {rows.length >= PROGRESS_LIMIT && <div className="prog-trunc">只显示最近 {PROGRESS_LIMIT} 条</div>}
@@ -77,7 +83,7 @@ export function ProgressTimeline({ task }: { task: WorkObject }) {
           </ol>
         </>
       )}
-      <AppendNote taskId={task.id} />
+      <AppendNote taskId={task.id} addSignal={addSignal} />
     </section>
   )
 }
@@ -116,15 +122,22 @@ function ProgressItem({ p, statuses, ref }: { p: Progress; statuses: ObjectStatu
 }
 
 /** 手工记一条进展：kind=note，操作者由后端按界面来源记成 me */
-function AppendNote({ taskId }: { taskId: string }) {
+function AppendNote({ taskId, addSignal }: { taskId: string; addSignal?: number }) {
   const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (addSignal) setOpen(true)
+  }, [addSignal])
+  useEffect(() => {
+    if (open && addSignal) box.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' })
+  }, [open, addSignal])
   const [text, setText] = useState('')
   const [error, setError] = useState('')
   const append = useAppendProgress(taskId)
   const id = useId()
 
   if (!open) {
-    return <button type="button" className="prog-add" onClick={() => setOpen(true)}>+ 记一条进展</button>
+    return addSignal === undefined ? <button type="button" className="prog-add" onClick={() => setOpen(true)}>+ 记一条进展</button> : null
   }
   const submit = async () => {
     if (!text.trim()) return
@@ -138,7 +151,7 @@ function AppendNote({ taskId }: { taskId: string }) {
     }
   }
   return (
-    <div className="prog-form">
+    <div className="prog-form" ref={box}>
       <label className="field-label" htmlFor={id}>记一条进展</label>
       <Textarea id={id} rows={3} autoFocus value={text} placeholder="支持 Markdown"
         onChange={(e) => setText(e.target.value)}

@@ -14,6 +14,10 @@
 // 交给谁（TSK-0722）：一个「交给执行」按钮，弹窗最上面选 Claude Code / DeepSeek / 工作台 Agent，各自能不能用取 GET /api/runners，
 // 不能用的置灰并写缺什么、怎么修（设置「执行器」看详情）。DeepSeek 和 Claude Code 共用这个弹窗：只有后台执行，
 // 多服务商和模型、接着上次的会话；写入档位翻成 dsh 的沙箱档位，「自定义白名单」没有对应、置灰。
+// 用户 2026-11-19 提：弹窗标题统一叫「交给 AI」（交给谁在下面那一排选，按钮仍叫「交给执行」，SPEC-tasks-6.41）；
+// 附加说明上面一排快捷说明（SPEC-tasks-6.40，QuickNotes.tsx），点一个追加进附加说明。
+// 固定不变的说明（交给谁、执行方式各自怎么跑，写入档位都放行什么，底部去哪看过程）收进标题旁的 info 图标（SPEC-tasks-6.41）；
+// 跟着选择变的状态（不可用、权限说法、角色内容、校验）照旧显示在下面。
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Link, useNavigate } from 'react-router'
@@ -23,15 +27,16 @@ import {
   type RunMode, type RunnerStatus, type RunWriteProfile, type WorkObject,
 } from '../../core/data'
 import { useTerminalLauncher } from '../../core/plugin'
-import { Button, Checkbox, ConfirmDialog, Field, IconButton, IconClose, Select, Textarea } from '../../core/ui'
+import { Button, Checkbox, ConfirmDialog, Field, IconButton, IconClose, InfoTip, Select, Textarea } from '../../core/ui'
 import { restoreFocus, trapTab } from '../../core/ui/focus'
 import {
-  MODE_LABEL, NO_PRESET, WHO_LABEL, WHO_ORDER, blockingProblem, canResumeDSH, deepseekRunRequest, defaultWorkdir, dshProviderOptions, effectiveAllow,
+  HANDOFF_TITLE, MODE_LABEL, NO_PRESET, WHO_LABEL, WHO_ORDER, blockingProblem, canResumeDSH, deepseekRunRequest, defaultWorkdir, dshProviderOptions, effectiveAllow,
   launchFailSummary, modeHint, pickWho, pickedPreset, pickedWriteProfile, problemText, roleOptionLabel, roleReadOnly, runRequest, runnerOf, runningOf,
   submitLabel, terminalRequest, whoHint, writeProfileHint, writeProfileOptions, type Who,
 } from './handoffModel'
 import { AgentRunDialog } from './AgentHandOff'
 import { ProviderModelFields } from './ProviderModelFields'
+import { QuickNotes } from './QuickNotes'
 import { startRun, useLiveRuns } from './runLive'
 import { WorkdirField } from './WorkdirField'
 import './handoff.css'
@@ -118,8 +123,8 @@ function WhoPicker({ who, list, onPick, onClose }: { who: Who; list: RunnerStatu
   const off = WHO_ORDER.map((w) => ({ w, p: blockingProblem(runnerOf(list, w)) })).filter((x) => x.p)
   const warn = runnerOf(list, who)?.problems.find((p) => !p.blocking && p.code === 'no_mcp')
   return (
-    <fieldset className="ho-mode ho-who">
-      <legend className="ho-mode-label">交给谁</legend>
+    <fieldset className="ho-mode ho-who" aria-label="交给谁">
+      <legend className="ho-mode-label">交给谁<InfoTip label="交给谁说明">{whoHint(who)}</InfoTip></legend>
       <div className="ho-mode-opts">
         {WHO_ORDER.map((w) => {
           const p = blockingProblem(runnerOf(list, w))
@@ -131,7 +136,6 @@ function WhoPicker({ who, list, onPick, onClose }: { who: Who; list: RunnerStatu
           )
         })}
       </div>
-      <span className="field-hint-line">{whoHint(who)}</span>
       {off.map(({ w, p }) => (
         <span key={w} className="field-hint-line ho-who-off">
           {WHO_LABEL[w]} 不可用：{problemText(p!)}（<Link to="/settings/runners" onClick={onClose}>设置 / 执行器</Link>）
@@ -294,7 +298,7 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose, harness = 
       <div className="dialog-scrim ho-scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose() }}>
         <div ref={ref} className="ho" role="dialog" aria-modal="true" aria-labelledby={`${id}-t`} tabIndex={-1}>
           <div className="ho-head">
-            <b id={`${id}-t`}>交给 {WHO_LABEL[harness]}</b>
+            <b id={`${id}-t`}>{HANDOFF_TITLE}</b>
             <span className="ho-sub ellipsis" title={`${task.ref} ${task.title}`}>{task.ref} {task.title}</span>
             <span className="spacer" />
             <IconButton label="关闭 (Esc)" onClick={onClose}><IconClose /></IconButton>
@@ -302,8 +306,8 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose, harness = 
           {picker}
           {dsh ? (
             <span className="field-hint-line">DeepSeek 只有后台执行：dsh 在工作台里跑，过程流式显示在任务的执行记录里；不接终端交互</span>
-          ) : <fieldset className="ho-mode">
-            <legend className="ho-mode-label">执行方式</legend>
+          ) : <fieldset className="ho-mode" aria-label="执行方式">
+            <legend className="ho-mode-label">执行方式<InfoTip label="执行方式说明">{modeHint(effMode, terminalOn)}</InfoTip></legend>
             <div className="ho-mode-opts">
               {(['stream', 'terminal'] as const).map((m) => {
                 const off = m === 'terminal' && !terminalOn
@@ -317,7 +321,6 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose, harness = 
                 )
               })}
             </div>
-            <span className="field-hint-line">{modeHint(effMode, terminalOn)}</span>
             {!terminalOn && <span className="field-hint-line">切换到终端：{modeHint('terminal', false)}</span>}
           </fieldset>}
           <div className="ho-dir">
@@ -371,6 +374,10 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose, harness = 
               <div className="ho-profile">
                 <div className="ho-preset-head">
                   <label className="field-label" htmlFor={`${id}-profile`}>写入档位</label>
+                  <InfoTip label="写入档位说明">
+                    {dsh ? '工作台 MCP 照常接上（回写进展和结论）；dsh 没有命令白名单，命令都在它的沙箱里跑，所以没有「自定义白名单」'
+                      : '任何档位都放行工作台 MCP（回写进展和结论）和只读命令（git log、grep、sqlite3 -readonly -safe 等）'}
+                  </InfoTip>
                   <span className="spacer" />
                   <Link className="ho-preset-manage" to="/settings/run-permissions" onClick={onClose}>管理执行权限</Link>
                 </div>
@@ -379,11 +386,8 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose, harness = 
                 <span className="field-hint-line">{writeProfileHint(writeProfile, perms.data?.custom, harness)}</span>
               </div>
             )}
-            <span className="field-hint-line">
-              {dsh ? '工作台 MCP 照常接上（回写进展和结论）；dsh 没有命令白名单，命令都在它的沙箱里跑，所以没有「自定义白名单」'
-                : '任何档位都放行工作台 MCP（回写进展和结论）和只读命令（git log、grep、sqlite3 -readonly -safe 等）'}
-            </span>
           </div>}
+          <QuickNotes value={extra} onChange={setExtra} disabled={busy} onManage={onClose} />
           <Field label="附加说明">
             <Textarea rows={3} value={extra} autoFocus
               placeholder={`可选：这次要特别注意的事，会接在任务内容后面发给 ${WHO_LABEL[harness]}`}
@@ -399,10 +403,10 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose, harness = 
           </details>
           {failed && <span className="field-err" role="alert">{failed}</span>}
           <div className="ho-foot">
-            <span className="field-hint-line">
+            <InfoTip label="执行过程去哪看">
               {effMode === 'terminal' ? '执行记录里会记一条「终端」，结束后由 Claude Code 回写结论'
                 : dsh ? '执行过程会流式显示在任务的执行记录里，结论经工作台 MCP 回写' : '执行过程会流式显示在任务的执行记录里'}
-            </span>
+            </InfoTip>
             <span className="spacer" />
             <Button variant="ghost" onClick={onClose}>取消</Button>
             <Button variant="primary" disabled={!ready} onClick={submit}>

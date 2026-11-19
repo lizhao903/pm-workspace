@@ -46,11 +46,16 @@ export function withTab(params: URLSearchParams, tab: string, plugins: readonly 
   return next
 }
 
-/** 开发任务的迹象：填了开发字段之一，或者已经有进展、产出物、执行记录，或者在等你验收 */
+/**
+ * 开发任务的迹象：填了开发字段之一、挂在项目下，或者已经有进展、产出物、执行记录，或者在等你验收。
+ * 挂在项目下也算（任务详情精简，用户 2026-11-19 提）：项目给了工作目录、工作区摆在开发任务标签里，默认就是开发任务
+ */
 export type DevSigns = {
   acceptance: string
   workdir: string
   repo: string
+  /** 所属项目 id，空串是不属于项目 */
+  project: string
   /** 基础信息里点了「设为开发任务」，还没填 */
   opened: boolean
   reviewing: boolean
@@ -60,7 +65,7 @@ export type DevSigns = {
 }
 
 export const isDevTask = (s: DevSigns) =>
-  !!(s.acceptance.trim() || s.workdir.trim() || s.repo.trim()) || s.opened || s.reviewing || s.progress > 0 || s.artifacts > 0 || s.runs > 0
+  !!(s.acceptance.trim() || s.workdir.trim() || s.repo.trim() || s.project) || s.opened || s.reviewing || s.progress > 0 || s.artifacts > 0 || s.runs > 0
 
 /**
  * 标签条：基础信息一直有；开发任务和执行记录只在开发任务上有（执行记录都是从开发任务交给 Claude Code 来的）；
@@ -72,7 +77,10 @@ export function visibleTabs(dev: boolean, plugins: readonly PluginTabRef[], want
   return ['info', ...(showDev ? ['dev'] : []), ...plugins.map((p) => p.key), ...(showDev ? ['runs'] : [])]
 }
 
-/** 停在哪个标签：地址要的在标签条里就用它，否则用打开时的默认（待验收的任务默认开发任务，其余基础信息） */
+/**
+ * 停在哪个标签：地址要的在标签条里就用它，否则用打开时的默认；默认标签不在标签条里（不是开发任务）时回基础信息。
+ * 任务抽屉的默认是开发任务（用户 2026-11-19 提「默认为开发任务状态」），所以开发任务打开就停在开发任务、普通任务停在基础信息
+ */
 export function currentTab(want: string | null, visible: readonly string[], fallback: string): string {
   if (want && visible.includes(want)) return want
   return visible.includes(fallback) ? fallback : 'info'

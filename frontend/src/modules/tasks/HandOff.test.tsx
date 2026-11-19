@@ -1,16 +1,18 @@
 // powered by dsh - https://github.com/deepseek-ai/deepseek-harness
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import type { RunPermissions, RunPreset, TaskRun, WorkObject } from '../../core/data'
+import type { RunPermissions, RunPreset, RunQuickNote, TaskRun, WorkObject } from '../../core/data'
 import { terminalLauncherRegistry, terminalLauncherStore, type TerminalLaunchRequest } from '../../core/plugin'
 import { HandOffButton } from './HandOff'
 import { resetLiveRuns } from './runLive'
 
 const task = { id: 'obj_1', ref: 'TSK-0001', title: '任务' } as WorkObject
+// 快捷说明（SPEC-tasks-6.40）：GET /api/run-quick-notes 回的列表，个别用例改它
+let quick: RunQuickNote[] = []
 
 // 打桩 fetch：执行记录、目录校验（/ok 开头的可用）、发起执行（回一段 SSE）
 function stub(rows: TaskRun[] = [], presets: RunPreset[] = [], perms?: Partial<RunPermissions>) {
@@ -49,6 +51,7 @@ function stub(rows: TaskRun[] = [], presets: RunPreset[] = [], perms?: Partial<R
       return json({ id: fin[1], status: 'failed', mode: 'terminal' })
     }
     if (url.endsWith('/api/run-prompts')) return json(presets)
+    if (url.endsWith('/api/run-quick-notes')) return json(quick)
     if (url.endsWith('/api/run-permissions')) return json({ write_profile: 'accept_edits', custom: [], profiles: [], mcp_server: 'pmw-run', ...perms })
     if (url.includes('/api/objects/obj_1/runs')) return json(rows)
     return json([])
@@ -85,6 +88,7 @@ function fakeLauncher(fail = false) {
 }
 
 afterEach(() => {
+  quick = []
   vi.unstubAllGlobals()
   resetLiveRuns()
   terminalLauncherStore.removeOwner('terminal')
@@ -123,6 +127,29 @@ describe('交给 Claude Code', () => {
     expect(bodies).toHaveLength(0)
   })
 
+  it('快捷说明：点一个追加进附加说明（另起一行、不重复加），可以再改，发起时带上；右上能去设置管理（SPEC-tasks-6.40）', async () => {
+    quick = [{ label: '整理需求及原型', text: '整理需求及对应原型' }, { label: '只读调研', text: '只读调研，不改代码' }]
+    const bodies = stub()
+    renderButton()
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: '交给执行' }))
+    const group = await screen.findByRole('group', { name: '快捷说明' })
+    expect(within(group).getByRole('link', { name: '管理快捷说明' })).toHaveAttribute('href', '/settings/run-quick-notes')
+    const box = screen.getByRole('textbox', { name: '附加说明' })
+    await user.type(box, '先看 a.go')
+    await user.click(await within(group).findByRole('button', { name: '整理需求及原型' }))
+    expect(box).toHaveValue('先看 a.go\n整理需求及对应原型')
+    await user.click(within(group).getByRole('button', { name: '整理需求及原型' }))
+    expect(box).toHaveValue('先看 a.go\n整理需求及对应原型')
+    expect(within(group).getByRole('button', { name: '整理需求及原型' })).toHaveClass('chip-on')
+    await user.type(box, '，只改 PRD')
+    const go = screen.getByRole('button', { name: '开始执行（只读）' })
+    await waitFor(() => expect(go).toBeEnabled())
+    await user.click(go)
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toMatchObject({ extra_prompt: '先看 a.go\n整理需求及对应原型，只改 PRD' })
+  })
+
   it('提交只读执行：请求体只有三个字段，弹窗关闭', async () => {
     const bodies = stub()
     renderButton()
@@ -134,7 +161,7 @@ describe('交给 Claude Code', () => {
     await user.click(go)
     await waitFor(() => expect(bodies).toHaveLength(1))
     expect(bodies[0]).toEqual({ workdir: '/ok/w', extra_prompt: '只读 a.txt', allow_writes: false, permission: 'read_only' })
-    expect(screen.queryByRole('dialog', { name: '交给 Claude Code' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '交给 AI' })).not.toBeInTheDocument()
   })
 
   it('角色：打开时选上默认那个、显示内容，允许改文件的角色默认勾上写入，预览和请求都带 preset_id（SPEC-tasks-6.18）', async () => {
@@ -254,7 +281,7 @@ describe('交给 Claude Code', () => {
     await user.click(go)
     expect(await screen.findByRole('alert')).toHaveTextContent('终端没打开：最多同时开 16 个终端')
     await waitFor(() => expect(bodies).toContainEqual({ finish: 'run_t1', status: 'failed', summary: '终端没打开：最多同时开 16 个终端' }))
-    expect(screen.getByRole('dialog', { name: '交给 Claude Code' })).toBeInTheDocument()
+    expect(screen.getByRole('dialog', { name: '交给 AI' })).toBeInTheDocument()
   })
 
   it('提示词预览：展开才取，跟着方式变', async () => {

@@ -88,7 +88,8 @@ describe('交给执行：交给谁（TSK-0722）', () => {
     expect(within(group).getByRole('radio', { name: '工作台 Agent' })).toBeEnabled()
     expect(within(group).getByText(/DeepSeek 不可用：找不到 dsh 可执行文件。先装 deepseek-harness/)).toBeInTheDocument()
     expect(within(group).getByRole('link', { name: '设置 / 执行器' })).toHaveAttribute('href', '/settings/runners')
-    expect(screen.getByRole('dialog', { name: '交给 Claude Code' })).toBeInTheDocument()
+    // 标题不管交给谁都是「交给 AI」（SPEC-tasks-6.41）
+    expect(screen.getByRole('dialog', { name: '交给 AI' })).toBeInTheDocument()
   })
 
   it('交给 DeepSeek：没有执行方式、能选服务商和模型；自定义白名单置灰、设置里默认它时退回允许改文件；请求带 harness、模型和档位', async () => {
@@ -97,7 +98,8 @@ describe('交给执行：交给谁（TSK-0722）', () => {
     const user = userEvent.setup()
     await user.click(await screen.findByRole('button', { name: '交给执行' }))
     await user.click(await screen.findByRole('radio', { name: 'DeepSeek' }))
-    const dialog = await screen.findByRole('dialog', { name: '交给 DeepSeek' })
+    const dialog = await screen.findByRole('dialog', { name: '交给 AI' })
+    expect(within(dialog).getByRole('radio', { name: 'DeepSeek' })).toBeChecked()
     // 换了执行器焦点留在「交给谁」那一排
     await waitFor(() => expect(within(dialog).getByRole('radio', { name: 'DeepSeek' })).toHaveFocus())
     expect(within(dialog).queryByRole('group', { name: '执行方式' })).not.toBeInTheDocument()

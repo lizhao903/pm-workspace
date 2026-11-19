@@ -186,3 +186,17 @@ export function terminalRequest(workdir: string, extra: string, presetId = ''): 
 export function launchFailSummary(err: string): string {
   return `终端没打开：${err}`
 }
+
+/** 「交给执行」弹窗的标题（SPEC-tasks-6.41）：不管交给谁都叫这个，交给谁看「交给谁」那一排 */
+export const HANDOFF_TITLE = '交给 AI'
+
+/**
+ * 点快捷说明（SPEC-tasks-6.40）：把文字追加到附加说明末尾，另起一行；已经有这段文字时不重复加。
+ * 附加说明是空的就直接用这段
+ */
+export function appendQuickNote(extra: string, text: string): string {
+  const t = text.trim()
+  if (!t || extra.includes(t)) return extra
+  const head = extra.replace(/\s+$/, '')
+  return head ? `${head}\n${t}` : t
+}

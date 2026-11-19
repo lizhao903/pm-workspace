@@ -435,6 +435,9 @@ func (s *Server) routes(m routeRegistrar) {
 	// 后台执行的权限档位与自定义白名单（TSK-0499）
 	m.HandleFunc("GET /api/run-permissions", s.handleGetRunPermissions)
 	m.HandleFunc("PUT /api/run-permissions", s.handlePutRunPermissions)
+	// 交给执行的快捷附加说明（SPEC-tasks-6.40、SPEC-settings-32，runnotes.go）
+	m.HandleFunc("GET /api/run-quick-notes", s.handleListRunQuickNotes)
+	m.HandleFunc("PUT /api/run-quick-notes", s.handlePutRunQuickNotes)
 	// 执行器状态与 DeepSeek 集成检查（TSK-0722）
 	m.HandleFunc("GET /api/runners", s.handleListRunners)
 	m.HandleFunc("GET /api/runners/deepseek/smoke", s.handleGetDeepSeekSmoke)

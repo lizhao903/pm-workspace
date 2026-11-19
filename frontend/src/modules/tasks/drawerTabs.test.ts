@@ -5,7 +5,7 @@ import { currentTab, isDevTask, tabParams, visibleTabs, wantedTab, withTab, with
 
 const sop = [{ key: 'sop', focusParam: 'sop_run' }]
 const q = (s: string) => new URLSearchParams(s)
-const none: DevSigns = { acceptance: '', workdir: '', repo: '', opened: false, reviewing: false, progress: 0, artifacts: 0, runs: 0 }
+const none: DevSigns = { acceptance: '', workdir: '', repo: '', project: '', opened: false, reviewing: false, progress: 0, artifacts: 0, runs: 0 }
 
 describe('任务详情标签', () => {
   it('地址要的标签：?tab= 优先，其次 ?run= 去执行记录、插件的定位参数去插件标签', () => {
@@ -19,7 +19,7 @@ describe('任务详情标签', () => {
   it('什么算开发任务：开发字段、点了设为开发任务、待验收、有进展产出物执行记录之一', () => {
     expect(isDevTask(none)).toBe(false)
     expect(isDevTask({ ...none, acceptance: '  ' })).toBe(false)
-    for (const p of [{ acceptance: '- [ ] a' }, { workdir: '/w' }, { repo: 'r' }, { opened: true }, { reviewing: true }, { progress: 1 }, { artifacts: 2 }, { runs: 1 }]) {
+    for (const p of [{ acceptance: '- [ ] a' }, { workdir: '/w' }, { repo: 'r' }, { project: 'obj_p' }, { opened: true }, { reviewing: true }, { progress: 1 }, { artifacts: 2 }, { runs: 1 }]) {
       expect(isDevTask({ ...none, ...p })).toBe(true)
     }
   })

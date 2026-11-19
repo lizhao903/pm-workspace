@@ -1,5 +1,4 @@
 /* 任务抽屉的产出物（DEV-08b），照原型 devloop.css 的 dev-art 系列 */
-.art-hint { margin-left: var(--sp-4); font-weight: 400; color: var(--faint); font-size: var(--fs-xs); }
 .art-spacer { flex: 1; }
 .art-empty { padding: var(--sp-7); text-align: center; color: var(--faint); font-size: var(--fs-sm); border: 1px dashed var(--line-2); border-radius: var(--r); }
 .art-group { display: flex; flex-direction: column; gap: var(--sp-2); }

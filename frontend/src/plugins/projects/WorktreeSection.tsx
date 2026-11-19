@@ -1,6 +1,7 @@
 // powered by dsh - https://github.com/deepseek-ai/deepseek-harness
 
-// 任务详情里的「工作区」（AUTO-07，SPEC-tasks-4.50 起）：经 core/plugin 的对象区块登记，摆在基础信息标签末尾。
+// 任务详情里的「工作区」（AUTO-07，SPEC-tasks-4.50 起）：经 core/plugin 的对象区块登记，摆在「开发任务」标签里（hostTab: 'dev'，2026-11-19 前在基础信息末尾）；
+// 说明文字收在标题和清理按钮旁的 info 图标里。
 // 在用的工作区：执行目录（可复制）、分支、基于哪个提交、端口段、状态；「清理工作区」删掉 worktree（分支合并了才删），
 // 有没提交的改动时后端拒绝，按钮换成「强制清理」并二次确认。没有在用的、任务挂了项目且项目设了代码库时给「准备工作区」。
 // 任务完成、取消或阶段到已上线时后端自动清理；清理过的只显示最近一条的结果。
@@ -10,7 +11,7 @@ import {
   errorText, useCleanupWorktree, useEventsLive, usePrepareWorktree, useProjectProfile, useTaskWorktrees, worktreeState, type Worktree,
 } from '../../core/data'
 import type { ObjectSectionProps } from '../../core/plugin'
-import { Button, ConfirmDialog, cls } from '../../core/ui'
+import { Button, ConfirmDialog, InfoTip, cls } from '../../core/ui'
 import { ReleaseBlock } from './ReleaseBlock'
 import { TestRunBlock } from './TestRunBlock'
 import './worktree.css'
@@ -30,7 +31,7 @@ export default function WorktreeSection({ object }: ObjectSectionProps) {
     <section className="wt" aria-label="工作区" data-section="worktree">
       <div className="wt-head">
         <span className="wt-title">工作区</span>
-        <span className="wt-hint">这条任务专用的 git worktree 和分支，Claude Code 在里面改代码</span>
+        <InfoTip label="工作区说明">这条任务专用的 git worktree 和分支，Claude Code 在里面改代码</InfoTip>
       </div>
       {last && <WorktreeCard w={last} />}
       {(last || object.project_id) && (
@@ -81,7 +82,7 @@ function WorktreeCard({ w }: { w: Worktree }) {
           {dirty
             ? <Button size="sm" variant="danger" onClick={() => setConfirm('force')} disabled={cleanup.isPending}>强制清理</Button>
             : <Button size="sm" variant="outline" onClick={() => setConfirm('normal')} disabled={cleanup.isPending}>清理工作区</Button>}
-          <span className="wt-muted">任务完成、取消或上线后会自动清理</span>
+          <InfoTip label="清理说明">任务完成、取消或上线后会自动清理</InfoTip>
         </div>
       )}
       {err && <div className="wt-err" role="alert">清理没成功：{err}</div>}

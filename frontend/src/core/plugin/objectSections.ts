@@ -40,6 +40,19 @@ export interface ObjectSectionDef {
   order?: number
   section: LazyExoticComponent<ComponentType<ObjectSectionProps>>
   tab?: ObjectSectionTab
+  /**
+   * 不给 tab 时摆在宿主的哪个标签：'info' 基础信息（默认）、'dev' 开发任务（任务详情精简，用户 2026-11-19 提：工作区摆在开发任务里）。
+   * 宿主没有这个标签（不是开发任务）时这块不显示；给了 tab 时不看这一项
+   */
+  hostTab?: ObjectSectionHostTab
+}
+
+/** 区块能摆进的宿主标签 */
+export type ObjectSectionHostTab = 'info' | 'dev'
+
+/** 区块在哪个标签：插件标签的 key，或宿主标签（没给 tab 时按 hostTab，默认基础信息） */
+export function sectionPlace(s: Pick<ObjectSectionDef, 'tab' | 'hostTab'>): { tab: string } | { host: ObjectSectionHostTab } {
+  return s.tab ? { tab: s.tab.key } : { host: s.hostTab ?? 'info' }
 }
 
 export interface ObjectSectionRegistry {
