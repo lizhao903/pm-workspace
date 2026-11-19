@@ -3,10 +3,18 @@
 // 分诊建议（消息抽屉、组抽屉的「分诊建议」一节，列表行「已分诊」小标的悬停摘要）的纯函数。
 // 一次分诊 = 一条顶层执行 + 它起的子执行（例如「消息分流」用 subflow 节点跑「消息分诊」）；按输入 message_id 查到的执行列表里两者都在，
 // 子执行带 parent_run_id，这里先按它把同一次分诊归到一起（triageAttempts），再从执行详情（GET /api/sop/runs/{id}）里取结论。
-// 取结论不认步骤 key，按节点类型和输出字段认，两种流程形状（分流套分诊、直接分诊）都适用：
-//   建议：输出里的 advice（或 subflow.output.advice），没有时取 ai 节点自己配置的输出字段；
-//   要处理：输出 need = yes、有建议，或分类器选了「处理」那类；可忽略：im_mark_message 标了 ignore，或分类器选了「忽略」那类；
-//   已忽略未判断：判断范围里没有分类器跑过，只有条件分支选了一路（如「已经忽略了吗」）；
+// 取结论不认步骤 key，按节点类型和输出字段认，两种流程形状（分流套分诊、直接分诊）都适用（SPEC-messages-2.44）。
+// 原则：结论由流程里的「判断」决定，建议只是附带内容，不能单独决定结论。从上往下，第一档成立的就是结论：
+//   1. 跑没跑完：失败、等确认、执行中、终止；
+//   2. 路由步骤：判断范围里做完的分类器、条件分支，从后往前第一个「选的那一路读得出要处理还是忽略」的定结论
+//      （读那一路的名字，没配名字读 key；先认忽略类，「不需要」里也有「需要」）；条件分支选了「已忽略」一路是「已忽略，未判断」；
+//   3. 建了任务（做完的 task 节点有 output.task）：要处理；
+//   4. 输出字段：need = yes 要处理，need = no 可忽略；im_mark_message 标了 ignore（output.marked.state）可忽略；
+//   5. 有路由步骤但选的那一路读不出：结论写那一路的名字；
+//   6. 都没有：没得出结论。
+//   依据（basis）写定结论的那一档那一步，抽屉里写成「依据：…」（SPEC-messages-2.41）。
+//   建议：输出里的 advice（或 subflow.output.advice），没有时取做完的 ai 节点配置的输出字段，但 SKIP、NONE、无、不处理这类暗号不算；
+//     结论是可忽略、已忽略时不带建议。
 //   项目：做完的 im_set_project 节点的 output.project；判定方式看往上最近一个做完的分类器（按内容）或条件分支（规则看群名的算按群名）；
 //     没有归项目但子流程前有路由的（如分到「非项目」），写那一路的名字；
 //   任务：做完的 task 节点的 output.task。
@@ -56,14 +64,17 @@ export function attemptStatus(a: TriageAttempt): SopInputRun['status'] {
 /** 一次分诊里要取详情的子执行：最近的那个 */
 export const attemptChildId = (a: TriageAttempt | null | undefined) => a?.children[0]?.id ?? null
 
-export type TriageVerdict = 'handle' | 'ignore' | 'skipped' | 'other' | 'running' | 'waiting' | 'failed' | 'stopped'
+export type TriageVerdict = 'handle' | 'ignore' | 'skipped' | 'other' | 'none' | 'running' | 'waiting' | 'failed' | 'stopped'
 
 export type TriageSummary = {
   verdict: TriageVerdict
   /** 结论的说法：要处理、可忽略、已忽略，未判断、分诊中…… */
   label: string
-  /** 为什么这么判：分类器、条件分支的 route_reason；忽略时补一句「已标为已忽略」 */
-  reason: string
+  /**
+   * 依据：定结论的那一步，抽屉里写成「依据：…」——「<步骤名>」选了「<那一路>」（<route_reason>）、「<步骤名>」建了任务 T-1、
+   * 「<步骤名>」输出 need = yes、「<步骤名>」把消息标为已忽略；跑没跑完那一档、没得出结论时为空
+   */
+  basis: string
   advice: string
   /** 归到的项目；routeLabel 是没归项目时选中那一路的名字（如「非项目」）；都没有说明流程里没有这一步 */
   project: { id: string; ref: string; name: string } | null
@@ -71,7 +82,7 @@ export type TriageSummary = {
   /** 判定方式：按群名、按内容、按规则；why 是那一步的 route_reason */
   by: { how: string; why: string } | null
   tasks: { id: string; ref: string; title: string }[]
-  /** 进行中、等确认时的当前步骤；失败时失败的步骤和原因 */
+  /** 结论旁边的灰字：进行中、等确认时的当前步骤；失败时失败的步骤（原因在 error）；终止、没得出结论的说明 */
   step: string
   error: string
   flow: string
@@ -94,7 +105,7 @@ const nameOf = (s: Step) => s.def?.name || s.key
 const obj = (v: unknown): SopJson | null => (v && typeof v === 'object' && !Array.isArray(v) ? v as SopJson : null)
 const text = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
 const isRoute = (s: Step) => (kindOf(s) === 'classifier' || kindOf(s) === 'decide') && s.status === 'done' && !!s.route
-const caseLabel = (s: Step) => s.def?.cases?.find((c) => c.key === s.route)?.label ?? s.route ?? ''
+const caseLabel = (s: Step) => s.def?.cases?.find((c) => c.key === s.route)?.label || s.route || ''
 
 /** 一个输出字段：自己的，或子流程节点带回的 subflow.output 里的 */
 function field(out: SopJson | null, key: string): unknown {
@@ -110,24 +121,40 @@ function lastField(ss: readonly Step[], key: string): unknown {
   return v
 }
 
-/** 建议：advice 字段；没有时取做完的 ai 节点配置的输出字段 */
+/** AI 输出里表示「不处理」的暗号，不当建议（生产里转任务流程的 AI 节点回 SKIP） */
+const NOOP_RE = /^(skip|skipped|ignore|none|no|n\/a|null|无|不处理|忽略|跳过)$/i
+
+/** 建议：advice 字段；没有时取最后一个做完的 ai 节点配置的输出字段，是「不处理」暗号时不算 */
 function adviceOf(ss: readonly Step[]): string {
   const a = text(lastField(ss, 'advice'))
   if (a) return a
   for (const s of [...ss].reverse()) {
     const key = s.def?.config?.output
-    if (kindOf(s) === 'ai' && s.status === 'done' && key) { const v = text(s.output?.[key]); if (v) return v }
+    if (kindOf(s) === 'ai' && s.status === 'done' && key) {
+      const v = text(s.output?.[key])
+      if (v) return NOOP_RE.test(v.replace(/[\s。.！!]+$/, '')) ? '' : v
+    }
   }
   return ''
 }
 
-/** 分类器选的那一类读起来是要处理还是可忽略；都不像为空 */
-function routeVerdict(s: Step): 'handle' | 'ignore' | '' {
-  const k = `${s.route ?? ''} ${caseLabel(s)}`
-  if (/ignore|skip|drop|忽略|不用|无关/i.test(k)) return 'ignore'
-  if (/handle|need|todo|处理|跟进|要我/i.test(k)) return 'handle'
+/** 路由那一路读起来是忽略、要处理；先认忽略（「不需要」里也有「需要」） */
+const IGNORE_RE = /忽略|不需要|不用|不处理|无需|无关|跳过|^否$|^no$|ignore|skip|drop/i
+const HANDLE_RE = /处理|需要|跟进|要我|建任务|^是$|^yes$|handle|need|todo/i
+
+/** 路由步骤选的那一路读起来是要处理、可忽略，条件分支选了「已忽略」一路是已忽略未判断；都不像为空。读那一路的名字，没配名字读 key */
+function routeVerdict(s: Step): 'handle' | 'ignore' | 'skipped' | '' {
+  const l = caseLabel(s)
+  if (kindOf(s) === 'decide' && /已忽略|已经忽略/.test(l)) return 'skipped'
+  if (IGNORE_RE.test(l)) return 'ignore'
+  if (HANDLE_RE.test(l)) return 'handle'
   return ''
 }
+
+const VERDICT_LABEL = { handle: '要处理', ignore: '可忽略', skipped: '已忽略，未判断' } as const
+
+/** 路由步骤的依据：「<步骤名>」选了「<那一路>」（<route_reason>） */
+const said = (s: Step) => `「${nameOf(s)}」选了「${caseLabel(s)}」${s.route_reason ? `（${s.route_reason}）` : ''}`
 
 /** 往上（after、branch.of）找最近一个做完的分类器、条件分支 */
 function nearestRoute(ss: readonly Step[], from: Step): Step | null {
@@ -170,10 +197,6 @@ export function summarizeTriage(top: SopRun, children: readonly SopRun[] = []): 
   const all = [...topSteps, ...childSteps]
 
   const advice = adviceOf(childSteps) || adviceOf(topSteps)
-  const need = text(lastField(childSteps, 'need') ?? lastField(topSteps, 'need')).toLowerCase() === 'yes'
-  const marked = all.filter((s) => kindOf(s) === 'im_mark_message' && s.status === 'done').map((s) => text(obj(s.output?.marked)?.state)).pop() ?? ''
-  const cls = scope.filter((s) => kindOf(s) === 'classifier' && isRoute(s)).pop()
-  const lastDecide = scope.filter((s) => kindOf(s) === 'decide' && isRoute(s)).pop()
 
   // 项目
   const setStep = topSteps.filter((s) => kindOf(s) === 'im_set_project' && s.status === 'done').pop()
@@ -189,13 +212,14 @@ export function summarizeTriage(top: SopRun, children: readonly SopRun[] = []): 
   }
   const by = byStep ? { how: routeHow(byStep), why: byStep.route_reason ?? '' } : null
 
-  const tasks = all.filter((s) => kindOf(s) === 'task' && s.status === 'done').flatMap((s) => {
-    const t = obj(s.output?.task)
-    return t && text(t.id) ? [{ id: text(t.id), ref: text(t.ref), title: text(t.title) }] : []
+  const taskSteps = all.filter((s) => kindOf(s) === 'task' && s.status === 'done' && text(obj(s.output?.task)?.id))
+  const tasks = taskSteps.map((s) => {
+    const t = obj(s.output?.task)!
+    return { id: text(t.id), ref: text(t.ref), title: text(t.title) }
   })
 
   const base = {
-    advice, project, routeLabel, by, tasks, step: '', error: '',
+    advice, project, routeLabel, by, tasks, step: '', error: '', basis: '',
     flow: top.flow_name, subFlow: child?.flow_name ?? '', started_at: top.started_at, ended_at: top.ended_at ?? '',
     runId: top.id, childId: child?.id ?? '',
   }
@@ -204,39 +228,52 @@ export function summarizeTriage(top: SopRun, children: readonly SopRun[] = []): 
   const failed = [...childSteps, ...topSteps].find((s) => s.status === 'failed')
   const runs = child ? [child, top] : [top]
   if (failed || runs.some((r) => r.status === 'failed')) {
-    return { ...base, verdict: 'failed', label: '分诊失败', reason: '', step: failed ? nameOf(failed) : '', error: failed?.error || '执行失败' }
+    return { ...base, verdict: 'failed', label: '分诊失败', step: failed ? nameOf(failed) : '', error: failed?.error || '执行失败' }
   }
   const waiting = [...childSteps, ...topSteps].find((s) => s.status === 'paused' || s.status === 'review')
   if (waiting || runs.some((r) => r.status === 'waiting')) {
-    return { ...base, verdict: 'waiting', label: '分诊等确认', reason: '', step: waiting ? `${nameOf(waiting)} · ${STEP_STATE[waiting.status]}` : '' }
+    return { ...base, verdict: 'waiting', label: '分诊等确认', step: waiting ? `${nameOf(waiting)} · ${STEP_STATE[waiting.status]}` : '' }
   }
   if (runs.some((r) => r.status === 'running')) {
     const cur = [...childSteps, ...topSteps].find((s) => s.status === 'running')
-    return { ...base, verdict: 'running', label: '分诊中', reason: '', step: cur ? `${nameOf(cur)} · ${cur.queue ? `排队中，前面 ${cur.queue.ahead} 个` : '执行中'}` : '' }
+    return { ...base, verdict: 'running', label: '分诊中', step: cur ? `${nameOf(cur)} · ${cur.queue ? `排队中，前面 ${cur.queue.ahead} 个` : '执行中'}` : '' }
   }
-  if (top.status === 'stopped' || child?.status === 'stopped') return { ...base, verdict: 'stopped', label: '已终止', reason: '中途终止，没跑完' }
+  if (top.status === 'stopped' || child?.status === 'stopped') return { ...base, verdict: 'stopped', label: '已终止', step: '中途终止，没跑完' }
 
-  // 跑完了：结论
-  const clsReason = cls?.route_reason ?? ''
-  if (need || advice) return { ...base, verdict: 'handle', label: '要处理', reason: clsReason }
-  if (marked === 'ignore') return { ...base, verdict: 'ignore', label: '可忽略', reason: [clsReason, '已标为已忽略'].filter(Boolean).join('；') }
-  if (cls) {
-    const v = routeVerdict(cls)
-    if (v === 'handle') return { ...base, verdict: 'handle', label: '要处理', reason: clsReason }
-    if (v === 'ignore') return { ...base, verdict: 'ignore', label: '可忽略', reason: clsReason }
-    return { ...base, verdict: 'other', label: caseLabel(cls), reason: clsReason }
+  // 跑完了：可忽略、已忽略时不带建议
+  const quiet = { ...base, advice: '' }
+  // 2. 路由步骤：判断范围里从后往前第一个读得出要处理还是忽略的
+  const routes = scope.filter(isRoute)
+  const hit = [...routes].reverse().find((s) => routeVerdict(s))
+  if (hit) {
+    const v = routeVerdict(hit) as keyof typeof VERDICT_LABEL
+    return { ...(v === 'handle' ? base : quiet), verdict: v, label: VERDICT_LABEL[v], basis: said(hit) }
   }
-  if (lastDecide) {
-    const l = caseLabel(lastDecide)
-    const skipped = /忽略|ignore|skip/i.test(`${lastDecide.route} ${l}`)
-    return { ...base, verdict: skipped ? 'skipped' : 'other', label: skipped ? '已忽略，未判断' : l, reason: lastDecide.route_reason ?? '' }
+  // 3. 建了任务
+  if (taskSteps.length) {
+    const refs = tasks.map((t) => t.ref || t.title).filter(Boolean).join('、')
+    return { ...base, verdict: 'handle', label: '要处理', basis: `「${nameOf(taskSteps[taskSteps.length - 1])}」建了任务${refs ? ` ${refs}` : ''}` }
   }
-  return { ...base, verdict: 'other', label: '没得出结论', reason: '流程跑完了，但没有判断要不要处理的步骤' }
+  // 4. 输出字段：need（子执行优先），im_mark_message 标了 ignore
+  const needSteps = child && lastField(childSteps, 'need') !== undefined ? childSteps : topSteps
+  const need = text(lastField(needSteps, 'need')).toLowerCase()
+  // 输出逐步累积，第一个带着这个值的就是输出它的那一步
+  const needAt = needSteps.find((s) => s.status === 'done' && text(field(s.output, 'need')).toLowerCase() === need)
+  const needBasis = `${needAt ? `「${nameOf(needAt)}」` : ''}输出 need = ${need}`
+  if (need === 'yes') return { ...base, verdict: 'handle', label: '要处理', basis: needBasis }
+  if (need === 'no') return { ...quiet, verdict: 'ignore', label: '可忽略', basis: needBasis }
+  const mk = all.filter((s) => kindOf(s) === 'im_mark_message' && s.status === 'done' && text(obj(s.output?.marked)?.state) === 'ignore').pop()
+  if (mk) return { ...quiet, verdict: 'ignore', label: '可忽略', basis: `「${nameOf(mk)}」把消息标为已忽略` }
+  // 5. 路由选了读不出的一路
+  const lr = routes[routes.length - 1]
+  if (lr) return { ...base, verdict: 'other', label: caseLabel(lr), basis: said(lr) }
+  // 6. 没得出结论
+  return { ...base, verdict: 'none', label: '没得出结论', step: '流程跑完了，但没有判断要不要处理的步骤' }
 }
 
-/** 列表小标悬停的一段：结论 + 建议前 80 字（没有建议时写理由） */
+/** 列表小标悬停的一段：结论 + 建议前 80 字（没有建议时写依据，再没有写结论旁边的说明） */
 export function triageBrief(s: TriageSummary, max = ADVICE_BRIEF): string {
-  const body = (s.advice || s.reason).replace(/\s+/g, ' ').trim()
+  const body = (s.advice || s.basis || s.step).replace(/\s+/g, ' ').trim()
   const cut = body.length > max ? `${body.slice(0, max)}…` : body
   return cut ? `${s.label}：${cut}` : s.label
 }

@@ -592,6 +592,10 @@ export const seedMessages: Message[] = [
   )
 }
 
+// 点名别人的群消息（分诊判定演示，SPEC-messages-2.44）：放在最后，前面消息的编号不变。「转任务」流程的 AI 回 SKIP、条件分支走「不需要」，分诊建议应是「可忽略」
+seedMessages.push(m({ channel: 'slack', connector_id: 'cn_slack', conversation: '#ext-dolly', sender_name: 'Chen Ruoxi', sender_id: 'U05CHENRX0', at: minsAgo(22), read: true,
+  text: '@张潇雯 Dolly 后续使用有问题可以在这里反馈～' }))
+
 /** 「我」在各渠道里被叫的名字：@ 到这些就算 @我 */
 export const MY_HANDLES = ['Broleez', 'broleez', '我']
 /** 群发型的 @：@所有人、@here 这类 */

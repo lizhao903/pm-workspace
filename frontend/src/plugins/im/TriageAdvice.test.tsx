@@ -71,6 +71,8 @@ function wrap(ui: ReactNode) {
 }
 
 const msg = (id: string, at: string, text: string) => ({ id, at, text }) as ImMessage
+/** 依据行（「依据：」小字和正文分在两个节点里）按整行文字找 */
+const basisLine = (t: string) => (_: string, el: Element | null) => !!el?.classList.contains('im-tri-basis') && el.textContent === t
 
 describe('消息抽屉的分诊建议', () => {
   it('默认最近一次：结论、建议原文、查看执行；展开历史切到上一次', async () => {
@@ -80,7 +82,7 @@ describe('消息抽屉的分诊建议', () => {
     const sec = screen.getByRole('region', { name: '分诊建议' })
     expect(await within(sec).findByLabelText('处理建议')).toHaveTextContent('对方要报价单，今天下班前回复')
     expect(within(sec).getByText('要处理')).toBeInTheDocument()
-    expect(within(sec).getByText('模型判断属于「需要我处理」')).toBeInTheDocument()
+    expect(within(sec).getByText(basisLine('依据：「要不要我处理」选了「需要我处理」（模型判断属于「需要我处理」）'))).toBeInTheDocument()
     // 只取了最近一次的详情
     expect(reads).toEqual(['run_new'])
     await userEvent.click(within(sec).getByRole('button', { name: '查看执行' }))
@@ -91,7 +93,7 @@ describe('消息抽屉的分诊建议', () => {
     expect(rows).toHaveLength(2)
     await userEvent.click(rows[1])
     expect(await within(sec).findByText('可忽略')).toBeInTheDocument()
-    expect(within(sec).getByText('模型判断属于「忽略」；已标为已忽略')).toBeInTheDocument()
+    expect(within(sec).getByText(basisLine('依据：「要不要我处理」选了「忽略」（模型判断属于「忽略」）'))).toBeInTheDocument()
     expect(within(sec).queryByLabelText('处理建议')).toBeNull()
   })
 
@@ -157,6 +159,14 @@ describe('列表行的分诊小标', () => {
     await userEvent.click(tag)
     expect(onOpenAdvice).toHaveBeenCalled()
     expect(onOpenQueue).not.toHaveBeenCalled()
+  })
+
+  it('已分诊且可忽略：悬停写依据，不带建议', async () => {
+    const a = triageAttempts([brief('run_old', 'msg_1', OLD)]).get('msg_1')![0]
+    wrap(<TriageTagButton attempt={a} onOpenAdvice={vi.fn()} onOpenQueue={vi.fn()} />)
+    const tag = screen.getByRole('button', { name: '已分诊' })
+    fireEvent.mouseEnter(tag)
+    await waitFor(() => expect(tag.title).toContain('可忽略：「要不要我处理」选了「忽略」（模型判断属于「忽略」）'))
   })
 
   it('分诊中：不取详情，点了打开处理队列；没分诊过不显示', async () => {

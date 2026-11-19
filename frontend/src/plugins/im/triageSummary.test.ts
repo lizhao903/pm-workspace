@@ -66,7 +66,8 @@ describe('分诊结论：分流套分诊', () => {
     const s = summarizeTriage(routedTop(), [handledChild()])
     expect(s.verdict).toBe('handle')
     expect(s.label).toBe('要处理')
-    expect(s.reason).toBe('模型判断属于「需要我处理」')
+    // 判断范围是子执行：分诊子流程里的分类器定结论
+    expect(s.basis).toBe('「要不要我处理」选了「需要我处理」（模型判断属于「需要我处理」）')
     expect(s.advice).toBe(ADVICE)
     expect(s.project).toEqual({ id: 'obj_x', ref: 'PRJ-0008', name: 'Globex' })
     expect(s.by).toEqual({ how: '按群名', why: '规则「message.conversation 包含 globex」成立' })
@@ -81,6 +82,8 @@ describe('分诊结论：分流套分诊', () => {
     const s = summarizeTriage(routedTop())
     expect(s.verdict).toBe('handle')
     expect(s.advice).toBe(ADVICE)
+    // 没有子执行详情时判断范围是顶层：分流里的条件分支「要我处理吗」定结论
+    expect(s.basis).toBe('「要我处理吗」选了「要处理」（规则「subflow.output.need 等于 yes」成立）')
   })
 
   it('按内容分到「非项目」：没有项目，写那一路的名字和判定方式；子流程里忽略了', () => {
@@ -98,7 +101,7 @@ describe('分诊结论：分流套分诊', () => {
     const s = summarizeTriage(top, [child])
     expect(s.verdict).toBe('ignore')
     expect(s.label).toBe('可忽略')
-    expect(s.reason).toBe('模型判断属于「忽略」；已标为已忽略')
+    expect(s.basis).toBe('「要不要我处理」选了「忽略」（模型判断属于「忽略」）')
     expect(s.project).toBeNull()
     expect(s.routeLabel).toBe('非项目')
     expect(s.by).toEqual({ how: '按内容', why: '模型判断属于「非项目」' })
@@ -124,7 +127,8 @@ describe('分诊结论：直接分诊', () => {
     const s = summarizeTriage(r)
     expect(s.verdict).toBe('skipped')
     expect(s.label).toBe('已忽略，未判断')
-    expect(s.reason).toBe('规则「message.status 等于 ignored」成立')
+    expect(s.basis).toBe('「已经忽略了吗」选了「已忽略，不判」（规则「message.status 等于 ignored」成立）')
+    expect(s.advice).toBe('')
     expect(s.project).toBeNull()
     expect(s.by).toBeNull()
     expect(s.subFlow).toBe('')
@@ -171,13 +175,111 @@ describe('分诊结论：直接分诊', () => {
     expect(summarizeTriage(r).verdict).toBe('stopped')
   })
 
-  it('悬停摘要：结论 + 建议前 80 字，没有建议写理由', () => {
+  it('终止了的：结论旁边写没跑完，没有依据', () => {
+    const r = detail('spr_1', '消息分诊', TRIAGE_DEFS, { s1: { status: 'done' } }, { status: 'stopped', stopped: true })
+    expect(summarizeTriage(r)).toMatchObject({ label: '已终止', step: '中途终止，没跑完', basis: '' })
+  })
+
+  it('悬停摘要：结论 + 建议前 80 字，没有建议写依据', () => {
     const s = summarizeTriage(routedTop(), [handledChild()])
     const long = { ...s, advice: '字'.repeat(100) }
     expect(triageBrief(long)).toBe(`要处理：${'字'.repeat(80)}…`)
     expect(triageBrief(s)).toBe(`要处理：${ADVICE.replace(/\s+/g, ' ')}`)
-    expect(triageBrief({ ...s, advice: '', reason: '模型判断属于「忽略」', label: '可忽略' })).toBe('可忽略：模型判断属于「忽略」')
-    expect(triageBrief({ ...s, advice: '', reason: '', label: '已终止' })).toBe('已终止')
+    expect(triageBrief({ ...s, advice: '', basis: '「要不要我处理」选了「忽略」', label: '可忽略' })).toBe('可忽略：「要不要我处理」选了「忽略」')
+    expect(triageBrief({ ...s, advice: '', basis: '', step: '', label: '已终止' })).toBe('已终止')
+  })
+})
+
+// 生产「IM:@我和私信转任务（按项目归类）」的形状（SPEC-messages-2.44 的起因）：AI 提炼标题（不是我的事回 SKIP）→ 条件分支 need → 归项目 → 建任务
+const TASK_DEFS: SopStepDef[] = [
+  { key: 'get', name: '读取消息', kind: 'im_get_message', after: [] },
+  { key: 'title', name: '提炼任务标题', kind: 'ai', after: ['get'], config: { output: 'title' } },
+  { key: 'need', name: '需要建任务吗', kind: 'decide', after: ['title'], rule: 'title 不包含 SKIP', cases: [{ key: 'yes', label: '需要' }, { key: 'no', label: '不需要' }] },
+  { key: 'by_conv', name: '按群名归项目', kind: 'decide', after: ['need'], branch: { of: 'need', case: 'yes' }, rule: 'message.conversation 包含 dolly', cases: [{ key: 'dolly', label: 'Dolly' }, { key: 'other', label: '其他' }] },
+  { key: 'set', name: '归到 Dolly', kind: 'im_set_project', after: ['by_conv'], branch: { of: 'by_conv', case: 'dolly' } },
+  { key: 'task', name: '建任务', kind: 'task', after: ['set'] },
+]
+const MSG = { id: 'msg_1', text: '@张潇雯 Dolly 后续使用有问题可以在这里反馈～' }
+
+describe('分诊结论：转任务流程（条件分支定结论）', () => {
+  it('生产案例：AI 回 SKIP、need 走「不需要」、建任务都没跑 —— 可忽略，依据指向 need，SKIP 不当建议', () => {
+    const r = detail('spr_1', 'IM:@我和私信转任务（按项目归类）', TASK_DEFS, {
+      get: { status: 'done', output: { message: MSG } },
+      title: { status: 'done', output: { message: MSG, title: 'SKIP' } },
+      need: { status: 'done', route: 'no', route_reason: '规则「title 不包含 SKIP」不成立', output: { message: MSG, title: 'SKIP' } },
+    })
+    const s = summarizeTriage(r)
+    expect(s.verdict).toBe('ignore')
+    expect(s.label).toBe('可忽略')
+    expect(s.basis).toBe('「需要建任务吗」选了「不需要」（规则「title 不包含 SKIP」不成立）')
+    expect(s.advice).toBe('')
+    expect(s.tasks).toEqual([])
+    expect(triageBrief(s)).toBe('可忽略：「需要建任务吗」选了「不需要」（规则「title 不包含 SKIP」不成立）')
+  })
+
+  it('走「需要」并建了任务：要处理，依据是条件分支，AI 提炼的标题当建议', () => {
+    const r = detail('spr_1', 'IM:@我和私信转任务（按项目归类）', TASK_DEFS, {
+      get: { status: 'done' },
+      title: { status: 'done', output: { title: '梁晚晴：试点账号什么时候开' } },
+      need: { status: 'done', route: 'yes', route_reason: '规则「title 不包含 SKIP」成立', output: { title: '梁晚晴：试点账号什么时候开' } },
+      by_conv: { status: 'done', route: 'dolly', route_reason: '规则「message.conversation 包含 dolly」成立' },
+      set: { status: 'done', output: { project: { id: 'obj_p', ref: 'PRJ-0003', name: 'Dolly' } } },
+      task: { status: 'done', output: { task: { id: 'obj_t', ref: 'T-018', title: '梁晚晴：试点账号什么时候开' } } },
+    })
+    const s = summarizeTriage(r)
+    expect(s.verdict).toBe('handle')
+    expect(s.label).toBe('要处理')
+    // 「按群名归项目」选的「Dolly」读不出要不要处理，往前找到 need
+    expect(s.basis).toBe('「需要建任务吗」选了「需要」（规则「title 不包含 SKIP」成立）')
+    expect(s.advice).toBe('梁晚晴：试点账号什么时候开')
+    expect(s.tasks).toEqual([{ id: 'obj_t', ref: 'T-018', title: '梁晚晴：试点账号什么时候开' }])
+    expect(s.project).toMatchObject({ name: 'Dolly', ref: 'PRJ-0003' })
+    expect(s.by).toEqual({ how: '按群名', why: '规则「message.conversation 包含 dolly」成立' })
+  })
+})
+
+describe('分诊结论：判定优先级的后几档', () => {
+  const PLAIN: SopStepDef[] = [
+    { key: 'a', name: '读取消息', kind: 'im_get_message', after: [] },
+    { key: 'b', name: '写一句话', kind: 'ai', after: ['a'], config: { output: 'note' } },
+    { key: 'c', name: '分一下', kind: 'classifier', after: ['b'], cases: [{ key: 'biz', label: '商务' }, { key: 'tech', label: '技术' }] },
+    { key: 'd', name: '建任务', kind: 'task', after: ['c'] },
+    { key: 'e', name: '标需要', kind: 'template', after: ['c'], config: { output: 'need' } },
+    { key: 'f', name: '标成已忽略', kind: 'im_mark_message', after: ['c'] },
+  ]
+
+  it('路由读不出时建了任务：要处理，依据是建任务那一步', () => {
+    const s = summarizeTriage(detail('spr_1', 'x', PLAIN, {
+      a: { status: 'done' }, c: { status: 'done', route: 'biz', route_reason: '模型判断属于「商务」' },
+      d: { status: 'done', output: { task: { id: 'obj_t', ref: 'T-020', title: 't' } } },
+    }))
+    expect(s).toMatchObject({ verdict: 'handle', label: '要处理', basis: '「建任务」建了任务 T-020' })
+  })
+
+  it('输出 need = no：可忽略，不带建议；need = yes：要处理', () => {
+    const no = summarizeTriage(detail('spr_1', 'x', PLAIN, {
+      a: { status: 'done' }, b: { status: 'done', output: { note: '看一眼' } }, e: { status: 'done', output: { note: '看一眼', need: 'no' } },
+    }))
+    expect(no).toMatchObject({ verdict: 'ignore', label: '可忽略', basis: '「标需要」输出 need = no', advice: '' })
+    const yes = summarizeTriage(detail('spr_1', 'x', PLAIN, { a: { status: 'done' }, e: { status: 'done', output: { need: 'yes' } } }))
+    expect(yes).toMatchObject({ verdict: 'handle', basis: '「标需要」输出 need = yes' })
+  })
+
+  it('只有 im_mark_message 标了 ignore：可忽略', () => {
+    const s = summarizeTriage(detail('spr_1', 'x', PLAIN, { a: { status: 'done' }, f: { status: 'done', output: { marked: { state: 'ignore' } } } }))
+    expect(s).toMatchObject({ verdict: 'ignore', basis: '「标成已忽略」把消息标为已忽略' })
+  })
+
+  it('路由选了读不出的一路：结论写那一路的名字；AI 回的「无」不当建议', () => {
+    const s = summarizeTriage(detail('spr_1', 'x', PLAIN, {
+      a: { status: 'done' }, b: { status: 'done', output: { note: '无。' } }, c: { status: 'done', route: 'tech', route_reason: '模型判断属于「技术」' },
+    }))
+    expect(s).toMatchObject({ verdict: 'other', label: '技术', basis: '「分一下」选了「技术」（模型判断属于「技术」）', advice: '' })
+  })
+
+  it('有建议但没有任何判断：没得出结论，建议不能单独决定结论', () => {
+    const s = summarizeTriage(detail('spr_1', 'x', PLAIN, { a: { status: 'done' }, b: { status: 'done', output: { note: '回他一句' } } }))
+    expect(s).toMatchObject({ verdict: 'none', label: '没得出结论', step: '流程跑完了，但没有判断要不要处理的步骤', basis: '', advice: '回他一句' })
   })
 })
 

@@ -322,6 +322,8 @@ button.im-state { cursor: pointer; font: inherit; font-size: var(--fs-2xs); }
 .im-tri-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel-2); min-width: 0; }
 .im-tri-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
 .im-tri-mute { color: var(--muted); background: var(--hover); }
+.im-tri-basis { font-size: var(--fs-sm); line-height: 1.6; overflow-wrap: anywhere; min-width: 0; }
+.im-tri-basis-k { color: var(--faint); }
 .im-tri-advice { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; font-size: var(--fs-md); padding-left: 10px; border-left: 3px solid var(--accent-line); }
 .im-tri-meta { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: var(--fs-sm); min-width: 0; }
 .im-tri-meta dt { color: var(--faint); }

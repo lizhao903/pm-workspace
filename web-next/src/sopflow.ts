@@ -812,6 +812,52 @@ export const SOPS: Sop[] = [
       },
     ],
   },
+  // 转任务（分诊判定演示，SPEC-messages-2.44）：同生产「IM:@我和私信转任务（按项目归类）」的形状——AI 提炼任务标题（不是我的事只回 SKIP）→
+  // 条件分支「title 不包含 SKIP」→ 需要的归项目、建任务。没有 advice 字段，分诊建议的结论只看条件分支选的那一路，AI 回的 SKIP 不当建议
+  {
+    id: 'sop_triage_task',
+    folder_id: 'sfd_im',
+    name: '转任务：@我和私信（按项目归类）',
+    desc: 'AI 先提炼一句任务标题，不是我的事只回 SKIP；标题里没有 SKIP 的按群名归项目、建任务',
+    trigger: 'manual',
+    fields: [{ key: 'message_id', label: '消息', type: 'text', required: true, placeholder: '消息 id' }],
+    steps: [
+      {
+        key: 'get', name: '读取消息', kind: 'auto', ms: 300, after: [], desc: '读取消息（IM 插件 im_get_message）',
+        run: (i) => {
+          const m = seedMessages.find((x) => x.id === i.message_id)
+          return { ...i, message: m ? { id: m.id, sender: m.sender_name, conversation: m.conversation || '私聊', text: m.text } : { id: i.message_id, text: '' } }
+        },
+      },
+      {
+        key: 'title', name: '提炼任务标题', kind: 'ai', ms: 1200, after: ['get'], config: { output: 'title' },
+        desc: '私聊里找我、群里 @我 要我做事的，用一句话写成任务标题；@别人、@所有人、通知、闲聊不是我的事，只回 SKIP',
+        run: (i) => {
+          const msg = (i.message as Json | undefined) ?? {}
+          const t = str(msg.text)
+          const mine = !/@所有人|@here/.test(t) && (/@Broleez/.test(t) || (str(msg.conversation) === '私聊' && /能不能|麻烦|确认|？|\?/.test(t)))
+          if (!mine) return { ...i, title: 'SKIP' }
+          const ask = t.replace(/@\S+\s*/g, '').split(/[。？！?!]/).map((x) => x.trim()).filter(Boolean)[0] ?? t.slice(0, 30)
+          return { ...i, title: `${str(msg.sender)}：${ask}` }
+        },
+      },
+      {
+        key: 'need', name: '需要建任务吗', kind: 'decide', ms: 200, after: ['title'], desc: 'AI 回 SKIP 的不建',
+        cond: { logic: 'and', items: [{ field: 'title', op: 'not_contains', value: 'SKIP' }] },
+        cases: [{ key: 'yes', label: '需要' }, { key: 'no', label: '不需要' }],
+      },
+      {
+        key: 'project', name: '按群名归项目', kind: 'auto', ms: 300, after: ['need'], branch: { of: 'need', case: 'yes' },
+        desc: '归到项目（IM 插件 im_set_project）：群名里有项目关键词的归到那个项目',
+        run: (i) => ({ ...i, project: /远川/.test(str((i.message as Json | undefined)?.conversation)) ? { id: 'pj_perm', ref: '', name: '远川科技权限改造' } : null }),
+      },
+      {
+        key: 'task', name: '建任务', kind: 'task', ms: 600, after: ['project'], desc: '标题用 AI 提炼的，挂到归到的项目',
+        config: { title: '{{title}}', priority: 'P2', assignee: '我', project: '' },
+        run: (i) => ({ ...i, task: { id: 'tk_triage_demo', ref: 'T-018', title: str(i.title), priority: 'P2', assignee: '我', project: str((i.project as Json | null)?.name) } }),
+      },
+    ],
+  },
   // 需求评审闭环（AUTO-01 Claude Code 执行 + AUTO-02 条件回退）：产品 Agent 写 PRD，研发评审 Agent 只读评审，
   // 不通过自动退回产品带着意见重写，最多 3 轮，超限转人工裁决。原型里评审首轮不通过、第 2 轮通过
   {
@@ -1559,6 +1605,7 @@ const stepIs = (key: string, st: StepStatus) => (r: SopRun) => r.steps.find((s) 
 export const seedRuns: SopRun[] = (() => {
   const [fb, mt, ct] = SOPS
   const tr = SOPS.find((x) => x.id === 'sop_triage')!
+  const tt = SOPS.find((x) => x.id === 'sop_triage_task')!
   return [
     // 刚开始的周会纪要，正在三路并行
     { ...simulate(mt, { ...defaults(mt), meeting: '权限 PRD 评审会 10/29' }, 0.03, stepIs('summarize', 'running')), source: 'manual' as const },
@@ -1577,6 +1624,9 @@ export const seedRuns: SopRun[] = (() => {
     { ...simulate(tr, { message_id: seedMessages[0].id }, 5, (r) => runStatus(r) === 'done'), source: 'manual' as const, source_name: '批量发起' },
     { ...simulate(tr, { message_id: seedMessages[0].id }, 2, (r) => runStatus(r) === 'done'), source: 'manual' as const, source_name: '批量发起' },
     { ...simulate(tr, { message_id: seedMessages[2].id }, 20, (r) => runStatus(r) === 'done'), source: 'manual' as const, source_name: '批量发起' },
+    // 转任务流程（SPEC-messages-2.44）：点名别人的消息 AI 回 SKIP、条件分支走「不需要」，分诊建议「可忽略」；@我 问试点账号的走「需要」、建了任务，「要处理」
+    { ...simulate(tt, { message_id: seedMessages.find((x) => x.text.startsWith('@张潇雯'))!.id }, 21, (r) => runStatus(r) === 'done'), source: 'manual' as const, source_name: '批量发起' },
+    { ...simulate(tt, { message_id: seedMessages.find((x) => x.text.startsWith('@Broleez 试点账号'))!.id }, 90, (r) => runStatus(r) === 'done'), source: 'manual' as const, source_name: '批量发起' },
     // 研发 pipeline 关联到任务 T-016（AUTO-12）：评审退回过两轮后，研发这一步超出「每个需求最多跑 Claude Code 的次数」，暂停等你放行
     heldDev(),
   ].map((r, n) => ({ ...r, id: `run_seed${n}` }))

@@ -56,57 +56,97 @@ export function TriageTag({ run, onClick, onOpenAdvice }: { run: SopRun | undefi
 /* ---------- 分诊建议（SPEC-messages-1.53、2.41~2.44、4.10） ---------- */
 
 /**
- * 一次分诊的结论。正式产品从执行详情取（分流套分诊时再取子执行，见 frontend/src/plugins/im/triageSummary.ts），原型的执行就带着每步输出。
- * 不认步骤 key，按节点类型和输出字段认：advice（或 ai 节点配置的输出字段）是建议；need=yes 或有建议是要处理；marked.state=ignore 是可忽略；
- * 分类器选的那一类；只有条件分支选了「已忽略」一路的是「已忽略，未判断」；project、task 输出是归到的项目、建的任务
+ * 一次分诊的结论（SPEC-messages-2.44）。正式产品从执行详情取（分流套分诊时再取子执行，见 frontend/src/plugins/im/triageSummary.ts，待同步），原型的执行就带着每步输出。
+ * 原则：结论由流程里的「判断」决定，建议只是附带内容，不能单独决定结论。不认步骤 key，按节点类型和输出字段认，从上往下第一档成立的就是结论：
+ *   1. 跑没跑完：失败、等确认、执行中、终止。
+ *   2. 路由步骤：判断范围里做完的分类器、条件分支，从后往前第一个「选的那一路读得出要处理还是忽略」的（读那一路的名字：
+ *      需要、要处理、跟进、yes… 是要处理；不需要、忽略、不用、跳过、no… 是忽略）定结论。条件分支选了「已忽略」一路（如「已经忽略了吗」）是「已忽略，未判断」。
+ *   3. 建了任务（做完的创建任务节点有 output.task）：要处理。
+ *   4. 输出字段：need = yes 要处理，need = no 可忽略；im_mark_message 标了 ignore（output.marked.state）可忽略。
+ *   5. 路由步骤选了读不出要不要处理的一路：结论就写那一路的名字。
+ *   6. 都没有：没得出结论。
+ * 依据（basis）写定结论的那一步：「<步骤名>」选了「<那一路>」（<route_reason>），或建了任务、输出 need、标了已忽略。
+ * 建议：输出里的 advice；没有时取做完的 AI 节点配置的输出字段，但 SKIP 这类「不处理」暗号不算建议；结论是可忽略、已忽略时不带建议。
+ * project、task 输出是归到的项目、建的任务
  */
 export type TriageSummary = {
-  verdict: 'handle' | 'ignore' | 'skipped' | 'other' | 'running' | 'waiting' | 'failed' | 'stopped'
-  label: string; reason: string; advice: string; step: string; error: string
+  verdict: 'handle' | 'ignore' | 'skipped' | 'other' | 'none' | 'running' | 'waiting' | 'failed' | 'stopped'
+  label: string
+  /** 为什么是这个结论，抽屉里写成「依据：…」；跑没跑完那一档为空 */
+  basis: string
+  /** 结论旁边的灰字：执行中、等确认的当前步骤，失败的步骤，终止、没得出结论的说明 */
+  step: string
+  advice: string; error: string
   project: string; tasks: string[]
 }
 const txt = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
 const objOf = (v: unknown) => (v && typeof v === 'object' && !Array.isArray(v) ? v as Json : null)
+/** 路由那一路读起来是忽略、要处理；先认忽略（「不需要」里也有「需要」） */
+const IGNORE_RE = /忽略|不需要|不用|不处理|无需|无关|跳过|^否$|^no$|ignore|skip|drop/i
+const HANDLE_RE = /处理|需要|跟进|要我|建任务|^是$|^yes$|handle|need|todo/i
+/** AI 输出里表示「不处理」的暗号，不当建议 */
+const NOOP_RE = /^(skip|skipped|ignore|none|no|n\/a|null|无|不处理|忽略|跳过)$/i
+type X = { s: RunStep; d?: SopStepDef }
+const caseOf = (x: X) => x.d?.cases?.find((c) => c.key === x.s.route)?.label || x.s.route || ''
+/** 读那一路的名字；没配名字时读 key */
+function routeVerdict(x: X): 'handle' | 'ignore' | 'skipped' | '' {
+  const l = caseOf(x)
+  if (x.d?.kind === 'decide' && /已忽略|已经忽略/.test(l)) return 'skipped'
+  if (IGNORE_RE.test(l)) return 'ignore'
+  if (HANDLE_RE.test(l)) return 'handle'
+  return ''
+}
+const LABEL = { handle: '要处理', ignore: '可忽略', skipped: '已忽略，未判断' }
 export function triageSummary(r: SopRun): TriageSummary {
-  const ss = r.steps.map((s, i) => ({ s, d: r.sop.steps[i] as SopStepDef | undefined }))
+  const ss: X[] = r.steps.map((s, i) => ({ s, d: r.sop.steps[i] as SopStepDef | undefined }))
   const done = ss.filter((x) => x.s.status === 'done')
+  const name = (x: X) => x.d?.name ?? x.s.key
   const last = (k: string) => done.map((x) => x.s.output?.[k] ?? objOf(objOf(x.s.output?.subflow)?.output)?.[k]).filter((v) => v !== undefined).pop()
   const aiOut = done.filter((x) => x.d?.kind === 'ai' && x.d.config?.output).map((x) => txt(x.s.output?.[x.d!.config!.output])).filter(Boolean).pop() ?? ''
-  const advice = txt(last('advice')) || aiOut
-  const marked = txt(objOf(last('marked'))?.state)
-  const routed = (k: string) => done.filter((x) => x.d?.kind === k && x.s.route)
-  const cl = routed('classifier').pop()
-  const dc = routed('decide').pop()
-  const caseOf = (x: { s: RunStep; d?: SopStepDef }) => x.d?.cases?.find((c) => c.key === x.s.route)?.label ?? x.s.route ?? ''
+  const advice = txt(last('advice')) || (NOOP_RE.test(aiOut.replace(/[\s。.！!]+$/, '')) ? '' : aiOut)
   const p = objOf(last('project'))
-  const tasks = done.filter((x) => x.d?.kind === 'task').map((x) => txt(objOf(x.s.output?.task)?.ref)).filter(Boolean)
-  const base = { advice, project: p ? txt(p.name) || txt(p.ref) : '', tasks, step: '', error: '', reason: '' }
+  const taskSteps = done.filter((x) => x.d?.kind === 'task' && txt(objOf(x.s.output?.task)?.ref))
+  const tasks = taskSteps.map((x) => txt(objOf(x.s.output?.task)?.ref))
+  const base = { advice, project: p ? txt(p.name) || txt(p.ref) : '', tasks, step: '', error: '', basis: '' }
   const st = runStatus(r)
-  const name = (x: { s: RunStep; d?: SopStepDef }) => x.d?.name ?? x.s.key
-  if (st === 'failed') { const f = ss.find((x) => x.s.status === 'failed'); return { ...base, verdict: 'failed', label: '分诊失败', step: f ? name(f) : '', error: f?.s.error ?? '执行失败' } }
+  // 1. 跑没跑完
+  if (st === 'failed') { const f = ss.find((x) => x.s.status === 'failed'); return { ...base, verdict: 'failed', label: '分诊失败', step: f ? `「${name(f)}」` : '', error: f?.s.error ?? '执行失败' } }
   if (st === 'waiting') { const w = ss.find((x) => x.s.status === 'paused' || x.s.status === 'review'); return { ...base, verdict: 'waiting', label: '分诊等确认', step: w ? name(w) : '' } }
   if (st === 'running') { const c = ss.find((x) => x.s.status === 'running'); return { ...base, verdict: 'running', label: '分诊中', step: c ? `${name(c)} · ${c.s.queue ? `排队中，前面 ${c.s.queue.ahead} 个` : '执行中'}` : '' } }
-  if (st === 'stopped') return { ...base, verdict: 'stopped', label: '已终止', reason: '中途终止，没跑完' }
-  const why = cl?.s.route_reason ?? ''
-  if (txt(last('need')) === 'yes' || advice) return { ...base, verdict: 'handle', label: '要处理', reason: why }
-  if (marked === 'ignore') return { ...base, verdict: 'ignore', label: '可忽略', reason: [why, '已标为已忽略'].filter(Boolean).join('；') }
-  if (cl) {
-    const k = `${cl.s.route} ${caseOf(cl)}`
-    if (/ignore|忽略/i.test(k)) return { ...base, verdict: 'ignore', label: '可忽略', reason: why }
-    if (/handle|处理/i.test(k)) return { ...base, verdict: 'handle', label: '要处理', reason: why }
-    return { ...base, verdict: 'other', label: caseOf(cl), reason: why }
+  if (st === 'stopped') return { ...base, verdict: 'stopped', label: '已终止', step: '中途终止，没跑完' }
+  const quiet = { ...base, advice: '' }
+  // 2. 路由步骤：从后往前第一个读得出的
+  const routes = done.filter((x) => (x.d?.kind === 'classifier' || x.d?.kind === 'decide') && x.s.route)
+  const said = (x: X) => `「${name(x)}」选了「${caseOf(x)}」${x.s.route_reason ? `（${x.s.route_reason}）` : ''}`
+  const hit = [...routes].reverse().find((x) => routeVerdict(x))
+  if (hit) {
+    const v = routeVerdict(hit) as 'handle' | 'ignore' | 'skipped'
+    return { ...(v === 'handle' ? base : quiet), verdict: v, label: LABEL[v], basis: said(hit) }
   }
-  if (dc && /忽略|ignore/i.test(`${dc.s.route} ${caseOf(dc)}`)) return { ...base, verdict: 'skipped', label: '已忽略，未判断', reason: dc.s.route_reason ?? '' }
-  return { ...base, verdict: 'other', label: dc ? caseOf(dc) : '没得出结论', reason: dc?.s.route_reason ?? '' }
+  // 3. 建了任务
+  if (taskSteps.length) return { ...base, verdict: 'handle', label: '要处理', basis: `「${name(taskSteps[taskSteps.length - 1])}」建了任务 ${tasks.join('、')}` }
+  // 4. 输出字段
+  const need = txt(last('need')).toLowerCase()
+  const needAt = (k: string) => { const x = done.find((y) => txt(y.s.output?.need).toLowerCase() === k); return x ? `「${name(x)}」` : '' }
+  if (need === 'yes') return { ...base, verdict: 'handle', label: '要处理', basis: `${needAt('yes')}输出 need = yes` }
+  if (need === 'no') return { ...quiet, verdict: 'ignore', label: '可忽略', basis: `${needAt('no')}输出 need = no` }
+  // 输出逐步累积，第一个带着的就是标的那一步
+  const mk = done.find((x) => txt(objOf(x.s.output?.marked)?.state) === 'ignore')
+  if (mk) return { ...quiet, verdict: 'ignore', label: '可忽略', basis: `「${name(mk)}」把消息标为已忽略` }
+  // 5. 路由选了读不出的一路
+  const lr = routes[routes.length - 1]
+  if (lr) return { ...base, verdict: 'other', label: caseOf(lr), basis: said(lr) }
+  // 6. 没得出结论
+  return { ...base, verdict: 'none', label: '没得出结论', step: '流程跑完了，但没有判断要不要处理的步骤' }
 }
 
-/** 悬停摘要：结论 + 建议前 80 字（没有建议写理由） */
+/** 悬停摘要：结论 + 建议前 80 字（没有建议写依据） */
 export function triageBrief(s: TriageSummary, max = 80) {
-  const body = (s.advice || s.reason).replace(/\s+/g, ' ').trim()
+  const body = (s.advice || s.basis || s.step).replace(/\s+/g, ' ').trim()
   return body ? `${s.label}：${body.length > max ? `${body.slice(0, max)}…` : body}` : s.label
 }
 
-const TONE: Record<TriageSummary['verdict'], string> = { handle: 'ok', running: 'run', waiting: 'wait', failed: 'bad', ignore: 'mute', skipped: 'mute', other: 'mute', stopped: 'mute' }
+const TONE: Record<TriageSummary['verdict'], string> = { handle: 'ok', running: 'run', waiting: 'wait', failed: 'bad', ignore: 'mute', skipped: 'mute', other: 'mute', none: 'mute', stopped: 'mute' }
 const fmtAt = (t: number) => new Date(t).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
 /** 一条消息的分诊执行，最近的在前 */
@@ -118,9 +158,9 @@ function SummaryCard({ r, onOpenRun }: { r: SopRun; onOpenRun: (id: string) => v
     <div className="tri-card">
       <div className="act-row">
         <span className={cls('msg-tri', `msg-tri-${TONE[s.verdict]}`)}>{s.label}</span>
-        {s.reason && <span className="muted">{s.reason}</span>}
-        {s.step && <span className="muted">{s.verdict === 'failed' ? `「${s.step}」` : s.step}</span>}
+        {s.step && <span className="muted">{s.step}</span>}
       </div>
+      {s.basis && <div className="tri-basis"><span className="tri-basis-k">依据：</span>{s.basis}</div>}
       {s.verdict === 'failed' && <div className="field-err">{s.error}</div>}
       {s.advice && <div className="tri-advice" aria-label="处理建议">{s.advice}</div>}
       <dl className="tri-meta">

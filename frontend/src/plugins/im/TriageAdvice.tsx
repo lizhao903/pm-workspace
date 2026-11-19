@@ -31,15 +31,15 @@ type Acts = {
   onOpenTask: (id: string) => void
 }
 
-/** 一次分诊的结论块 */
+/** 一次分诊的结论块：结论小标、依据行（SPEC-messages-2.41）、建议（可忽略、已忽略时 summarizeTriage 已清空）、项目、任务、流程、时间 */
 function SummaryView({ s, onOpenRun, onOpenTask }: Acts & { s: TriageSummary }) {
   return (
     <div className="im-tri-card">
       <div className="im-tri-head">
         <span className={cls('im-state', `im-tri-${verdictTone(s.verdict)}`)}>{s.label}</span>
-        {s.reason && <span className="im-muted">{s.reason}</span>}
         {s.step && <span className="im-muted">{s.verdict === 'failed' ? `「${s.step}」` : s.step}</span>}
       </div>
+      {s.basis && <div className="im-tri-basis"><span className="im-tri-basis-k">依据：</span>{s.basis}</div>}
       {s.verdict === 'failed' && <div className="im-err" role="alert">{s.error}</div>}
       {s.advice && <div className="im-tri-advice" aria-label="处理建议">{s.advice}</div>}
       <dl className="im-tri-meta">
@@ -199,7 +199,7 @@ function TriageAttempts({ attempts, ...acts }: Acts & { attempts: TriageAttempt[
 }
 
 /**
- * 列表行上的分诊小标。已分诊的悬停时才去取详情，title 写结论和建议前 80 字，点了打开消息抽屉定位到「分诊建议」；
+ * 列表行上的分诊小标。已分诊的悬停时才去取详情，title 写结论和建议前 80 字（没有建议时写依据），点了打开消息抽屉定位到「分诊建议」；
  * 分诊中、等确认、失败的点了打开处理队列（那里能看排队、终止、重试）
  */
 export function TriageTagButton({ attempt, onOpenAdvice, onOpenQueue }: {

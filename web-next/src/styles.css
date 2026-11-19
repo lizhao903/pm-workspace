@@ -2721,6 +2721,9 @@ input.mono { font-family: var(--mono); }
 @keyframes tri-flash { from { box-shadow: 0 0 0 3px var(--accent-soft); } to { box-shadow: 0 0 0 3px transparent; } }
 .tri-card { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel-2); min-width: 0; }
 .msg-tri-mute { color: var(--muted); background: var(--hover); cursor: default; }
+/* 结论的依据：定结论的那一步选了哪一路（SPEC-messages-2.41） */
+.tri-basis { font-size: 12.5px; line-height: 1.6; overflow-wrap: anywhere; }
+.tri-basis-k { color: var(--faint); }
 .tri-advice { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.65; padding-left: 10px; border-left: 3px solid var(--accent-line); }
 .tri-meta { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 12.5px; }
 .tri-meta dt { color: var(--faint); }
