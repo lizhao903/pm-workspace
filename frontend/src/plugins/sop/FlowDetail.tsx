@@ -61,6 +61,8 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
   now: number
 }) {
   const [confirm, setConfirm] = useState(false)
+  // 导出（SPEC-sop-2.25，TSK 用户 11-19 提：从列表卡片挪到详情页）：按钮上短暂写结果
+  const [exported, setExported] = useState('')
   // 模拟 IM 触发（TSK-0491）：打开时可带一条消息（从「最近未发起」点「模拟」进来）
   const [explain, setExplain] = useState<{ msg?: string; n: number } | null>(null)
   // 单取一条流程（TSK-0490：列表里的 issues 也带，但详情以这条为准）
@@ -92,6 +94,12 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
       im: { ...imDraftOf(flow), stop: false }, folder_id: fid } },
     { onSuccess: onCopied },
   )
+  const doExport = () => {
+    const x = full.data ?? flow
+    void navigator.clipboard.writeText(JSON.stringify({ id: x.id, name: x.name, desc: x.desc, trigger: x.trigger, fields: x.fields, steps: x.steps, ...(x.layout ? { layout: x.layout } : {}) }, null, 2))
+      .then(() => setExported('已导出到剪贴板'), () => setExported('无法写入剪贴板，请检查浏览器权限'))
+      .finally(() => window.setTimeout(() => setExported(''), 2500))
+  }
   const confirmText = del.isError ? `删除失败：${errorText(del.error)}` : block ? `不能删除：${block}` : '删除后已有的执行记录保留'
 
   return (
@@ -99,6 +107,7 @@ export function FlowDetail({ flow, runs, branching, needs = [], trigger, onStart
       <PageTitle parent="SOP" desc={flow.desc} actions={!confirm && <>
         {flow.ownership !== 'buildin' && <Button variant="danger-ghost" onClick={() => { del.reset(); setConfirm(true) }}>删除</Button>}
         <Button variant="ghost" disabled={save.isPending} onClick={copy}>{save.isPending ? '复制中' : '复制'}</Button>
+        <Button variant="ghost" onClick={doExport} title="把这个流程的 JSON 复制到剪贴板">{exported || '导出'}</Button>
         {flow.trigger === 'im' && <Button variant="ghost" onClick={() => setExplain({ n: Date.now() })}>模拟 IM 触发</Button>}
         <Button variant="outline" onClick={onEdit}>{flow.ownership === 'buildin' ? '详情' : '编辑'}</Button>
         <Button variant="primary" onClick={onStart}><IconPlay />执行</Button>

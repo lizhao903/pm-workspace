@@ -41,7 +41,6 @@ export function Library({ flows, folders, folder, onFolder, stats, needs, trigge
   onNew: (folderId: string | null) => void
   now: number
 }) {
-  const [message, setMessage] = useState('')
   const [q, setQ] = useState('')
   const [f, setF] = useState<LibFilter>('')
   const searching = !!q.trim()
@@ -73,7 +72,6 @@ export function Library({ flows, folders, folder, onFolder, stats, needs, trigge
           <input placeholder="搜索流程名、说明、触发方式、文件夹" aria-label="搜索流程" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
-      {message && <div role="status">{message}</div>}
       <FolderBar flows={flows} folders={folders} current={key} searching={searching} onPick={onFolder} />
       {!rows.length ? (
         <EmptyState
@@ -87,8 +85,7 @@ export function Library({ flows, folders, folder, onFolder, stats, needs, trigge
               <h2>{ownership === 'buildin' ? '内置 SOP（只读）' : '我的 SOP（只有我可以看见）'}</h2>
               <div className="sop-lib-grid">
                 {rows.filter((s) => (s.ownership ?? 'nobuild-in') === ownership).map((s) => (
-                  <Card key={s.id} s={s} x={stats.get(s.id)} need={needs(s)} folders={folders} now={now} onOpen={onOpen}
-                    onExport={() => { void navigator.clipboard.writeText(JSON.stringify({ id: s.id, name: s.name, desc: s.desc, trigger: s.trigger, fields: s.fields, steps: s.steps, ...(s.layout ? { layout: s.layout } : {}) }, null, 2)).then(() => setMessage('已导出到剪贴板'), () => setMessage('无法写入剪贴板，请检查浏览器权限')) }} />
+                  <Card key={s.id} s={s} x={stats.get(s.id)} need={needs(s)} folders={folders} now={now} onOpen={onOpen} />
                 ))}
               </div>
             </section>
@@ -99,14 +96,13 @@ export function Library({ flows, folders, folder, onFolder, stats, needs, trigge
   )
 }
 
-function Card({ s, x, need, folders, now, onOpen, onExport }: {
+function Card({ s, x, need, folders, now, onOpen }: {
   s: SopFlow
   x?: FlowStat
   need: string[]
   folders: readonly SopFolder[]
   now: number
   onOpen: (id: string) => void
-  onExport: () => void
 }) {
   const move = useMoveSopFlows()
   const fid = folderOf(s, folders)
@@ -116,7 +112,6 @@ function Card({ s, x, need, folders, now, onOpen, onExport }: {
   // 移到文件夹（TSK-0482）同理挂在卡片按钮外面，右下角
   return (
     <div className="sop-lib-cell">
-      <Button variant="ghost" onClick={onExport}>导出</Button>
       <div className="sop-lib-main">
         <button type="button" className={cls('sop-lib-card', need.length > 0 && 'elsewhere', folders.length > 0 && 'with-folder')} onClick={() => onOpen(s.id)}>
           <span className="sop-lib-head">
