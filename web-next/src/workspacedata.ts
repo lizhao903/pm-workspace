@@ -5,7 +5,7 @@
 // groups 是唯一的来源；modules 是按分组顺序摊平的启用列表，跟着 groups 算出来，方便各处直接用
 
 export type ModuleKey = 'today' | 'projects' | 'contacts' | 'messages' | 'tasks' | 'library' | 'sop' | 'sessions' | 'terminal' | 'browser'
-  | 'videos' | 'markets' | 'monitor' | 'strategy' | 'trading' | 'etf' | 'runs' | 'recording'
+  | 'videos' | 'video_clips' | 'video_publish' | 'markets' | 'monitor' | 'strategy' | 'trading' | 'etf' | 'runs' | 'recording'
 
 export const MODULES: { key: ModuleKey; label: string; desc: string }[] = [
   { key: 'today', label: '今日', desc: '今天要处理的事集中在一页' },
@@ -22,7 +22,10 @@ export const MODULES: { key: ModuleKey; label: string; desc: string }[] = [
   { key: 'recording', label: '录音', desc: '录音、本机转写、会议纪要和待办候选' },
   { key: 'terminal', label: '终端', desc: '分屏终端，能启停项目原型' },
   { key: 'browser', label: '浏览器', desc: '内置浏览器：看原型、Google Drive 文件' },
-  { key: 'videos', label: '视频', desc: '视频制作流程、产出物、系列和多平台发布' },
+  // 视频插件拆成三个一级模块（2026-11-18）：做视频、素材收集、发布与数据
+  { key: 'videos', label: '做视频', desc: '视频制作流程、检查点、产出物和系列' },
+  { key: 'video_clips', label: '素材收集', desc: '评论、热榜、竞品、想法收进来，整理成选题' },
+  { key: 'video_publish', label: '发布与数据', desc: '多平台发布、发布日历、平台账户数据' },
   { key: 'markets', label: '行情', desc: '数币、A 股、港股、美股的看盘和期权 T 型报价' },
   { key: 'monitor', label: '盯盘', desc: '盯盘墙、价格与异动提醒、市场时段' },
   { key: 'strategy', label: '策略', desc: '策略编辑、回测和参数扫描' },
@@ -55,11 +58,11 @@ export const TEMPLATES: { role: string; name: string; desc: string; groups: [str
   { id: 'ws_ops', role: '运营 / 客户成功', name: '运营工作台', desc: '消息、联系人和流程为主', home: 'messages', mark: { text: '', icon: 'headset', color: '#b0570b' },
     groups: [['', ['today']], ['客户', ['messages', 'contacts']], ['跟进', ['tasks', 'sop']], ['资料', ['library', 'sessions', 'browser']]] },
   { id: 'ws_video', role: '视频博主', name: '视频创作工作台', desc: '视频制作、系列、多平台发布和粉丝合作', home: 'videos', mark: { text: '', icon: 'video', color: '#e8590c' },
-    groups: [['', ['today']], ['创作', ['videos', 'library', 'sessions']], ['发布与互动', ['tasks', 'messages']], ['合作', ['contacts', 'projects']], ['工具', ['sop', 'terminal', 'browser']]] },
+    groups: [['', ['today']], ['创作', ['video_clips', 'videos', 'library', 'sessions']], ['发布与互动', ['video_publish', 'tasks', 'messages']], ['合作', ['contacts', 'projects']], ['工具', ['sop', 'terminal', 'browser']]] },
   { id: 'ws_trader', role: '交易员', name: '交易工作台', desc: '看盘盯盘、策略回测、账户执行和风控', home: 'markets', mark: { text: '', icon: 'candles', color: '#c0352b' },
     groups: [['', ['today']], ['行情', ['markets', 'monitor', 'etf']], ['策略与执行', ['strategy', 'trading']], ['资讯', ['messages', 'library', 'browser']], ['工具', ['tasks', 'sessions', 'terminal']]] },
   { id: 'ws_all', role: '全部模块', name: '0xBroleez', desc: '所有功能模块都开着', home: 'today', mark: { text: '0x', color: '#161823' },
-    groups: [['', ['today']], ['工作', ['projects', 'tasks', 'library', 'recording']], ['视频', ['videos']], ['交易', ['markets', 'monitor', 'etf', 'strategy', 'trading']],
+    groups: [['', ['today']], ['工作', ['projects', 'tasks', 'library', 'recording']], ['视频', ['video_clips', 'videos', 'video_publish']], ['交易', ['markets', 'monitor', 'etf', 'strategy', 'trading']],
       ['沟通', ['messages', 'contacts', 'sessions', 'runs']], ['工具', ['sop', 'terminal', 'browser']]] },
   { id: '', role: '自定义', name: '我的工作台', desc: '从空白开始，自己挑模块', home: 'today', groups: [['', ['today']]] },
 ]

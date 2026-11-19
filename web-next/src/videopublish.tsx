@@ -92,7 +92,7 @@ export function SeriesPage({ series, videos, onSeries, onOpenSeries, tabs }: {
 
   return (
     <div className="page page-fill">
-      <PageTitle parent="视频" count={series.length} desc="多集共用开场、收尾和模板；点系列看各集、改共用部分"
+      <PageTitle parent="做视频" count={series.length} desc="多集共用开场、收尾和模板；点系列看各集、改共用部分"
         actions={<button className="btn btn-primary" onClick={() => setOpen('new')}><PlusIcon />新建系列</button>}>系列</PageTitle>
       {tabs}
       {staleTotal > 0 && <div className="banner banner-warn vp-banner"><span>有 {staleTotal} 集改过共用部分还没同步，需要重新录屏渲染</span></div>}
@@ -282,7 +282,7 @@ export function PublishPage({ publishes, videos, artifacts, videoId, onPublishes
 
   return (
     <div className="page page-fill">
-      <PageTitle count={base.length} desc="每个平台发了哪个比例、哪张封面，发出去以后回填播放数据"
+      <PageTitle parent="发布与数据" count={base.length} desc="每个平台发了哪个比例、哪张封面，发出去以后回填播放数据"
         actions={<button className="btn btn-primary" onClick={() => openPub('new')}><PlusIcon />新建发布</button>}>发布记录</PageTitle>
       {tabs}
 

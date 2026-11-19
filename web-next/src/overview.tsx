@@ -62,10 +62,16 @@ const DRAFT: Partial<Record<OverviewKey, PageRow[]>> = {
   videos: [
     { name: '全部视频', desc: '按系列分组的视频列表和制作进度', view: 'all' },
     { name: '待我处理', desc: '停在检查点或被退回的视频', view: 'review' },
-    { name: '发布记录', desc: '多平台发布的结果和数据', view: 'publish' },
     { name: '系列管理', desc: '系列共用的开场收尾、集数编排', view: 'series' },
-    { name: '选题', desc: '给选题打分排优先级，可开拍了就立项', view: 'topics' },
+  ],
+  video_clips: [
     { name: '素材收件箱', desc: '评论、热榜、竞品、想法，整理成选题', view: 'clips' },
+    { name: '选题', desc: '给选题打分排优先级，可开拍了就立项', view: 'topics' },
+  ],
+  video_publish: [
+    { name: '发布记录', desc: '多平台发布的结果，发出去以后回填播放数据', view: 'publish' },
+    { name: '日历', desc: '发布排期、计划首发日和商单交付', view: 'calendar' },
+    { name: 'B 站数据', desc: 'B 站账户数据、按天趋势和私信', view: 'bilibili' },
   ],
   markets: [{ name: '行情', desc: '自选列表、K 线、期权 T 型报价' }],
   monitor: [{ name: '盯盘', desc: '市场时段、盯盘墙、价格与异动提醒、触发记录' }],

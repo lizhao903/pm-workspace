@@ -47,9 +47,9 @@
 | 发布与数据 | `video_publish` | 发布记录、日历、B 站数据（TSK-0455，见 `SPEC-videos-18`） | 有发布失败时亮红点，带失败条数 |
 
 - SPEC-videos-0.1 拆分（2026-11-18）：原来一个「视频」模块八个标签，做视频、找素材、发布和看数据挤在一起；按「做什么 → 做 → 发出去看效果」拆成三个模块，工作台里可以分别开关、分别放进不同的菜单分组（视频创作工作台：素材收集、做视频放「创作」，发布与数据放「发布与互动」）。
-- SPEC-videos-0.2 数据和视图状态三个模块共用（原型 `App.tsx` 的 `videoView`）。跳到别的模块的视图时一级菜单跟着切（`videoModuleOf`）：从发布记录、日历打开某一集落到「做视频」；选题立项后打开新建的那集落到「做视频」；某一集里点「发布记录」落到「发布与数据」。从菜单点进一个模块时，当前视图不属于它就落到它的首个标签（`VIDEO_HOME`）。
+- SPEC-videos-0.2 数据和视图状态三个模块共用（原型 `App.tsx` 的 `videoView`）。跳到别的模块的视图时一级菜单跟着切（`videoModuleOf`）：从发布记录、日历打开某一集落到「做视频」；选题立项后打开新建的那集落到「做视频」；某一集里点「发布记录」落到「发布与数据」。从菜单点进一个模块一律落到它的首个标签（`VIDEO_HOME`），不留着当前视图。
 - SPEC-videos-0.3 页面标题的上级显示模块名（做视频、素材收集、发布与数据），不再是「视频」。
-- SPEC-videos-0.4 正式前端（2026-11-19，video 0.11.0）已实现 0.1 到 0.3：清单 `provides.modules` 是 `videos`、`video_clips`、`video_publish`，三个模块挂同一个页面（`frontend/src/plugins/video/Page.tsx`、`routes.ts`），地址是 `/videos`（全部视频、`/review`、`/series`、`/v/<id>`）、`/video_clips`（素材收件箱、`/topics`）、`/video_publish`（发布记录、`/calendar`、`/bilibili`），原来 `/videos/clips`、`/videos/topics`、`/videos/publishes`、`/videos/calendar`、`/videos/bilibili` 重定向到新位置；今日卡片给的 `/videos/v/<id>?p=<发布 id>` 落到发布与数据的这条发布记录。和原型不同的地方：一级菜单沿用正式产品「只给红点、不放数字」的规矩（第四十一批决策），素材收集有待整理素材时也是红点，条数和发布失败条数都写在悬停提示里；从菜单点进模块一律落到首个标签（视图记在地址上，不像原型留着当前视图）；库里的工作台和模板不改，读的时候把只开着 `videos` 的补成三个，见 `SPEC-settings-2`。
+- SPEC-videos-0.4 正式前端（2026-11-19，video 0.11.0）已实现 0.1 到 0.3：清单 `provides.modules` 是 `videos`、`video_clips`、`video_publish`，三个模块挂同一个页面（`frontend/src/plugins/video/Page.tsx`、`routes.ts`），地址是 `/videos`（全部视频、`/review`、`/series`、`/v/<id>`）、`/video_clips`（素材收件箱、`/topics`）、`/video_publish`（发布记录、`/calendar`、`/bilibili`），原来 `/videos/clips`、`/videos/topics`、`/videos/publishes`、`/videos/calendar`、`/videos/bilibili` 重定向到新位置；今日卡片给的 `/videos/v/<id>?p=<发布 id>` 落到发布与数据的这条发布记录。一级菜单沿用正式产品「只给红点、不放数字」的规矩（第四十一批决策）：做视频看待验收的集，素材收集看待整理素材，发布与数据看发布失败，条数写在红点的悬停提示里；从菜单点进模块一律落到首个标签（原型同步 2026-11-19）；库里的工作台和模板不改，读的时候把只开着 `videos` 的补成三个，见 `SPEC-settings-2`。
 
 商单不在视频模块的标签里，在项目详情的「商单」标签（视频插件开着才有），见 `SPEC-videos-16`。「待我处理」和「素材收件箱」标签后面带数字（停在检查点或被退回的集数、待整理的素材数）。打开某一集时标签栏还在，高亮按从哪进来的算：从系列进来高亮「系列」，其余高亮「全部视频」。
 

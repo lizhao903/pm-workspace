@@ -56,7 +56,7 @@ import { PLATFORMS, PLATFORM_TOOL, STAGES, checkPublish, coverRatioOf, dealRepor
 import { CalendarPage } from './videocalendar'
 import { BiliPage } from './videobili'
 import { DealDrawer, DealsTab, dueDeals, payText } from './videodeals'
-import { VideoDetail, VideosListPage, VideosTabs, type VideoView } from './videos'
+import { VIDEO_HOME, VIDEO_MODULES, VideoDetail, VideosListPage, VideosTabs, videoModuleOf, type VideoModule, type VideoView } from './videos'
 import { PublishPage, SeriesPage, type ChannelState } from './videopublish'
 import { ClipsPage, TopicsPage } from './topics'
 import { seedClips, seedTopics, type Topic } from './topicdata'
@@ -94,7 +94,7 @@ import { JobsPage } from './jobs'
 
 // 菜单从这里加：Page 加一个 key，MENU 加一行，main 里接上页面。设置不在 MENU 里，单独吸底
 type Page = 'today' | 'projects' | 'contacts' | 'messages' | 'tasks' | 'library' | 'sop' | 'sessions' | 'terminal' | 'browser'
-  | 'videos' | 'markets' | 'monitor' | 'strategy' | 'trading' | 'etf' | 'runs' | 'recording' | 'settings' | 'overview'
+  | 'videos' | 'video_clips' | 'video_publish' | 'markets' | 'monitor' | 'strategy' | 'trading' | 'etf' | 'runs' | 'recording' | 'settings' | 'overview'
 
 // 抽屉是全局的一个：从消息页「存为联系人」时，不用离开消息页就能打开联系人表单
 type DrawerState =
@@ -138,6 +138,8 @@ function useStable<A extends unknown[], R>(f: (...a: A) => R): (...a: A) => R {
   return useCallback((...a: A) => ref.current(...a), [])
 }
 
+const isVideoModule = (p: string): p is VideoModule => (VIDEO_MODULES as string[]).includes(p)
+
 const icons: Record<Page, React.ReactNode> = {
   contacts: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><circle cx="6" cy="5.5" r="2.5" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M1.5 13.5c.6-2.4 2.3-3.6 4.5-3.6s3.9 1.2 4.5 3.6M11 3.2a2.4 2.4 0 0 1 0 4.6M12.6 10.2c1 .5 1.6 1.6 1.9 3.3" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>,
   messages: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /><path d="M5 6.5h6M5 8.5h3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>,
@@ -150,6 +152,8 @@ const icons: Record<Page, React.ReactNode> = {
   sop: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><rect x="1.8" y="2" width="4.4" height="3.6" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" /><rect x="9.8" y="6.2" width="4.4" height="3.6" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" /><rect x="1.8" y="10.4" width="4.4" height="3.6" rx="1" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M6.2 3.8h2.2a1.4 1.4 0 0 1 1.4 1.4V8M9.8 8v2.8a1.4 1.4 0 0 1-1.4 1.4H6.2" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg>,
   browser: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /><path d="M2 8h12M8 2c1.8 1.7 2.6 3.7 2.6 6S9.8 12.3 8 14M8 2C6.2 3.7 5.4 5.7 5.4 8s.8 4.3 2.6 6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   videos: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><rect x="1.8" y="3.2" width="9.2" height="9.6" rx="1.8" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /><path d="m11 6.6 3.2-1.8v6.4L11 9.4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
+  video_clips: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M2 9.5 3.8 3h8.4L14 9.5v3.3c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1Z" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /><path d="M2 9.5h3.5l.8 1.7h3.4l.8-1.7H14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" /></svg>,
+  video_publish: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M2 13.5h12M4.5 11V8.5M8 11V6.5M11.5 11V4" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /><path d="m9.8 3.6 1.7-1.6 1.7 1.6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   markets: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M4 3v10M4 5h-.01M12 4v8M8 6v7" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /><rect x="2.8" y="5.5" width="2.4" height="4.5" rx=".5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /><rect x="6.8" y="7.5" width="2.4" height="3.5" rx=".5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /><rect x="10.8" y="5" width="2.4" height="4" rx=".5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   monitor: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M1.8 8h2.6l1.6-4 3 8 1.6-4h3.6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>,
   etf: <svg className="side-icon" viewBox="0 0 16 16" width="15" height="15"><path d="M2 13.5h12M4 11V8M7 11V5.5M10 11V7M13 11V3.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>,
@@ -211,6 +215,9 @@ export default function App() {
   // 打开某一集时记下从哪进来的：从系列进的标签高亮「系列」，否则高亮「全部视频」
   const [videoFrom, setVideoFrom] = useState<VideoView | undefined>()
   const openVideo = (id: string) => { setVideoFrom(videoView); setVideoView(`video:${id}`) }
+  // 视频拆成三个模块后视图状态还是一个：跳到别的模块的视图（比如从发布记录打开某一集、选题立项）时，菜单跟着落到那个模块
+  const isVideoPage = isVideoModule(page)
+  useLayoutEffect(() => { if (isVideoModule(page) && videoModuleOf(videoView) !== page) setPage(videoModuleOf(videoView)) }, [page, videoView])
   const [publishFilter, setPublishFilter] = useState<string | undefined>()
   // 商单（VID-08p）：挂在项目下，视频挂到商单上
   const [deals, setDeals] = useState(seedDeals)
@@ -234,6 +241,8 @@ export default function App() {
   const [topicFocus, setTopicFocus] = useState<{ id: string; n: number } | null>(null)
   /** 停在检查点上等我验收的集数 */
   const videoWaiting = videos.filter((v) => videoState(v).tone === 'warn').length
+  const publishFailed = publishes.filter((p) => p.status === 'failed').length
+  const clipsPending = clips.filter((c) => !c.triaged).length
   // 内置浏览器：别处要打开地址就发一个请求；Google 账号登录后连带接上 Drive 和日历连接器
   const [browserReq, setBrowserReq] = useState<{ url: string; title?: string; n: number } | null>(null)
   const [google, setGoogle] = useState<GoogleAccount | null>(null)
@@ -849,7 +858,10 @@ export default function App() {
     { key: 'recording', label: '录音' },
     { key: 'terminal', label: '终端' },
     { key: 'browser', label: '浏览器' },
-    { key: 'videos', label: '视频', alert: videoWaiting > 0 },
+    // 视频三个模块（SPEC-videos-0）：同正式前端只给红点不放数字，条数在红点的悬停提示里
+    { key: 'videos', label: '做视频', badge: videoWaiting, alert: videoWaiting > 0 },
+    { key: 'video_clips', label: '素材收集', badge: clipsPending, alert: clipsPending > 0 },
+    { key: 'video_publish', label: '发布与数据', badge: publishFailed, alert: publishFailed > 0 },
     { key: 'markets', label: '行情' },
     { key: 'monitor', label: '盯盘' },
     { key: 'etf', label: '宽基监控' },
@@ -1181,7 +1193,7 @@ export default function App() {
   /** 定时任务里显示发布记录用的名字：「平台 · 标题」 */
   const pubNames = useMemo(() => publishes.map((p) => ({ id: p.id, name: `${PLATFORMS.find((x) => x.key === p.platform)?.label ?? p.platform} · ${p.title || videos.find((v) => v.id === p.video_id)?.title || '未填标题'}` })), [publishes, videos])
   /** 发布记录页只看这一集（发布抽屉在发布记录页里面，从外面打不开具体一条） */
-  const openPublishOf = (p: Publish) => { setPage('videos'); setDrawer(null); setVideoFrom(undefined); setPublishFilter(p.video_id); setVideoView('publish') }
+  const openPublishOf = (p: Publish) => { setPage('video_publish'); setDrawer(null); setVideoFrom(undefined); setPublishFilter(p.video_id); setVideoView('publish') }
   /** 日历上把发布挪到另一天：时刻不变；已定时的，定时任务由 syncPublishSchedules 跟着改 */
   const movePublish = (id: string, date: string) => setPublishes((xs) => xs.map((p) => {
     if (p.id !== id || !p.scheduled_at) return p
@@ -1291,7 +1303,7 @@ export default function App() {
           onGoogleLogin={browserLogin} onGoogleLogout={browserLogout} hidden={hidden || page !== 'sessions'} links={links} />),
     onPage: (t) => go(t === 'term' ? 'terminal' : 'browser'),
   }
-  const go = (p: Page) => { setPage(p); setDrawer(null); if (p === 'library' && page !== 'library' && defaultWs !== 'builtin' && folders.some((f) => `dir:${f.id}` === defaultWs)) { setWs(defaultWs); setLibKind(''); setLibQ(''); setReading(null) } if (p === 'settings') setConnCat(''); if (p === 'sop') { setOpenRun(null); setSopFilter(undefined) } setRunFromTask(null); if (p === 'sessions') setSessionProject(undefined); if (p === 'projects') setProjectId(ALL_PROJECTS) }
+  const go = (p: Page) => { setPage(p); setDrawer(null); if (isVideoModule(p)) { setVideoView(VIDEO_HOME[p]); setVideoFrom(undefined); setPublishFilter(undefined) } if (p === 'library' && page !== 'library' && defaultWs !== 'builtin' && folders.some((f) => `dir:${f.id}` === defaultWs)) { setWs(defaultWs); setLibKind(''); setLibQ(''); setReading(null) } if (p === 'settings') setConnCat(''); if (p === 'sop') { setOpenRun(null); setSopFilter(undefined) } setRunFromTask(null); if (p === 'sessions') setSessionProject(undefined); if (p === 'projects') setProjectId(ALL_PROJECTS) }
   // 从原型总览打开某页：当前工作台没开这个模块就先切到开着它的工作台，再落到对应子页
   const openFromOverview = (m: OverviewKey, view?: string) => {
     if (m !== 'settings' && !bench.modules.includes(m)) { const w = benches.find((x) => x.modules.includes(m)); if (!w) return; setBenchId(w.id) }
@@ -1300,7 +1312,7 @@ export default function App() {
     if (m === 'tasks') setTaskView(view as TaskView)
     else if (m === 'sessions') setSessionView(view as SessionView)
     else if (m === 'sop') setSopView(view as SopView)
-    else if (m === 'videos') setVideoView(view as VideoView)
+    else if (isVideoModule(m)) setVideoView(view as VideoView)
     else if (m === 'strategy') setStrategyView(view as StrategyView)
     else if (m === 'trading') setTradingView(view as TradingView)
     else if (m === 'projects' && projects[0]) { setProjectId(projects[0].id); setProjectTab(view as ProjectTab) }
@@ -1732,7 +1744,7 @@ export default function App() {
       <ScheduleDrawer key={sc?.id ?? 'new'} schedule={sc} sops={sops} agents={agents} assignees={assignees} publishes={pubNames}
         projects={projects.map((x) => ({ id: x.id, name: x.name }))} initProjectId={drawer.kind === 'new-schedule' ? drawer.project : undefined}
         onOpenPublish={(id) => { const p = publishes.find((x) => x.id === id); if (p) openPublishOf(p) }}
-        onOpenCalendar={has('videos') ? () => { setPage('videos'); setDrawer(null); setVideoView('calendar') } : undefined}
+        onOpenCalendar={has('video_publish') ? () => { setPage('video_publish'); setDrawer(null); setVideoView('calendar') } : undefined}
         onClose={() => setDrawer(null)}
         onSave={(x) => { setSchedules((xs) => (xs.some((y) => y.id === x.id) ? xs.map((y) => (y.id === x.id ? x : y)) : [x, ...xs])); setDrawer({ kind: 'schedule', id: x.id }) }}
         onDelete={() => { setSchedules((xs) => xs.filter((y) => y.id !== sc?.id)); setDrawer(null) }}
@@ -2099,27 +2111,27 @@ export default function App() {
               </TopbarContext.Provider>
             </div>
           )}
-          {page === 'videos' && (videoView === 'all' || videoView === 'review' || videoView === 'single' || videoView.startsWith('sr:')) && (
+          {isVideoPage && (videoView === 'all' || videoView === 'review' || videoView === 'single' || videoView.startsWith('sr:')) && (
             <VideosListPage view={videoView} videos={videos} artifacts={artifacts} series={series} projects={projects} onOpen={openVideo} onNew={newVideo} onView={setVideoView}
               tabs={videoTabs} onSeries={setSeries} onVideos={setVideos} />
           )}
-          {page === 'videos' && videoView === 'calendar' && (
+          {isVideoPage && videoView === 'calendar' && (
             <CalendarPage videos={videos} publishes={publishes} deals={deals} tabs={videoTabs} onMovePublish={movePublish} onMoveTarget={moveTarget}
               onOpenVideo={openVideo} onOpenPublish={openPublishOf} onOpenDeal={openDeal} />
           )}
-          {page === 'videos' && videoView === 'topics' && (
+          {isVideoPage && videoView === 'topics' && (
             <TopicsPage topics={topics} clips={clips} series={series} videos={videos} focus={topicFocus} onTopics={setTopics} onClips={setClips}
               onMakeVideo={makeVideoFromTopic} onOpenVideo={openVideo} tabs={videoTabs} />
           )}
-          {page === 'videos' && videoView === 'clips' && (
+          {isVideoPage && videoView === 'clips' && (
             <ClipsPage clips={clips} topics={topics} onClips={setClips} onTopics={setTopics} tabs={videoTabs}
               onOpenTopic={(id) => { setTopicFocus((r) => ({ id, n: (r?.n ?? 0) + 1 })); setVideoView('topics') }} />
           )}
-          {page === 'videos' && videoView === 'bilibili' && <BiliPage tabs={videoTabs} />}
-          {page === 'videos' && videoView === 'series' && (
+          {isVideoPage && videoView === 'bilibili' && <BiliPage tabs={videoTabs} />}
+          {isVideoPage && videoView === 'series' && (
             <SeriesPage series={series} videos={videos} onSeries={setSeries} onOpenSeries={(id) => setVideoView(`sr:${id}`)} tabs={videoTabs} />
           )}
-          {page === 'videos' && videoView === 'publish' && (
+          {isVideoPage && videoView === 'publish' && (
             <PublishPage publishes={publishes} videos={videos} artifacts={artifacts} videoId={publishFilter} onPublishes={setPublishes}
               onArtifacts={setArtifacts}
               channels={Object.fromEntries(PLATFORMS.map((pl) => [pl.key, channelOf(pl.key)])) as Record<(typeof PLATFORMS)[number]['key'], ChannelState>}
@@ -2130,7 +2142,7 @@ export default function App() {
               }}
               onOpenVideo={openVideo} onOpenUrl={openInBrowser} onClearFilter={() => setPublishFilter(undefined)} tabs={videoTabs} />
           )}
-          {page === 'videos' && videoView.startsWith('video:') && (() => {
+          {isVideoPage && videoView.startsWith('video:') && (() => {
             const v = videos.find((x) => x.id === videoView.slice(6))
             if (!v) return <div className="page"><PageTitle>视频</PageTitle><div className="empty"><div className="empty-title">这个视频已经删除</div></div></div>
             return (

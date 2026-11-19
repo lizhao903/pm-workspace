@@ -171,12 +171,23 @@ export function VideosNav({ videos, series, view, onSelect, onNew, pendingClips 
 
 /* ---------- 标签栏 ---------- */
 
+// 视频拆成三个一级模块（2026-11-18）：做视频、素材收集、发布与数据；数据和视图状态共用，各模块只露自己的标签
+export type VideoModule = 'videos' | 'video_clips' | 'video_publish'
+export const VIDEO_MODULES: VideoModule[] = ['videos', 'video_clips', 'video_publish']
+export const VIDEO_MODULE_LABEL: Record<VideoModule, string> = { videos: '做视频', video_clips: '素材收集', video_publish: '发布与数据' }
+/** 每个模块从菜单点进来时落在哪个标签 */
+export const VIDEO_HOME: Record<VideoModule, VideoView> = { videos: 'all', video_clips: 'clips', video_publish: 'publish' }
+/** 视图归哪个模块：素材、选题归素材收集；发布记录、日历、B 站归发布与数据；其余（列表、系列、某一集）归做视频 */
+export const videoModuleOf = (v: VideoView): VideoModule =>
+  v === 'clips' || v === 'topics' ? 'video_clips' : v === 'publish' || v === 'calendar' || v === 'bilibili' ? 'video_publish' : 'videos'
+
 type ModuleTab = 'all' | 'review' | 'calendar' | 'topics' | 'clips' | 'series' | 'publish' | 'bilibili'
 const MODULE_TABS: { key: ModuleTab; label: string }[] = [
-  { key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'calendar', label: '日历' }, { key: 'topics', label: '选题' },
-  { key: 'clips', label: '素材收件箱' }, { key: 'series', label: '系列' }, { key: 'publish', label: '发布记录' },
+  { key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'series', label: '系列' },
+  { key: 'clips', label: '素材收件箱' }, { key: 'topics', label: '选题' },
+  { key: 'publish', label: '发布记录' }, { key: 'calendar', label: '日历' },
   // B 站组件（TSK-0455）：账户数据和私信，见 videobili.tsx
-  { key: 'bilibili', label: 'B 站' },
+  { key: 'bilibili', label: 'B 站数据' },
 ]
 const fromSeries = (v?: VideoView) => v === 'series' || !!v?.startsWith('sr:')
 /** 视图落在哪个标签：系列详情算「系列」，单集列表算「全部视频」；打开某一集时看从哪进来的，从系列进的算「系列」，其余算「全部视频」 */
@@ -187,7 +198,7 @@ const tabOf = (view: VideoView, from?: VideoView): ModuleTab => {
   return view as ModuleTab
 }
 
-/** 视频模块的标签栏：各视图页面在 PageTitle 下面渲染；待处理、未整理素材的数量标在标签上 */
+/** 视频三个模块的标签栏：只列当前模块的标签；各视图页面在 PageTitle 下面渲染；待处理、未整理素材的数量标在标签上 */
 export function VideosTabs({ view, from, videos, clips = [], onSelect }: {
   view: VideoView
   /** 打开某一集时，是从哪个视图点进来的 */
@@ -205,7 +216,7 @@ export function VideosTabs({ view, from, videos, clips = [], onSelect }: {
   }
   return (
     <div className="np-tabs vd-mtabs" role="tablist">
-      {MODULE_TABS.map((t) => {
+      {MODULE_TABS.filter((t) => videoModuleOf(t.key) === videoModuleOf(active)).map((t) => {
         const b = badge[t.key]
         return (
           <button key={t.key} role="tab" aria-selected={active === t.key} className={cls(active === t.key && 'on')} title={b?.n ? b.title : undefined} onClick={() => onSelect(t.key)}>
@@ -356,7 +367,7 @@ export function VideosListPage({ view, videos, artifacts, series, projects, onOp
 
   return (
     <div className="page page-fill">
-      <PageTitle parent={sr ? <button className="vd-crumb" onClick={() => onView('series')}>系列</button> : '视频'} count={scope.length} desc={desc} actions={<>
+      <PageTitle parent={sr ? <button className="vd-crumb" onClick={() => onView('series')}>系列</button> : '做视频'} count={scope.length} desc={desc} actions={<>
         {sr && onSeries && <button className="btn btn-outline" onClick={() => setSettings(true)}>系列设置</button>}
         <button className="btn btn-primary" onClick={() => onNew(sr?.id)}>
           <svg viewBox="0 0 16 16" width="12" height="12"><path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>
@@ -991,7 +1002,7 @@ export function VideoDetail({ video, artifacts, series, projects, publishCount, 
 
   return (
     <div className="page page-fill project-page vd-page">
-      <PageTitle parent={sr ? <button className="vd-crumb" onClick={() => onOpenSeries(sr.id)}>{sr.name}</button> : '视频'} desc={descText} actions={actions}>{v.title || '未命名视频'}</PageTitle>
+      <PageTitle parent={sr ? <button className="vd-crumb" onClick={() => onOpenSeries(sr.id)}>{sr.name}</button> : '做视频'} desc={descText} actions={actions}>{v.title || '未命名视频'}</PageTitle>
       {tabs}
       <div className="project-tabs np-tabs">
         {TABS.map((t) => (

@@ -102,7 +102,7 @@ export function TopicsPage({ topics, clips, series, videos, focus, onTopics, onC
 
   return (
     <div className="page page-fill">
-      <PageTitle parent="视频" count={topics.length} desc="从收集的素材里挑题、打分、想清楚角度，可开拍了就立项成视频" actions={<>
+      <PageTitle parent="素材收集" count={topics.length} desc="从收集的素材里挑题、打分、想清楚角度，可开拍了就立项成视频" actions={<>
         <button className="btn btn-primary" onClick={create}>新建选题</button>
       </>}>选题</PageTitle>
       {tabs}
@@ -345,7 +345,7 @@ export function ClipsPage({ clips, topics, onClips, onTopics, onOpenTopic, tabs 
 
   return (
     <div className="page page-fill">
-      <PageTitle parent="视频" count={clips.length} desc="评论、热榜、竞品、聊天里冒出来的点子先收进来，再挑出值得做的变成选题" actions={<>
+      <PageTitle parent="素材收集" count={clips.length} desc="评论、热榜、竞品、聊天里冒出来的点子先收进来，再挑出值得做的变成选题" actions={<>
         {note && <span className="sync-note">{note}</span>}
         <button className="btn btn-outline" disabled={!!busy} onClick={() => pull('trend')}>{busy === 'trend' ? '拉取中…' : '拉取热榜'}</button>
         <button className="btn btn-outline" disabled={!!busy} onClick={() => pull('comment')}>{busy === 'comment' ? '收集中…' : '收集评论'}</button>

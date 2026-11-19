@@ -203,7 +203,7 @@ export function CalendarPage({ videos, publishes, deals, tabs, onMovePublish, on
 
   return (
     <div className="page page-fill">
-      <PageTitle parent="视频" desc={`这周发什么、来不来得及：发布排期、计划首发日和商单交付；离首发 ${LATE_DAYS} 天内还没过第一章验收的标红，拖动改日期`}>日历</PageTitle>
+      <PageTitle parent="发布与数据" desc={`这周发什么、来不来得及：发布排期、计划首发日和商单交付；离首发 ${LATE_DAYS} 天内还没过第一章验收的标红，拖动改日期`}>日历</PageTitle>
       {tabs}
       <div className="toolbar vcal-bar">
         <div className="seg">

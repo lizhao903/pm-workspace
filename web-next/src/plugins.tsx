@@ -78,7 +78,7 @@ export const seedPlugins: PluginInfo[] = [
   P('browser', '内置浏览器', '0.2.0', '工作台里的多标签浏览器：标签页存后端、能嵌入的地址白名单，Google 账号用 Google Drive 连接器', [], { modules: ['browser'] }),
   P('domains', '内网域名', '0.2.0', '给本机跑的服务配好记的域名：检测 hosts、pf 转发和本地证书，生成配置和要自己执行的命令', ['fs:read:any', 'process:spawn', 'network:localhost'], { settings: ['domains'] }, { optional_depends: { projects: '>=0.6.0 <1.0.0' } }),
   P('video', '视频创作', '0.9.0', '视频制作流程、检查点、系列和多平台发布记录', ['fs:read:project', 'fs:write:project', 'network:media-platforms', 'process:spawn', 'fs:read:registered'],
-    { modules: ['videos'], connectors: ['bilibili', 'youtube', 'douyin'], sop_nodes: ['video_wait_checkpoint', 'video_run_stage', 'video_publish'], today_cards: ['video_waiting', 'video_scheduled'], schedule_actions: ['video_publish'] },
+    { modules: ['videos', 'video_clips', 'video_publish'], connectors: ['bilibili', 'youtube', 'douyin'], sop_nodes: ['video_wait_checkpoint', 'video_run_stage', 'video_publish'], today_cards: ['video_waiting', 'video_scheduled'], schedule_actions: ['video_publish'] },
     { depends: { projects: '>=0.5.0 <1.0.0' }, installed_version: '0.8.2', pending_migrations: 1, permissions_confirmed: ['fs:read:project', 'fs:write:project', 'network:media-platforms', 'process:spawn'] }),
   // 「可安装」的演示：语音合成没装（视频配音照常能手动配）
   P('tts', '语音合成', '0.1.0', '本机语音合成：自动检测 IndexTTS 和音色，视频配音不用再配置；连接器里可换音色和语速', ['process:spawn'], { connectors: ['voice'] },
