@@ -113,6 +113,9 @@ type activation struct {
 
 	// projectRunAllow 是项目执行白名单的查询入口（projectprotos.go，TSK-0837）
 	projectRunAllow ProjectRunAllowLister
+
+	// projectDirs 是项目档案目录的查询入口（projectprotos.go，TSK-0841 复盘）
+	projectDirs ProjectDirLister
 }
 
 var (

@@ -224,6 +224,7 @@ type Registrar interface {
 	ScheduleAction(d ScheduleActionDef)         // 2.12，只有后端（VID-06a）
 	ProjectPrototypes(fn ProjectPrototypeLister) // 只给 provides.modules 含 projects 的插件，见 2.13.24
 	ProjectRunAllow(fn ProjectRunAllowLister)    // 只给 provides.modules 含 projects 的插件，见 2.13.30（TSK-0837）
+	ProjectDirs(fn ProjectDirLister)             // 只给 provides.modules 含 projects 的插件，见 2.13.31（TSK-0841 复盘）
 
 	// 规划，还没实现：SettingsSection（2.2）、ObjectType（2.3）、AgentTool（2.6）、SearchProvider（2.9）
 }
@@ -1816,6 +1817,22 @@ type ProjectRunAllowLister func(ctx context.Context, projectID string) ([]string
 - 内核的用法：没人登记（项目插件没装、停用或还没升到 0.20.0）或查询出错时按没有项目白名单处理，执行照跑；出错记一条 warn 日志。
 - 现在的登记：项目插件 `projects`（0.20.0 起），读 `run_allow` 后再过一遍 `runner.CheckRule`，不合规的不回。
 
+#### 2.13.31 `Registrar.ProjectDirs`（只有后端，TSK-0841 复盘）
+
+```go
+// internal/plugin/projectprotos.go
+type ProjectDir struct{ ProjectID, Kind, Dir string } // Kind：ProjectDirCode / ProjectDirPrototype / ProjectDirPRD
+type ProjectDirLister func(ctx context.Context) ([]ProjectDir, error)
+// Registrar.ProjectDirs(fn ProjectDirLister)
+// Registry.ProjectDirs(ctx) ([]ProjectDir, error)，没人登记回 ErrNoProjectDirs
+```
+
+- 用途：任务没挂项目、交给执行时的工作目录落在某个项目的目录里，内核按那个项目处理（提示词的「所属项目」、Claude Code 后台执行合项目执行白名单）。项目工作目录内核自己读，项目档案的代码库、原型库、需求文档目录在项目插件的表里，就经这个入口一次列全。比较（解析软链、取最长、并列不认）由内核做（`internal/api/projectbydir.go`），口径见 `docs/api-contract.md`「任务执行 runs」下「按工作目录认定项目」。
+- 谁能调：同 2.13.24，清单 `provides.modules` 含 `projects` 的插件，在 `Register` 里登记一次；重复登记、传 nil 都是登记错误；插件 panic 转成错误。
+- 权限：不要权限，只读插件自己的表。插件回的目录原样（去首尾空白），空的不回；项目删没删由内核判断。
+- 内核的用法：没人登记（项目插件没装、停用或还没升到 0.21.0）或查询出错时只比项目工作目录；出错记一条 warn 日志。
+- 现在的登记：项目插件 `projects`（0.21.0 起），读 `projects_profiles` 的 `code_dir`、`proto_dir`、`prd_dir`。
+
 #### 2.13.25 前端扩展点 `terminalLauncher`
 
 ```ts
@@ -2223,6 +2240,8 @@ SOP 在进程启动时自动完成表结构迁移和 JSON 补建：主程序在 
 补记（不改版本号，2026-11-19，串相关）：插件 API 不变。IM 插件（实际清单 0.32.0）的事件 `im.message_received`、`im.message_muted` 的 payload 只增三项 `thread_related`（布尔）、`thread_reason`（`mine` / `mention` / `dm` / `task` / 空串）、`thread_parent_message_id`（父消息 id 或 null），读取消息 `im_get_message` 的 `message` 同样多这三项；SOP 编排插件（实际清单 0.23.0）的 IM 过滤加 `thread_related`「相关串里的回复按 @我 算」，缺省 false。订阅方按 JSON 解 payload，旧订阅方不认的键忽略即可；口径见 `docs/api-contract.md` IM「事件」与 SOP「IM 触发」。不加迁移。
 
 补记（不改版本号，2026-11-06，TSK-0721）：`Core` 加 `Knowledge()`（类型 `KnowledgeService`、`KnowledgeBackend`、`KnowledgeBaseInfo`、`KBItem`、`KBSyncResult`、`KBProblem`，钩子 `Registry.SetKnowledge`）；`ObjectReader` 加 `List`、类型 `ObjectQuery`，`ObjectInfo` 加 `Archived`；`SOPFlowTemplate` 加 `Schedule`（类型 `SOPFlowTemplateSchedule`）。内核迁移 `0054_kb_doc_origin.sql`（`kb_docs.origin`、`origin_key`，来源类型多 `file`）。项目插件实际清单（0.19.0）`sop_nodes` 加 `projects_kb_sync`，迁移加 `0012_kb.sql`（表 `projects_kb`、`projects_sop_templates`），后台任务加 `kb_flow_template`，实现 `Uninstaller`；全部节点补 `Spec.Effect`。SOP 插件 0.19.0 的 `InstallFlow` 认 `Schedule`。只增不改。
+补记（不改版本号，2026-11-19，TSK-0841 复盘）：`Registrar` 加 `ProjectDirs`（2.13.31，类型 `ProjectDir`、`ProjectDirLister`、`ErrNoProjectDirs`，常量 `ProjectDirCode`、`ProjectDirPrototype`、`ProjectDirPRD`），项目插件 0.21.0 登记它，回各档案的代码库、原型库、需求文档目录。只增不改，按 1.3 是小版本，和其余几条一起等用户定稿。
+
 
 补记（不改版本号，2026-11-06，TSK-0490）：SOP 节点扩展点（2.7）`SOPNodeDef`、`SOPNode` 加 `Spec SOPNodeSpec`（`Label`、`Desc`、`Params []SOPParam`、`Outputs []SOPOutput`），加 `WithSOPSpecs(r, specs)` 在登记时按 kind 补声明；`Spec.Params` 里必填的并进 `Required`。流程目录 `SOPCatalog` 加 `SOPGuide`，`SOPFlowDoc` 加 `Warnings`。只增不改：不给 `Spec` 的节点照旧能用（`outputs_open: true`）；`SOPCatalog` 现有唯一实现是 SOP 编排插件（实际清单 0.16.0，不加迁移）。IM（0.26.1）、项目（0.17.1）、视频（0.8.1）插件给各自的节点补了声明，不加迁移。
 

@@ -578,3 +578,32 @@ func projectRunAllow(c plugin.Core) plugin.ProjectRunAllowLister {
 		return out, nil
 	}
 }
+
+// projectDirs 是内核「项目目录」钩子的实现（TSK-0841 复盘）：列出各档案设了的代码库、原型库、需求文档目录。
+// 任务没挂项目时，内核拿工作目录和这些目录（加上项目自己的工作目录）比，认定按哪个项目处理；项目删没删由内核判断。
+func projectDirs(c plugin.Core) plugin.ProjectDirLister {
+	return func(ctx context.Context) ([]plugin.ProjectDir, error) {
+		rows, err := c.Store().Query(ctx, `SELECT project_id, code_dir, proto_dir, prd_dir FROM projects_profiles ORDER BY project_id`)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = rows.Close() }()
+		out := []plugin.ProjectDir{}
+		for rows.Next() {
+			var pid, code, proto, prd string
+			if err := rows.Scan(&pid, &code, &proto, &prd); err != nil {
+				return nil, err
+			}
+			for _, d := range []plugin.ProjectDir{
+				{ProjectID: pid, Kind: plugin.ProjectDirCode, Dir: code},
+				{ProjectID: pid, Kind: plugin.ProjectDirPrototype, Dir: proto},
+				{ProjectID: pid, Kind: plugin.ProjectDirPRD, Dir: prd},
+			} {
+				if d.Dir = strings.TrimSpace(d.Dir); d.Dir != "" {
+					out = append(out, d)
+				}
+			}
+		}
+		return out, rows.Err()
+	}
+}

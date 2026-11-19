@@ -109,3 +109,19 @@ func TestBuildPromptWriteBack(t *testing.T) {
 		}
 	}
 }
+
+// 按工作目录认定的项目（TSK-0841 复盘）：名称下面注明是按工作目录认定、任务本身没挂项目，以及命中的目录；
+// 交给工作台 Agent 的同样注明。挂了项目的没有这一行。
+func TestBuildPromptProjectByWorkdir(t *testing.T) {
+	prj := &Project{Name: "Octok", Ref: "PRJ-0009", ByWorkdir: true, MatchedDir: "/v/Octok项目", MatchedLabel: "项目工作目录"}
+	want := "名称：Octok（PRJ-0009）\n按工作目录认定为项目「Octok」（任务本身没挂项目）：工作目录在项目工作目录 /v/Octok项目 下。\n"
+	if p := BuildPrompt(Task{Title: "x", Workdir: "/v/Octok项目", Project: prj}); !strings.Contains(p, want) {
+		t.Fatalf("应注明按工作目录认定:\n%s", p)
+	}
+	if p := BuildAgentPrompt(AgentTask{Task: Task{Title: "x", Workdir: "/v/Octok项目", Project: prj}}); !strings.Contains(p, want) {
+		t.Fatalf("Agent 提示词也应注明:\n%s", p)
+	}
+	if p := BuildPrompt(Task{Title: "x", Workdir: "/w", Project: &Project{Name: "Octok"}}); strings.Contains(p, "按工作目录认定") {
+		t.Fatalf("挂了项目的不该有这一行:\n%s", p)
+	}
+}

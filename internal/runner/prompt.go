@@ -28,7 +28,7 @@ type Task struct {
 	// 验收标准单独成节而不是混进正文：它是「做到什么程度算完」，模型要逐条对照。
 	Acceptance string
 	Repo       string
-	// Project 是任务所属的项目（任务挂在项目下才有）：告诉模型文档、原型各在哪里操作。
+	// Project 是任务所属的项目（任务挂在项目下，或没挂但工作目录在某个项目的目录里）：告诉模型文档、原型各在哪里操作。
 	Project *Project
 	// WriteBack 不为 nil 表示要模型经工作台 MCP 自己回写：终端交互执行（0048），
 	// 以及后台执行（TSK-0499，Stream 为真）。
@@ -79,6 +79,11 @@ type Project struct {
 	// DocsSetting 为 true 表示 DocsDir 来自项目设置里的文档目录
 	DocsSetting bool
 	Prototypes  []PrototypeDir
+	// ByWorkdir 为真表示任务本身没挂项目，是按这次的工作目录认定的（TSK-0841 复盘）：
+	// 工作目录等于或位于 MatchedDir（MatchedLabel 说是项目的哪种目录）之下。提示词里写明，免得模型以为任务挂在这个项目下。
+	ByWorkdir    bool
+	MatchedDir   string
+	MatchedLabel string
 }
 
 // PrototypeDir 是项目的一个原型（档案的原型库或「原型」里登记的）。
@@ -179,7 +184,8 @@ const promptTemplate = `你正在协助处理一个来自「产品工作台」�
 
 {{end}}{{with .Project}}## 所属项目
 名称：{{.Name}}{{if .Ref}}（{{.Ref}}）{{end}}
-{{if .Workdir}}项目工作目录：{{.Workdir}}
+{{if .ByWorkdir}}按工作目录认定为项目「{{.Name}}」（任务本身没挂项目）：工作目录在{{if .MatchedLabel}}{{.MatchedLabel}} {{end}}{{.MatchedDir}} 下。
+{{end}}{{if .Workdir}}项目工作目录：{{.Workdir}}
 {{end}}{{if .DocsDir}}文档在哪里操作：{{.DocsDir}}{{if .DocsSetting}}（项目设置里的文档目录）{{else if .DocsLabel}}（项目关联目录「{{.DocsLabel}}」）{{end}}
 {{else}}文档在哪里操作：这个项目没有设文档目录，可在项目设置里补；需要写文档时先问用户放哪里。
 {{end}}{{if .Prototypes}}原型在哪里操作：

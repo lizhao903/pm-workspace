@@ -39,7 +39,8 @@ const agentPromptTemplate = `{{if .Resume}}接着上次的执行继续处理这�
 
 {{end}}{{with .Project}}## 所属项目
 名称：{{.Name}}{{if .Ref}}（{{.Ref}}）{{end}}
-{{if .DocsDir}}文档目录：{{.DocsDir}}
+{{if .ByWorkdir}}按工作目录认定为项目「{{.Name}}」（任务本身没挂项目）：工作目录在{{if .MatchedLabel}}{{.MatchedLabel}} {{end}}{{.MatchedDir}} 下。
+{{end}}{{if .DocsDir}}文档目录：{{.DocsDir}}
 {{end}}
 {{end}}{{with .Preset}}## 执行要求{{if .Scene}}（{{.Scene}}）{{end}}
 {{.Content}}

@@ -81,6 +81,8 @@ type Registrar interface {
 	ProjectPrototypes(fn ProjectPrototypeLister)
 	// ProjectRunAllow 登记「项目执行白名单」的入口，只有 provides.modules 含 projects 的插件能登记（projectprotos.go，TSK-0837）。
 	ProjectRunAllow(fn ProjectRunAllowLister)
+	// ProjectDirs 登记「列出项目档案目录」的入口，只有 provides.modules 含 projects 的插件能登记（projectprotos.go，TSK-0841 复盘）。
+	ProjectDirs(fn ProjectDirLister)
 }
 
 // RouteRegistrar 和 internal/api 里的同名接口一致，*http.ServeMux 天然满足。

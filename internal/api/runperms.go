@@ -128,16 +128,21 @@ func (s *Server) handlePutRunPermissions(w http.ResponseWriter, r *http.Request)
 }
 
 // projectAllowOf 是任务所属项目的执行白名单（项目档案 run_allow，TSK-0837），经插件钩子问项目插件。
-// 没挂项目、项目插件没装或还没升到 0.20.0（ErrNoProjectRunAllow）、查询出错时回空：辅助信息缺失不能让执行起不来，
+// 任务没挂项目时按这次的工作目录认定项目（TSK-0841 复盘，projectbydir.go），口径同提示词的「所属项目」。
+// 没挂项目也认不出、项目插件没装或还没升到 0.20.0（ErrNoProjectRunAllow）、查询出错时回空：辅助信息缺失不能让执行起不来，
 // 出错记一条日志。按档位筛（只读只留读规则）由调用方 runner.ProjectAllowFor 做。
-func (s *Server) projectAllowOf(ctx context.Context, o *domain.Object) []string {
-	if o == nil || o.ProjectID == nil || strings.TrimSpace(*o.ProjectID) == "" || s.opt.Plugins == nil {
+func (s *Server) projectAllowOf(ctx context.Context, o *domain.Object, workdir string) []string {
+	if o == nil || s.opt.Plugins == nil {
 		return nil
 	}
-	rules, err := s.opt.Plugins.ProjectRunAllow(ctx, *o.ProjectID)
+	ref := s.runProjectOf(ctx, o, workdir)
+	if ref == nil {
+		return nil
+	}
+	rules, err := s.opt.Plugins.ProjectRunAllow(ctx, ref.ID)
 	if err != nil {
 		if !errors.Is(err, plugin.ErrNoProjectRunAllow) {
-			s.log.Warn("list project run allow failed", "project", *o.ProjectID, "err", err)
+			s.log.Warn("list project run allow failed", "project", ref.ID, "err", err)
 		}
 		return nil
 	}

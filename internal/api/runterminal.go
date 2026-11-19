@@ -44,19 +44,25 @@ const (
 )
 
 // projectOf 拼任务所属项目的上下文；没挂项目、项目已删时回 nil。
+// 任务没挂项目时按这次的工作目录认定（TSK-0841 复盘，projectbydir.go）：工作目录在某个项目的目录里就按那个项目拼，
+// ByWorkdir 为真，提示词里注明「按工作目录认定」；认不出来回 nil。
 //
 // 文档目录取项目设置里的文档目录（props.docs_dir，TSK-0718），没设时取 props.related 的第一个关联目录；原型目录和原型规则经插件钩子问项目插件
 // （档案的原型库和登记的原型都在它自己的表里）。项目插件没启用或查询出错时按「没有登记原型目录」写，
 // 不能因为辅助信息缺失让整次执行起不来。
-func (s *Server) projectOf(ctx context.Context, o *domain.Object) *runner.Project {
-	if o.ProjectID == nil || strings.TrimSpace(*o.ProjectID) == "" {
+func (s *Server) projectOf(ctx context.Context, o *domain.Object, workdir string) *runner.Project {
+	ref := s.runProjectOf(ctx, o, workdir)
+	if ref == nil {
 		return nil
 	}
-	p, err := s.st.GetObject(ctx, *o.ProjectID)
+	p, err := s.st.GetObject(ctx, ref.ID)
 	if err != nil || p == nil || p.DeletedAt != nil {
 		return nil
 	}
 	out := &runner.Project{Name: p.Title, Ref: p.Ref, Workdir: strings.TrimSpace(p.Workdir)}
+	if ref.ByDir {
+		out.ByWorkdir, out.MatchedDir, out.MatchedLabel = true, ref.Dir, projectDirLabel[ref.Kind]
+	}
 	// 项目设置里的文档目录优先（TSK-0718）；没设（或相对路径但没项目目录）时退回第一个关联目录
 	if _, abs, err := projectDocsDir(p); err == nil && abs != "" {
 		out.DocsDir, out.DocsSetting = abs, true
@@ -106,7 +112,7 @@ func (s *Server) promptFor(ctx context.Context, o *domain.Object, workdir, extra
 		if runID == "" {
 			runID = previewRunID
 		}
-		wb = &runner.WriteBack{RunID: runID, ObjectID: o.ID, Stream: true, ProjectAllow: runner.ProjectAllowFor(perm, s.projectAllowOf(ctx, o))}
+		wb = &runner.WriteBack{RunID: runID, ObjectID: o.ID, Stream: true, ProjectAllow: runner.ProjectAllowFor(perm, s.projectAllowOf(ctx, o, workdir))}
 		if err := runner.CheckMCP(s.opt.MCPBin, s.opt.PublicURL); err != nil {
 			wb.NoMCP = err.Error()
 		}
@@ -117,7 +123,7 @@ func (s *Server) promptFor(ctx context.Context, o *domain.Object, workdir, extra
 // promptWith 拼提示词，回写一节由调用方给（nil 不写，如交给 DeepSeek 的执行：dsh 没有工作台 MCP）。
 func (s *Server) promptWith(ctx context.Context, o *domain.Object, workdir, extra string, preset *runner.Preset, wb *runner.WriteBack) string {
 	t := s.taskOf(ctx, o, workdir, extra)
-	t.Project = s.projectOf(ctx, o)
+	t.Project = s.projectOf(ctx, o, workdir)
 	t.Preset = preset
 	t.WriteBack = wb
 	return runner.BuildPrompt(t)

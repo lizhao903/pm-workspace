@@ -275,8 +275,9 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, err)
 			return
 		}
-		// 任务属于项目时合上项目档案的执行白名单（TSK-0837）：写入档位全合，只读档位只合读规则
-		projAllow = runner.ProjectAllowFor(perm, s.projectAllowOf(ctx, obj))
+		// 任务属于项目时合上项目档案的执行白名单（TSK-0837）：写入档位全合，只读档位只合读规则；
+		// 没挂项目但工作目录在某个项目的目录里时按那个项目合（TSK-0841 复盘，同提示词的「所属项目」）
+		projAllow = runner.ProjectAllowFor(perm, s.projectAllowOf(ctx, obj, workdir))
 		allowed = runner.PermAllowedWith(perm, perms.Custom, projAllow)
 	}
 	wb := &runner.WriteBack{RunID: previewRunID, ObjectID: obj.ID, Stream: true, DSH: !claude, ProjectAllow: projAllow}

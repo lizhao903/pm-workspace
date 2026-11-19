@@ -112,3 +112,63 @@ func (r *Registry) ProjectRunAllow(ctx context.Context, projectID string) (out [
 	}
 	return nil, ErrNoProjectRunAllow
 }
+
+// 「项目目录」钩子（TSK-0841 复盘）：任务没挂项目、但交给 Claude Code 时的工作目录落在某个项目的目录里，
+// 内核要按那个项目处理（提示词带「所属项目」、合项目执行白名单）。项目工作目录是对象的 workdir 列，内核自己读；
+// 项目档案的代码库、原型库、需求文档目录在项目插件的表里，经这个钩子取。
+
+// ErrNoProjectDirs：没有在跑的插件登记项目目录的查询入口（项目插件没装、停用或还没升到 0.21.0）。
+var ErrNoProjectDirs = errors.New("no project dirs provider")
+
+// 项目档案目录的种类，ProjectDir.Kind 取值。
+const (
+	ProjectDirCode      = "code_dir"
+	ProjectDirPrototype = "proto_dir"
+	ProjectDirPRD       = "prd_dir"
+)
+
+// ProjectDir 是某个项目档案里设的一个目录（原样，未解析软链）。
+type ProjectDir struct {
+	ProjectID string
+	Kind      string
+	Dir       string
+}
+
+// ProjectDirLister 列出所有项目档案里设了的目录（空的不回）；项目已删的由调用方过滤。
+type ProjectDirLister func(ctx context.Context) ([]ProjectDir, error)
+
+func (c *collector) ProjectDirs(fn ProjectDirLister) {
+	switch {
+	case !slices.Contains(c.e.m.Provides.Modules, ProjectsModule):
+		c.add("只有 provides.modules 含 %s 的插件能登记项目目录的查询入口", ProjectsModule)
+	case fn == nil:
+		c.add("项目目录的查询入口是 nil")
+	case c.a.projectDirs != nil:
+		c.add("项目目录的查询入口重复登记")
+	default:
+		c.a.projectDirs = fn
+	}
+}
+
+// ProjectDirs 交给登记了查询入口、正在跑的插件（按登记顺序第一个）列出项目档案目录；
+// 没有时回 ErrNoProjectDirs，插件 panic 转成错误。
+func (r *Registry) ProjectDirs(ctx context.Context) (out []ProjectDir, err error) {
+	if r == nil {
+		return nil, ErrNoProjectDirs
+	}
+	for _, id := range r.order {
+		e := r.entries[id]
+		a := e.active.Load()
+		if a == nil || a.projectDirs == nil {
+			continue
+		}
+		defer func() {
+			if v := recover(); v != nil {
+				e.core.log.Error("plugin project dirs panic", "panic", v, "stack", string(debug.Stack()))
+				out, err = nil, fmt.Errorf("查项目目录出错")
+			}
+		}()
+		return a.projectDirs(ctx)
+	}
+	return nil, ErrNoProjectDirs
+}

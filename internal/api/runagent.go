@@ -190,7 +190,7 @@ func agentTaskSource(obj *domain.Object, runID string) map[string]any {
 // agentPromptFor 拼交给工作台 Agent 的第一条消息：任务内容同交给 Claude Code 的（taskOf、所属项目、角色、补充说明）。
 func (s *Server) agentPromptFor(ctx context.Context, o *domain.Object, workdir, extra string, preset *runner.Preset, resume bool) string {
 	t := s.taskOf(ctx, o, workdir, extra)
-	t.Project = s.projectOf(ctx, o)
+	t.Project = s.projectOf(ctx, o, workdir)
 	t.Preset = preset
 	return runner.BuildAgentPrompt(runner.AgentTask{Task: t, Resume: resume})
 }
