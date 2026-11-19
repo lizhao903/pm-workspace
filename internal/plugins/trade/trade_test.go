@@ -35,7 +35,7 @@ func TestManifestValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("清单不合法：%v", err)
 	}
-	if m.ID != "trade" || m.TablePrefix != "trade_" || m.Version != "0.8.0" || m.Name != "交易套件" {
+	if m.ID != "trade" || m.TablePrefix != "trade_" || m.Version != "0.9.0" || m.Name != "交易套件" {
 		t.Fatalf("id=%s table_prefix=%s version=%s name=%s", m.ID, m.TablePrefix, m.Version, m.Name)
 	}
 	if !slices.Equal(m.Permissions, append(slices.Clone(tradePerms), LivePerm)) {

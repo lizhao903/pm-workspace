@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/lizhao903/pm-workspace/internal/plugins/trade/ta"
 )
 
 // 回测引擎（TRD-04a）：纯函数，逐行移植原型 web-next/src/backtest.ts，结果和原型对拍（testdata/backtest_golden.json）。
@@ -117,60 +119,14 @@ func nans(n int) []float64 {
 	return out
 }
 
-func sma(xs []float64, n int) []float64 {
-	out := nans(len(xs))
-	if n < 1 {
-		return out
-	}
-	sum, cnt := 0.0, 0
-	for i, x := range xs {
-		if math.IsNaN(x) {
-			sum, cnt = 0, 0
-			continue
-		}
-		sum += x
-		cnt++
-		if cnt > n {
-			sum -= xs[i-n]
-			cnt = n
-		}
-		if cnt == n {
-			out[i] = sum / float64(n)
-		}
-	}
-	return out
-}
+// sma、ema、stdev 调指标库（ta，TRD-10），写法和原来的逐位一致，回测对拍原型的结果不变：
+// sma 是 ta.MA（滚动和）；ema 是 ta.EMASeeded（TA-Lib 口径，前 n 个均值做初值，不是通达信以第一个值为初值的 ta.EMA）；
+// stdev 是 ta.STDP（总体标准差）。策略原有的 ma、ema、rsi、macd、boll_up、boll_low、atr 保持原型口径，
+// 后加的指标（indicatorMap）按通达信口径，见 ta 包说明。
+func sma(xs []float64, n int) []float64 { return ta.MA(xs, n) }
 
 // ema 跳过前面的 NaN，用前 n 个值的均值做种子。
-func ema(xs []float64, n int) []float64 {
-	out := nans(len(xs))
-	if n < 1 {
-		return out
-	}
-	k := 2 / float64(n+1)
-	start := -1
-	for i, x := range xs {
-		if !math.IsNaN(x) {
-			start = i
-			break
-		}
-	}
-	if start < 0 || start+n > len(xs) {
-		return out
-	}
-	v := 0.0
-	for i := start; i < start+n; i++ {
-		v += xs[i]
-	}
-	v /= float64(n)
-	start += n - 1
-	out[start] = v
-	for i := start + 1; i < len(xs); i++ {
-		v = xs[i]*k + v*(1-k)
-		out[i] = v
-	}
-	return out
-}
+func ema(xs []float64, n int) []float64 { return ta.EMASeeded(xs, n) }
 
 // wilder 是 Wilder 平滑，RSI、ATR 用。
 func wilder(xs []float64, n, from int) []float64 {
@@ -191,23 +147,7 @@ func wilder(xs []float64, n, from int) []float64 {
 	return out
 }
 
-func stdev(xs []float64, n int) []float64 {
-	m := sma(xs, n)
-	out := make([]float64, len(xs))
-	for i := range xs {
-		if math.IsNaN(m[i]) {
-			out[i] = math.NaN()
-			continue
-		}
-		s := 0.0
-		for j := i - n + 1; j <= i; j++ {
-			d := xs[j] - m[i]
-			s += d * d
-		}
-		out[i] = math.Sqrt(s / float64(n))
-	}
-	return out
-}
+func stdev(xs []float64, n int) []float64 { return ta.STDP(xs, n) }
 
 // period 取指标第 i 个参数，取整、至少 1，没有用默认值。
 func period(ps []float64, i int, d float64) int {
@@ -304,6 +244,9 @@ func Series(op Operand, bs []Bar) []float64 {
 		}
 		return wilder(tr, period(ps, 0, 14), 0)
 	}
+	if xs, ok := taSeries(op, bs); ok { // 通达信口径的那一批（TRD-10，indicators.go）
+		return xs
+	}
 	return nans(len(bs))
 }
 
@@ -322,6 +265,9 @@ func warmOf(op Operand) int {
 		return period(ps, 0, 14) * 3
 	case "ma", "boll_up", "boll_low":
 		return period(ps, 0, 20)
+	}
+	if w, ok := taWarm(op); ok { // TRD-10
+		return w
 	}
 	return 0
 }

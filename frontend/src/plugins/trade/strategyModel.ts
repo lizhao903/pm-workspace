@@ -24,9 +24,44 @@ export const INDICATORS: Record<TradeIndicator, { label: string; params: string[
   boll_low: { label: '布林下轨', params: ['周期', '倍数'] },
   volume: { label: '成交量', params: [] },
   atr: { label: 'ATR', params: ['周期'] },
+  // 以下按通达信口径（TRD-10，后端指标库 ta），参数顺序同通达信
+  macd_dif: { label: 'MACD DIF', params: ['快', '慢', '信号'] },
+  macd_dea: { label: 'MACD DEA', params: ['快', '慢', '信号'] },
+  macd_bar: { label: 'MACD 柱（通达信）', params: ['快', '慢', '信号'] },
+  kdj_k: { label: 'KDJ K', params: ['N', 'M1', 'M2'] },
+  kdj_d: { label: 'KDJ D', params: ['N', 'M1', 'M2'] },
+  kdj_j: { label: 'KDJ J', params: ['N', 'M1', 'M2'] },
+  wr: { label: '威廉 WR', params: ['周期'] },
+  cci: { label: 'CCI', params: ['周期'] },
+  bias: { label: '乖离率 BIAS', params: ['周期'] },
+  boll_mid: { label: '布林中轨', params: ['周期', '倍数'] },
+  bbi: { label: 'BBI', params: [] }, // 四个周期固定 3、6、12、24（策略的指标参数最多 3 个）
+  psy: { label: '心理线 PSY', params: ['周期', '均线'] },
+  roc: { label: '变动率 ROC', params: ['周期', '均线'] },
+  mtm: { label: '动量 MTM', params: ['周期', '均线'] },
+  trix: { label: 'TRIX', params: ['周期', '均线'] },
+  obv: { label: 'OBV', params: [] },
+  mfi: { label: 'MFI', params: ['周期'] },
+  vr: { label: 'VR', params: ['周期'] },
+  cr: { label: 'CR', params: ['周期'] },
+  pdi: { label: 'DMI +DI', params: ['M1', 'M2'] },
+  mdi: { label: 'DMI -DI', params: ['M1', 'M2'] },
+  adx: { label: 'DMI ADX', params: ['M1', 'M2'] },
 }
-export const IND_SHORT: Record<TradeIndicator, string> = { price: '收盘价', ma: 'MA', ema: 'EMA', rsi: 'RSI', macd: 'MACD 柱', boll_up: '布林上轨', boll_low: '布林下轨', volume: '成交量', atr: 'ATR' }
-export const IND_DEFAULT: Record<TradeIndicator, number[]> = { price: [], ma: [20], ema: [20], rsi: [14], macd: [12, 26, 9], boll_up: [20, 2], boll_low: [20, 2], volume: [], atr: [14] }
+export const IND_SHORT: Record<TradeIndicator, string> = {
+  price: '收盘价', ma: 'MA', ema: 'EMA', rsi: 'RSI', macd: 'MACD 柱', boll_up: '布林上轨', boll_low: '布林下轨', volume: '成交量', atr: 'ATR',
+  macd_dif: 'DIF', macd_dea: 'DEA', macd_bar: 'MACD', kdj_k: 'K', kdj_d: 'D', kdj_j: 'J', wr: 'WR', cci: 'CCI', bias: 'BIAS', boll_mid: '布林中轨', bbi: 'BBI',
+  psy: 'PSY', roc: 'ROC', mtm: 'MTM', trix: 'TRIX', obv: 'OBV', mfi: 'MFI', vr: 'VR', cr: 'CR', pdi: '+DI', mdi: '-DI', adx: 'ADX',
+}
+export const IND_DEFAULT: Record<TradeIndicator, number[]> = {
+  price: [], ma: [20], ema: [20], rsi: [14], macd: [12, 26, 9], boll_up: [20, 2], boll_low: [20, 2], volume: [], atr: [14],
+  macd_dif: [12, 26, 9], macd_dea: [12, 26, 9], macd_bar: [12, 26, 9], kdj_k: [9, 3, 3], kdj_d: [9, 3, 3], kdj_j: [9, 3, 3],
+  wr: [10], cci: [14], bias: [6], boll_mid: [20, 2], bbi: [], psy: [12, 6], roc: [12, 6], mtm: [12, 6], trix: [12, 9],
+  obv: [], mfi: [14], vr: [26], cr: [26], pdi: [14, 6], mdi: [14, 6], adx: [14, 6],
+}
+/** 通达信口径的那一批（TRD-10）：编辑器里分组显示 */
+export const TDX_INDICATORS = new Set<TradeIndicator>(['macd_dif', 'macd_dea', 'macd_bar', 'kdj_k', 'kdj_d', 'kdj_j', 'wr', 'cci', 'bias', 'boll_mid', 'bbi',
+  'psy', 'roc', 'mtm', 'trix', 'obv', 'mfi', 'vr', 'cr', 'pdi', 'mdi', 'adx'])
 export const COMPARE: Record<TradeCompare, string> = { cross_up: '上穿', cross_down: '下穿', gt: '大于', lt: '小于' }
 export const RESERVED_PARAMS = ['stop_loss', 'take_profit', 'position_pct'] as const
 export const RESERVED_LABEL: Record<string, string> = { stop_loss: '止损 %', take_profit: '止盈 %', position_pct: '仓位 %' }

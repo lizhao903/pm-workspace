@@ -285,7 +285,7 @@ func (o Operand) validate() error {
 		if !slices.Contains(Indicators, o.Ind) {
 			return fmt.Errorf("指标不认识：%s", o.Ind)
 		}
-		return nil
+		return checkTAParams(o) // 通达信口径的那一批校验参数（TRD-10）
 	}
 	return fmt.Errorf("操作数类型只能是 ind 或 num：%s", o.Kind)
 }

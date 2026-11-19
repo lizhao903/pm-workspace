@@ -2,7 +2,8 @@
 
 // 盯盘页的纯函数：条件表、适用性、当前值格式、规则筛选、触发记录分段、市场时段、抽屉草稿。
 // 交互照原型 web-next/src/monitor.tsx，规格 web-next/docs/spec/monitor.md。判定只在后端，这里不判定。
-import type { TradeAlert, TradeAlertCond, TradeAlertInput, TradeAlertNotify, TradeInstrument, TradeKind, TradeMarket } from '../../core/data'
+import type { TradeAlert, TradeAlertCond, TradeAlertInput, TradeAlertNotify, TradeIndicator, TradeInstrument, TradeInterval, TradeKind, TradeMarket } from '../../core/data'
+import { IND_DEFAULT, INDICATORS, IND_SHORT } from './strategyModel'
 
 /** 条件的显示名、单位、只适用的品种，同原型 ALERT_COND */
 export const ALERT_COND: Record<TradeAlertCond, { label: string; unit: string; kinds?: TradeKind[] }> = {
@@ -14,7 +15,20 @@ export const ALERT_COND: Record<TradeAlertCond, { label: string; unit: string; k
   funding_above: { label: '资金费率高于', unit: '%', kinds: ['perp'] },
   iv_above: { label: '隐含波动率高于', unit: '%', kinds: ['option'] },
   limit_near: { label: '接近涨跌停', unit: '% 以内' },
+  // 指标条件（TRD-10，原型没有）：指标在所选周期的 K 线上由后端算，最新一根随行情变
+  ind_above: { label: '指标高于', unit: '指标值' },
+  ind_below: { label: '指标低于', unit: '指标值' },
+  ind_cross_up: { label: '指标上穿', unit: '指标值' },
+  ind_cross_down: { label: '指标下穿', unit: '指标值' },
 }
+export const isIndCond = (c: TradeAlertCond) => c.startsWith('ind_')
+/** 指标条件默认的指标和周期 */
+export const IND_ALERT_DEFAULT: { ind: TradeIndicator; interval: TradeInterval } = { ind: 'rsi', interval: '1h' }
+/** 指标的短写法，如 RSI(14)、K(9,3,3) */
+export const indText = (x: { ind: TradeIndicator; params: number[] } | null | undefined) =>
+  !x ? '指标' : x.params.length ? `${IND_SHORT[x.ind] ?? x.ind}(${x.params.join(',')})` : IND_SHORT[x.ind] ?? x.ind
+/** 和价格同量纲、按标的精度显示的指标 */
+const PRICE_SCALE = new Set<TradeIndicator>(['price', 'ma', 'ema', 'boll_up', 'boll_low', 'boll_mid', 'bbi'])
 export const ALERT_CONDS = Object.keys(ALERT_COND) as TradeAlertCond[]
 
 export const NOTIFY_LABEL: Record<TradeAlertNotify, string> = { app: '应用内', im: 'IM', sound: '声音' }
@@ -34,8 +48,9 @@ export function condFits(cond: TradeAlertCond, i: TradeInstrument | undefined) {
 const fixed = (v: number, d: number) => v.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d })
 
 /** 当前值：价格按精度，量比两位小数加「倍」，资金费率四位小数加 %，其余两位小数加 %（同原型 fmtCondValue） */
-export function fmtAlertValue(cond: TradeAlertCond, v: number, digits: number) {
-  if (isPriceCond(cond)) return fixed(v, digits)
+export function fmtAlertValue(cond: TradeAlertCond, v: number, digits: number, ind?: TradeIndicator) {
+  if (isPriceCond(cond) || (ind && isIndCond(cond) && PRICE_SCALE.has(ind))) return fixed(v, digits)
+  if (isIndCond(cond)) return v.toFixed(2)
   if (cond === 'volume_spike') return `${v.toFixed(2)} 倍`
   if (cond === 'funding_above') return `${v.toFixed(4)}%`
   return `${v.toFixed(2)}%`
@@ -45,8 +60,8 @@ export function fmtAlertValue(cond: TradeAlertCond, v: number, digits: number) {
 export const fmtThreshold = (a: Pick<TradeAlert, 'cond' | 'value'>, digits: number) => (isPriceCond(a.cond) ? fixed(a.value, digits) : String(a.value))
 
 /** 「填入当前值」：价格去掉千分位，资金费率四位小数，其余两位小数 */
-export function fillValue(cond: TradeAlertCond, v: number, digits: number) {
-  if (isPriceCond(cond)) return v.toFixed(digits)
+export function fillValue(cond: TradeAlertCond, v: number, digits: number, ind?: TradeIndicator) {
+  if (isPriceCond(cond) || (ind && isIndCond(cond) && PRICE_SCALE.has(ind))) return v.toFixed(digits)
   return cond === 'funding_above' ? v.toFixed(4) : v.toFixed(2)
 }
 
@@ -60,7 +75,7 @@ export const ruleIn = (a: TradeAlert, f: RuleFilter) => f === 'all' || (f === 'o
 export function ruleMatches(a: TradeAlert, name: string, q: string) {
   const words = q.trim().toLowerCase().split(/\s+/).filter(Boolean)
   if (!words.length) return true
-  const hay = `${name} ${a.symbol} ${a.note} ${ALERT_COND[a.cond].label}`.toLowerCase()
+  const hay = `${name} ${a.symbol} ${a.note} ${ALERT_COND[a.cond].label} ${isIndCond(a.cond) ? indText(a.indicator) : ''}`.toLowerCase()
   return words.every((w) => hay.includes(w))
 }
 
@@ -155,17 +170,26 @@ export type AlertDraft = {
   im_connector: string
   enabled: boolean
   note: string
+  /** 指标条件用：指标、参数、K 线周期（别的条件保存时不带） */
+  ind: TradeIndicator
+  params: number[]
+  interval: TradeInterval
 }
 
 export function draftOf(a: TradeAlert | null, symbol: string, imDefault = ''): AlertDraft {
+  const ind = a?.indicator?.ind ?? IND_ALERT_DEFAULT.ind
+  const indPart = { ind, params: a?.indicator ? [...a.indicator.params] : [...IND_DEFAULT[ind]], interval: (a?.interval || IND_ALERT_DEFAULT.interval) as TradeInterval }
   if (a) {
     return {
       symbol: a.symbol, cond: a.cond, value: String(a.value), repeat: a.repeat, cooldown_min: a.cooldown_min, notify: [...a.notify],
-      im_connector: a.im_connector || imDefault, enabled: a.enabled, note: a.note,
+      im_connector: a.im_connector || imDefault, enabled: a.enabled, note: a.note, ...indPart,
     }
   }
-  return { symbol, cond: 'price_above', value: '', repeat: false, cooldown_min: 30, notify: ['app'], im_connector: imDefault, enabled: true, note: '' }
+  return { symbol, cond: 'price_above', value: '', repeat: false, cooldown_min: 30, notify: ['app'], im_connector: imDefault, enabled: true, note: '', ...indPart }
 }
+
+/** 换指标：参数换成新指标的默认值 */
+export const withInd = (d: AlertDraft, ind: TradeIndicator): AlertDraft => ({ ...d, ind, params: [...IND_DEFAULT[ind]], value: '' })
 
 /** 换标的：阈值清空，原条件不适用新标的就换回「价格上穿」 */
 export function withSymbol(d: AlertDraft, symbol: string, inst: TradeInstrument | undefined): AlertDraft {
@@ -181,6 +205,7 @@ export function draftErrors(d: AlertDraft, inst: TradeInstrument | undefined): s
   if (!d.notify.length) out.push('至少选一种通知方式')
   if (d.notify.includes('im') && !d.im_connector) out.push('选一个推送用的 IM 连接器')
   if (!condFits(d.cond, inst)) out.push(`「${ALERT_COND[d.cond].label}」不适用于这个标的`)
+  if (isIndCond(d.cond) && INDICATORS[d.ind].params.some((_, i) => !Number.isFinite(d.params[i] ?? IND_DEFAULT[d.ind][i]))) out.push('指标参数要是数字')
   return out
 }
 
@@ -189,5 +214,8 @@ export function draftBody(d: AlertDraft): TradeAlertInput {
   return {
     symbol: d.symbol, cond: d.cond, value: Number(d.value), repeat: d.repeat, cooldown_min: Math.max(0, Math.floor(d.cooldown_min) || 0),
     notify: d.notify, im_connector: im ? d.im_connector : '', enabled: d.enabled, note: d.note.trim(),
+    ...(isIndCond(d.cond)
+      ? { indicator: { kind: 'ind' as const, ind: d.ind, params: INDICATORS[d.ind].params.map((_, i) => d.params[i] ?? IND_DEFAULT[d.ind][i]) }, interval: d.interval }
+      : {}),
   }
 }

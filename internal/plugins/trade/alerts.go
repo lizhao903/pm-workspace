@@ -62,7 +62,21 @@ var alertCondInfo = map[string]struct {
 	"funding_above": {"资金费率高于", []string{"perp"}},
 	"iv_above":      {"隐含波动率高于", []string{"option"}},
 	"limit_near":    {"接近涨跌停", nil},
+	// 指标条件（TRD-10）
+	"ind_above":      {"指标高于", nil},
+	"ind_below":      {"指标低于", nil},
+	"ind_cross_up":   {"指标上穿", nil},
+	"ind_cross_down": {"指标下穿", nil},
 }
+
+// AlertIndConds 是指标条件（TRD-10，原型没有）：指标（Alert.Indicator，写法同策略规则的操作数）在 Alert.Interval 周期的
+// K 线上算，最新一根（还没收盘，随行情变）的值高于、低于阈值，或从上一根到最新一根上穿、下穿阈值。
+// 不放进 AlertConds：那张表和原型逐项对拍。
+var AlertIndConds = []string{"ind_above", "ind_below", "ind_cross_up", "ind_cross_down"}
+
+func isIndCond(cond string) bool { return slices.Contains(AlertIndConds, cond) }
+
+func allAlertConds() []string { return append(slices.Clone(AlertConds), AlertIndConds...) }
 
 // AlertNotifies 是通知方式：应用内、IM、声音。
 var AlertNotifies = []string{"app", "im", "sound"}
@@ -82,6 +96,9 @@ type Alert struct {
 	LastFiredAt string   `json:"last_fired_at"`
 	CreatedAt   string   `json:"created_at"`
 	UpdatedAt   string   `json:"updated_at"`
+	// 指标条件才有（TRD-10）：Indicator 写法同策略规则的操作数 {kind:"ind", ind, params}，Interval 是 K 线周期；别的条件为 null、空串
+	Indicator *Operand `json:"indicator"`
+	Interval  string   `json:"interval"`
 }
 
 // AlertEvent 同原型 AlertEvent（TradeAlertEvent），多了触发时的条件、当前值、规则备注和 IM 推送结果。
@@ -140,6 +157,9 @@ type AlertInput struct {
 	Volumes []float64  `json:"volumes"`
 	Funding float64    `json:"funding"`
 	IV      float64    `json:"iv"`
+	// 指标条件：最新一根和上一根的指标值（TRD-10）
+	Ind     float64 `json:"ind,omitempty"`
+	IndPrev float64 `json:"ind_prev,omitempty"`
 }
 
 // AlertHit 是这一刻该触发的一条：说明、触发价、当前值。
@@ -212,16 +232,29 @@ func alertCondValue(cond string, in AlertInput) (float64, bool) {
 		prev := in.Prev
 		up, down := float64(prev*(1+i.Limit)), float64(prev*(1-i.Limit))
 		return (math.Min(float64(up-last), float64(last-down)) / prev) * 100, true
+	case "ind_above", "ind_below", "ind_cross_up", "ind_cross_down":
+		return in.Ind, true
 	}
 	return 0, false
 }
 
 // alertHit 同原型 hit：价格下穿、接近涨跌停是小于等于，其余大于等于。
 func alertHit(cond string, v, th float64) bool {
-	if cond == "price_below" || cond == "limit_near" {
+	if cond == "price_below" || cond == "limit_near" || cond == "ind_below" || cond == "ind_cross_down" {
 		return v <= th
 	}
 	return v >= th
+}
+
+// alertCrossed：指标上穿、下穿还要上一根在阈值另一侧（上一根算不出不算穿越）；别的条件恒为真。
+func alertCrossed(cond string, in AlertInput, th float64) bool {
+	switch cond {
+	case "ind_cross_up":
+		return finite(in.IndPrev) && in.IndPrev < th
+	case "ind_cross_down":
+		return finite(in.IndPrev) && in.IndPrev > th
+	}
+	return true
 }
 
 func alertDigits(i *AlertInst) int {
@@ -306,6 +339,8 @@ func fmtAlertValue(cond string, i *AlertInst, v float64) string {
 		return toFixed(v, 2) + " 倍"
 	case "funding_above":
 		return toFixed(v, 4) + "%"
+	case "ind_above", "ind_below", "ind_cross_up", "ind_cross_down":
+		return toFixed(v, 2) // 指标值没有统一单位；和价格同量纲的在 alertText 里按标的精度
 	}
 	return toFixed(v, 2) + "%"
 }
@@ -337,8 +372,23 @@ func alertText(a Alert, i *AlertInst, v float64) string {
 		return fmt.Sprintf("%s 隐含波动率 %s%%，高于 %s%%", name, toFixed(v, 1), th)
 	case "limit_near":
 		return fmt.Sprintf("%s 距涨跌停 %s%%，在 %s%% 以内", name, toFixed(v, 2), th)
+	case "ind_above", "ind_below", "ind_cross_up", "ind_cross_down":
+		return indAlertText(a, i, name, v)
 	}
 	return name
+}
+
+// indAlertText 是指标条件的说明，如「BTC/USDT 1h RSI(14) 71.20，上穿 70」。
+func indAlertText(a Alert, i *AlertInst, name string, v float64) string {
+	label, cur, th := "指标", toFixed(v, 2), jsString(a.Value)
+	if a.Indicator != nil {
+		label = indLabel(*a.Indicator)
+		if priceScaleInd(a.Indicator.Ind) {
+			cur, th = fmtAlertPrice(i, v), fmtAlertPrice(i, a.Value)
+		}
+	}
+	verb := map[string]string{"ind_above": "高于", "ind_below": "低于", "ind_cross_up": "上穿", "ind_cross_down": "下穿"}[a.Cond]
+	return fmt.Sprintf("%s %s %s %s，%s %s", name, a.Interval, label, cur, verb, th)
 }
 
 // evalAlerts 同原型 checkAlertsOn：给定时刻、给定行情，哪些提醒该触发。
@@ -364,7 +414,7 @@ func evalAlerts(alerts []Alert, at time.Time, marketOf func(a Alert) (AlertInput
 			}
 		}
 		v, ok := alertCondValue(a.Cond, in)
-		if !ok || !finite(v) || !alertHit(a.Cond, v, a.Value) {
+		if !ok || !finite(v) || !alertHit(a.Cond, v, a.Value) || !alertCrossed(a.Cond, in, a.Value) {
 			continue
 		}
 		out = append(out, AlertHit{Alert: a, Inst: in.Inst, Text: alertText(a, in.Inst, v), Price: in.Last, Value: v})
@@ -457,16 +507,22 @@ func loadAlertInsts(ctx context.Context, c plugin.Core, symbols []string) map[st
 
 /* ---------- 存取 ---------- */
 
-const alertCols = `id, symbol, cond, value, repeat, cooldown_min, notify, im_connector, enabled, note, last_fired_at, created_at, updated_at`
+const alertCols = `id, symbol, cond, value, repeat, cooldown_min, notify, im_connector, enabled, note, last_fired_at, created_at, updated_at, indicator, interval`
 const alertEventCols = `id, alert_id, symbol, cond, value, text, price, note, at, read, im_status, im_error`
 
 func scanAlert(row plugin.Row) (Alert, error) {
 	var a Alert
 	var rep, en int
-	var notify string
+	var notify, ind string
 	err := row.Scan(&a.ID, &a.Symbol, &a.Cond, &a.Value, &rep, &a.CooldownMin, &notify, &a.IMConnector, &en, &a.Note,
-		&a.LastFiredAt, &a.CreatedAt, &a.UpdatedAt)
+		&a.LastFiredAt, &a.CreatedAt, &a.UpdatedAt, &ind, &a.Interval)
 	a.Repeat, a.Enabled = rep == 1, en == 1
+	if ind != "" {
+		var op Operand
+		if json.Unmarshal([]byte(ind), &op) == nil {
+			a.Indicator = &op
+		}
+	}
 	if json.Unmarshal([]byte(notify), &a.Notify) != nil || a.Notify == nil {
 		a.Notify = []string{}
 	}
@@ -528,11 +584,12 @@ type alerter struct {
 	unsub    func()
 	subKey   string
 	vols     map[string]volSnap
+	inds     map[string]indSnap // 指标条件用的 K 线，键是 标的|周期（TRD-10）
 	imLogged bool
 }
 
 func newAlerter(p *Plugin, c plugin.Core) *alerter {
-	return &alerter{p: p, c: c, values: map[string]AlertValue{}, vols: map[string]volSnap{}}
+	return &alerter{p: p, c: c, values: map[string]AlertValue{}, vols: map[string]volSnap{}, inds: map[string]indSnap{}}
 }
 
 func (a *alerter) now() time.Time { return a.p.mkt.now() }
@@ -591,7 +648,9 @@ func (a *alerter) volumes(ctx context.Context, sym string) volSnap {
 
 // inputFor 拼一条提醒的判定输入；拿不到回 false，同时给出当前值的状态和原因。
 // probe 为真时是抽屉里现查：最新价还没有就当场取一次。
-func (a *alerter) inputFor(ctx context.Context, cond, sym string, inst *AlertInst, probe bool) (AlertInput, string, string) {
+// x 只用 Cond、Symbol 和指标条件的 Indicator、Interval。
+func (a *alerter) inputFor(ctx context.Context, x Alert, inst *AlertInst, probe bool) (AlertInput, string, string) {
+	cond, sym := x.Cond, x.Symbol
 	in := AlertInput{Inst: inst}
 	if !alertCondFits(cond, inst) {
 		return in, "unsupported", unsupportedReason(cond)
@@ -634,6 +693,15 @@ func (a *alerter) inputFor(ctx context.Context, cond, sym string, inst *AlertIns
 		if in.Prev == 0 {
 			return in, "unavailable", "没有昨收（24 小时前的开盘价）"
 		}
+	case "ind_above", "ind_below", "ind_cross_up", "ind_cross_down":
+		if x.Indicator == nil {
+			return in, "unavailable", "没有设指标"
+		}
+		cur, prev, err := a.indicatorNow(ctx, sym, x.Interval, *x.Indicator)
+		if err != nil {
+			return in, "unavailable", err.Error()
+		}
+		in.Ind, in.IndPrev = cur, prev
 	}
 	return in, "ok", ""
 }
@@ -681,7 +749,7 @@ func (a *alerter) check(ctx context.Context) error {
 	inputs := map[string]AlertInput{}
 	values := map[string]AlertValue{}
 	for _, x := range alerts {
-		in, status, msg := a.inputFor(ctx, x.Cond, x.Symbol, insts[x.Symbol], false)
+		in, status, msg := a.inputFor(ctx, x, insts[x.Symbol], false)
 		values[x.ID] = valueOf(x.ID, x.Cond, x.Symbol, in, status, msg, now)
 		if status == "ok" {
 			inputs[x.ID] = in

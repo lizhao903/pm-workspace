@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strconv"
 	"time"
+
+	"github.com/lizhao903/pm-workspace/internal/plugins/trade/ta"
 )
 
 // K 线缓存（TRD-02a）：收盘了的 K 线落 trade_klines，取过的区间记在 trade_kline_spans（相邻、重叠的合并）。
@@ -275,6 +277,13 @@ func (h *handlers) getKlines(w http.ResponseWriter, r *http.Request) {
 		}
 		end = t.UTC()
 	}
+	// indicators=MACD,RSI(14),BOLL(20,2)：附带指标序列（TRD-10，indicators.go）
+	_, wantInd := qs["indicators"]
+	calls, perr := ta.Parse(qs.Get("indicators"))
+	if perr != nil {
+		h.fail(w, r, apiErr(errValidation, "indicators：%v", perr))
+		return
+	}
 	bars, meta, err := h.p.mkt.klines(r.Context(), sym, iv, limit, end)
 	var ue *UpstreamError
 	if errors.As(err, &ue) {
@@ -283,6 +292,10 @@ func (h *handlers) getKlines(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		h.fail(w, r, err)
+		return
+	}
+	if wantInd { // 指标放在 meta.indicators，信封仍是 {data, meta}
+		writeJSON(w, http.StatusOK, map[string]any{"data": bars, "meta": klineMetaInd{meta, h.p.mkt.indicatorsFor(r.Context(), sym, iv, bars, calls)}})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": bars, "meta": meta})

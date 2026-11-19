@@ -71,6 +71,9 @@ export type TradeFunding = {
   rate: number; next_time: string; at: string; fetched_at: string
 }
 export type TradeKline = { time: string; open: number; high: number; low: number; close: number; volume: number }
+/** K 线接口附带的指标（TRD-10）：values 与 K 线逐根对齐，算不出的是 null；warmup 是为了算稳在前面多用的根数 */
+export type TradeIndicatorLine = { key: string; values: (number | null)[] }
+export type TradeKlineIndicator = { spec: string; name: string; params: number[]; overlay: boolean; warmup: number; lines: TradeIndicatorLine[] }
 export type TradeKlineMeta = {
   symbol: string; interval: TradeInterval; source: string; status: TradeDataStatus; error: string; cached: boolean; fetched_at: string
 }
@@ -81,7 +84,7 @@ export const tradeKeys = {
   watchlists: ['trade', 'watchlists'] as const,
   instruments: (q: string) => ['trade', 'instruments', q] as const,
   instrument: (symbol: string) => ['trade', 'instrument', symbol] as const,
-  klines: (symbol: string, interval: TradeInterval) => ['trade', 'klines', symbol, interval] as const,
+  klines: (symbol: string, interval: TradeInterval, indicators = '') => ['trade', 'klines', symbol, interval, indicators] as const,
 }
 
 const seg = encodeURIComponent
@@ -99,9 +102,13 @@ export const tradeApi = {
     requestList<TradeQuote>('/api/trade/quotes', { query: new URLSearchParams({ symbols: symbols.join(',') }) }).then((r) => r.data),
   book: (symbol: string, depth = 10) => request<TradeBook>('GET', '/api/trade/book', { query: new URLSearchParams({ symbol, depth: String(depth) }) }),
   funding: (symbol: string) => request<TradeFunding>('GET', '/api/trade/funding', { query: new URLSearchParams({ symbol }) }),
-  klines: async (symbol: string, interval: TradeInterval, limit = 200) => {
-    const r = await requestEnvelope<TradeKline[]>('GET', '/api/trade/klines', { query: new URLSearchParams({ symbol, interval, limit: String(limit) }) })
-    return { data: r.data ?? [], meta: r.meta as unknown as TradeKlineMeta }
+  /** indicators 如 MA(5),MACD,BOLL(20,2)，最多 8 个；空串不带指标 */
+  klines: async (symbol: string, interval: TradeInterval, limit = 200, indicators = '') => {
+    const query = new URLSearchParams({ symbol, interval, limit: String(limit) })
+    if (indicators) query.set('indicators', indicators)
+    const r = await requestEnvelope<TradeKline[]>('GET', '/api/trade/klines', { query })
+    const meta = r.meta as unknown as TradeKlineMeta & { indicators?: TradeKlineIndicator[] }
+    return { data: r.data ?? [], meta: meta as TradeKlineMeta, indicators: meta?.indicators ?? [] }
   },
 }
 
@@ -125,10 +132,11 @@ export function useTradeInstrument(symbol: string) {
 }
 
 /** K 线：一分钟重取一次（后端只补新收盘的那根），之间由实时价更新最后一根 */
-export function useTradeKlines(symbol: string, interval: TradeInterval, limit = 200) {
+export function useTradeKlines(symbol: string, interval: TradeInterval, limit = 200, indicators = '') {
   return useQuery({
-    queryKey: tradeKeys.klines(symbol, interval),
-    queryFn: () => tradeApi.klines(symbol, interval, limit),
+    queryKey: tradeKeys.klines(symbol, interval, indicators),
+    queryFn: () => tradeApi.klines(symbol, interval, limit, indicators),
+    placeholderData: (prev) => (prev && prev.data.length && prev.meta?.symbol === symbol && prev.meta?.interval === interval ? prev : undefined),
     enabled: !!symbol,
     staleTime: 30_000,
     refetchInterval: 60_000,

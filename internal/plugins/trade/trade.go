@@ -158,6 +158,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/trade/book", h.getBook)
 		m.HandleFunc("GET /api/trade/funding", h.getFunding)
 		m.HandleFunc("GET /api/trade/klines", h.getKlines)
+		m.HandleFunc("GET /api/trade/indicators", h.listIndicators) // 指标目录（TRD-10，indicators.go）
 		m.HandleFunc("GET /api/trade/stream", h.stream)
 		registerAlertRoutes(m, h)
 		// 策略和回测（TRD-04b，strategies.go、backtests_api.go）

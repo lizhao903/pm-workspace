@@ -2275,6 +2275,8 @@ SOP 在进程启动时自动完成表结构迁移和 JSON 补建：主程序在 
 
 补记（不改版本号，2026-11-19，TRD-09）：交易插件实际清单升到 0.8.0：加内置策略（策略 `mode=builtin`，信号用 Go 写在插件里，第一批从 autotrader 移植 KDJ 1h+3m、SuperTrend+ADX 1h+3m）、K 线周期加 `3m`、按币种资金权重、回测按日期区间和多参数网格扫描。这部分没有新迁移（新字段都在已有的 JSON 列里；同版本 TRD-10 的迁移见那一条）、没有新权限、不碰实盘下单路径（内置策略只能部署到模拟盘）。内核接口不变。
 
+补记（不改版本号，2026-11-19，TRD-10）：交易插件加技术指标库 `internal/plugins/trade/ta`（口径对齐通达信，与 MyTT 数值对照验证，未使用其源码），清单升到 0.9.0（TRD-09 已先以 0.8.0 提交，这一条单独升版本），迁移加 `0013_alert_indicator.sql`（`trade_alerts` 加 `indicator`、`interval` 两列，盯盘提醒的指标条件用）；加路由 `GET /api/trade/indicators`，`GET /api/trade/klines` 加可选参数 `indicators`。权限、事件、清单的 `provides` 不变，不加 SOP 节点和 MCP 工具。内核接口不变。
+
 补记（不改版本号，2026-11-05，TSK-0456）：权限清单加 `fs:read:registered`（3.1，普通级别：只读用户在插件界面上逐个登记的本机目录，范围由插件自己的登记表和路径校验收窄，比 `fs:read:any` 小）；`Core` 加 `CacheDir()`（2.13.28）。视频插件清单 `permissions` 末尾追加 `fs:read:registered`（升级时要确认），迁移加 `0014_storyboard.sql`（表 `video_shots`、`video_shot_brolls`、`video_media_roots`），id 前缀登记 `vsh`、`vbr`、`vmr`。只增不改。
 
 文档补记（不改版本号，DOC-02，2026-10-29）：补写 1.0.0 到 1.1.0 之间各批已经加进代码、文档没跟上的句柄和扩展点（2.13），2.0 的代码块、2.5 的连接器定义按代码改正。这些按 1.3 本该升小版本，发布前由用户定稿版本号时一起写进上表。

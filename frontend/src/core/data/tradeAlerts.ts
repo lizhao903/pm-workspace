@@ -7,10 +7,14 @@ import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/rea
 import { useEffect, useMemo, useRef } from 'react'
 import { request, requestEnvelope, requestList } from '../api'
 import { onServerEvent, useEventsLive, type ServerEvent } from './events'
-import { tradeApi, tradeKeys, type TradeInstrument } from './trade'
+import { tradeApi, tradeKeys, type TradeInstrument, type TradeInterval } from './trade'
+import type { TradeIndicator } from './tradeStrategy'
 
 export type TradeAlertCond =
   | 'price_above' | 'price_below' | 'pct_above' | 'pct_below' | 'volume_spike' | 'funding_above' | 'iv_above' | 'limit_near'
+  | 'ind_above' | 'ind_below' | 'ind_cross_up' | 'ind_cross_down'
+/** 指标条件的指标（TRD-10），写法同策略规则的操作数 */
+export type TradeAlertIndicator = { kind: 'ind'; ind: TradeIndicator; params: number[] }
 export type TradeAlertNotify = 'app' | 'im' | 'sound'
 
 export type TradeAlert = {
@@ -31,6 +35,9 @@ export type TradeAlert = {
   last_fired_at: string
   created_at: string
   updated_at: string
+  /** 指标条件（ind_*）才有：指标和算指标用的 K 线周期；别的条件为 null、空串 */
+  indicator: TradeAlertIndicator | null
+  interval: TradeInterval | ''
 }
 
 export type TradeAlertInput = {
@@ -43,6 +50,8 @@ export type TradeAlertInput = {
   im_connector?: string
   enabled?: boolean
   note?: string
+  indicator?: TradeAlertIndicator | null
+  interval?: TradeInterval | ''
 }
 
 /** im_status：空串没选 IM；unavailable 工作台还没有给插件发 IM 的接口、这次没推 */
@@ -90,7 +99,7 @@ export const tradeAlertKeys = {
   all: ['trade', 'alerts'] as const,
   list: ['trade', 'alerts', 'list'] as const,
   values: ['trade', 'alerts', 'values'] as const,
-  preview: (symbol: string, cond: TradeAlertCond) => ['trade', 'alerts', 'preview', symbol, cond] as const,
+  preview: (symbol: string, cond: TradeAlertCond, ind = '') => ['trade', 'alerts', 'preview', symbol, cond, ind] as const,
   events: ['trade', 'alerts', 'events'] as const,
   eventsPage: (limit: number) => ['trade', 'alerts', 'events', limit] as const,
 }
@@ -104,8 +113,16 @@ export const tradeAlertsApi = {
   remove: (id: string) => request<null>('DELETE', '/api/trade/alerts/' + seg(id)),
   rearm: (id: string) => request<TradeAlert>('POST', `/api/trade/alerts/${seg(id)}/rearm`),
   values: () => requestList<TradeAlertValue>('/api/trade/alerts/values').then((r) => r.data),
-  preview: (symbol: string, cond: TradeAlertCond) =>
-    request<TradeAlertValue>('GET', '/api/trade/alerts/preview', { query: new URLSearchParams({ symbol, cond }) }),
+  /** 指标条件要带指标和周期 */
+  preview: (symbol: string, cond: TradeAlertCond, ind?: { indicator: TradeAlertIndicator; interval: TradeInterval }) => {
+    const query = new URLSearchParams({ symbol, cond })
+    if (ind) {
+      query.set('ind', ind.indicator.ind)
+      query.set('params', ind.indicator.params.join(','))
+      query.set('interval', ind.interval)
+    }
+    return request<TradeAlertValue>('GET', '/api/trade/alerts/preview', { query })
+  },
   events: async (limit: number): Promise<TradeAlertEventPage> => {
     const r = await requestEnvelope<TradeAlertEvent[] | null>('GET', '/api/trade/alert-events', { query: new URLSearchParams({ limit: String(limit) }) })
     const meta = (r.meta ?? {}) as { total?: number; unread?: number }
@@ -130,10 +147,11 @@ export function useTradeAlertValues(on = true) {
 }
 
 /** 抽屉里还没保存的标的和条件的当前值，2 秒取一次 */
-export function useTradeAlertPreview(symbol: string, cond: TradeAlertCond) {
+export function useTradeAlertPreview(symbol: string, cond: TradeAlertCond, ind?: { indicator: TradeAlertIndicator; interval: TradeInterval }) {
+  const indKey = ind ? `${ind.indicator.ind}(${ind.indicator.params.join(',')})@${ind.interval}` : ''
   return useQuery({
-    queryKey: tradeAlertKeys.preview(symbol, cond),
-    queryFn: () => tradeAlertsApi.preview(symbol, cond),
+    queryKey: tradeAlertKeys.preview(symbol, cond, indKey),
+    queryFn: () => tradeAlertsApi.preview(symbol, cond, ind),
     enabled: !!symbol,
     refetchInterval: 2_000,
     retry: false,

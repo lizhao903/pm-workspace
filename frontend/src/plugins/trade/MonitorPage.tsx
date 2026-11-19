@@ -18,7 +18,7 @@ import { AlertDrawer } from './MonitorDrawer'
 import { useImConnectors } from './useImConnectors'
 import { DOWN, MARKETS, UP, digitsFor, fmtPct, fmtPrice, guessInstrument, toBars, withLive } from './model'
 import {
-  ALERT_COND, MARKET_TZ, NOTIFY_LABEL, RULE_FILTERS, SESSION_LABEL, condFits, dayLabel, fmtAlertValue, fmtSessionSpan, fmtThreshold, isPriceCond,
+  ALERT_COND, MARKET_TZ, NOTIFY_LABEL, RULE_FILTERS, SESSION_LABEL, condFits, dayLabel, fmtAlertValue, fmtSessionSpan, fmtThreshold, indText, isIndCond, isPriceCond,
   ruleIn, ruleMatches, sessionOf, sessionPlan, timeAgo, type RuleFilter, type SessionState,
 } from './monitorModel'
 
@@ -182,7 +182,7 @@ const VALUE_SHORT: Record<string, string> = { no_source: '未接行情源', load
 function CurValue({ a, v, digits }: { a: TradeAlert; v: TradeAlertValue | undefined; digits: number }) {
   if (!a.enabled) return <span className="mo-r-cur faint">-</span>
   if (!v) return <span className="mo-r-cur faint">加载中</span>
-  if (v.status === 'ok' && v.value !== null) return <span className="mo-r-cur">{fmtAlertValue(a.cond, v.value, digits)}</span>
+  if (v.status === 'ok' && v.value !== null) return <span className="mo-r-cur">{fmtAlertValue(a.cond, v.value, digits, a.indicator?.ind)}</span>
   return <span className="mo-r-cur faint" title={v.error}>{VALUE_SHORT[v.status] ?? '-'}</span>
 }
 
@@ -201,7 +201,7 @@ const AlertRow = memo(function AlertRow({ a, inst, v, sel, imName, onOpen, onTog
         <span className="mo-r-name"><span className="mk-dot" style={{ background: MARKETS[inst.market].color }} /><span className="ellipsis">{inst.name}</span></span>
         {a.note && <span className="mo-r-note ellipsis">{a.note}</span>}
       </span>
-      <span className="mo-r-cond">{ALERT_COND[a.cond].label} <b>{fmtThreshold(a, digits)}</b> <span className="faint">{isPriceCond(a.cond) ? '' : ALERT_COND[a.cond].unit}</span>{!fits && <span className="mo-bad">不适用</span>}</span>
+      <span className="mo-r-cond">{isIndCond(a.cond) ? `${a.interval} ${indText(a.indicator)} ${ALERT_COND[a.cond].label.slice(2)}` : ALERT_COND[a.cond].label} <b>{fmtThreshold(a, digits)}</b> <span className="faint">{isPriceCond(a.cond) ? '' : ALERT_COND[a.cond].unit}</span>{!fits && <span className="mo-bad">不适用</span>}</span>
       <CurValue a={a} v={v} digits={digits} />
       <span className="mo-r-notify">{a.notify.map((n) => <span key={n} className="tag">{n === 'im' ? `IM${imName ? `：${imName}` : ''}` : NOTIFY_LABEL[n]}</span>)}</span>
       <span className="mo-r-rep">{a.repeat ? `重复 · 冷却 ${a.cooldown_min} 分` : '单次'}</span>

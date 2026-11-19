@@ -79,8 +79,9 @@ func (h *handlers) addAlert(w http.ResponseWriter, r *http.Request) {
 	a.ID = idgen.Prefixed("al")
 	now := time.Now().UTC().Format(time.RFC3339)
 	notify, _ := json.Marshal(a.Notify)
-	if _, err := h.c.Store().Exec(ctx, `INSERT INTO trade_alerts (`+alertCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)`,
-		a.ID, a.Symbol, a.Cond, a.Value, b2i(a.Repeat), a.CooldownMin, string(notify), a.IMConnector, b2i(a.Enabled), a.Note, now, now); err != nil {
+	if _, err := h.c.Store().Exec(ctx, `INSERT INTO trade_alerts (`+alertCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?)`,
+		a.ID, a.Symbol, a.Cond, a.Value, b2i(a.Repeat), a.CooldownMin, string(notify), a.IMConnector, b2i(a.Enabled), a.Note, now, now,
+		indicatorCol(a.Indicator), a.Interval); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -112,14 +113,16 @@ func (h *handlers) patchAlert(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, err)
 		return
 	}
-	if !a.Repeat && (a.Symbol != old.Symbol || a.Cond != old.Cond || a.Value != old.Value) {
+	if !a.Repeat && (a.Symbol != old.Symbol || a.Cond != old.Cond || a.Value != old.Value ||
+		indicatorCol(a.Indicator) != indicatorCol(old.Indicator) || a.Interval != old.Interval) {
 		a.LastFiredAt = ""
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	notify, _ := json.Marshal(a.Notify)
 	if _, err := h.c.Store().Exec(ctx, `UPDATE trade_alerts SET symbol = ?, cond = ?, value = ?, repeat = ?, cooldown_min = ?, notify = ?,
-		im_connector = ?, enabled = ?, note = ?, last_fired_at = ?, updated_at = ? WHERE id = ?`,
-		a.Symbol, a.Cond, a.Value, b2i(a.Repeat), a.CooldownMin, string(notify), a.IMConnector, b2i(a.Enabled), a.Note, a.LastFiredAt, now, id); err != nil {
+		im_connector = ?, enabled = ?, note = ?, last_fired_at = ?, updated_at = ?, indicator = ?, interval = ? WHERE id = ?`,
+		a.Symbol, a.Cond, a.Value, b2i(a.Repeat), a.CooldownMin, string(notify), a.IMConnector, b2i(a.Enabled), a.Note, a.LastFiredAt, now,
+		indicatorCol(a.Indicator), a.Interval, id); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -202,6 +205,13 @@ func (h *handlers) applyAlert(ctx context.Context, a *Alert, raw map[string]json
 		case "note":
 			err = json.Unmarshal(v, &a.Note)
 			a.Note = strings.TrimSpace(a.Note)
+		case "indicator": // TRD-10，null 清掉
+			var op *Operand
+			if err = json.Unmarshal(v, &op); err == nil {
+				a.Indicator = op
+			}
+		case "interval":
+			err = json.Unmarshal(v, &a.Interval)
 		case "id", "created_at", "updated_at", "last_fired_at":
 			continue
 		default:
@@ -219,7 +229,10 @@ func (h *handlers) checkAlert(ctx context.Context, a *Alert) error {
 		return apiErr(errValidation, "标的 %q 格式不对，要写成 交易场所:代码，如 BINANCE:BTCUSDT", a.Symbol)
 	}
 	if _, ok := alertCondInfo[a.Cond]; !ok {
-		return apiErr(errValidation, "条件 %q 不认识，要是 %s 之一", a.Cond, strings.Join(AlertConds, "、"))
+		return apiErr(errValidation, "条件 %q 不认识，要是 %s 之一", a.Cond, strings.Join(allAlertConds(), "、"))
+	}
+	if err := checkAlertIndicator(a); err != nil {
+		return err
 	}
 	if math.IsNaN(a.Value) || math.IsInf(a.Value, 0) {
 		return apiErr(errValidation, "阈值要是数字")
@@ -284,15 +297,34 @@ func (h *handlers) previewAlert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, ok := alertCondInfo[cond]; !ok {
-		h.fail(w, r, apiErr(errValidation, "cond 不认识，要是 %s 之一", strings.Join(AlertConds, "、")))
+		h.fail(w, r, apiErr(errValidation, "cond 不认识，要是 %s 之一", strings.Join(allAlertConds(), "、")))
 		return
+	}
+	x := Alert{Symbol: sym, Cond: cond}
+	if isIndCond(cond) { // 指标条件：ind=指标键、params=逗号分隔的参数、interval=周期（TRD-10）
+		op := Ind(q.Get("ind"))
+		if v := strings.TrimSpace(q.Get("params")); v != "" {
+			for _, p := range strings.Split(v, ",") {
+				f, err := strconv.ParseFloat(strings.TrimSpace(p), 64)
+				if err != nil {
+					h.fail(w, r, apiErr(errValidation, "params 要是逗号分隔的数字"))
+					return
+				}
+				op.Params = append(op.Params, f)
+			}
+		}
+		x.Indicator, x.Interval = &op, q.Get("interval")
+		if err := checkAlertIndicator(&x); err != nil {
+			h.fail(w, r, err)
+			return
+		}
 	}
 	m := h.p.mkt
 	m.mu.Lock()
 	m.polled[sym] = m.now()
 	m.mu.Unlock()
 	inst := loadAlertInsts(ctx, h.c, []string{sym})[sym]
-	in, status, msg := h.p.alerts.inputFor(ctx, cond, sym, inst, true)
+	in, status, msg := h.p.alerts.inputFor(ctx, x, inst, true)
 	writeJSON(w, http.StatusOK, map[string]any{"data": valueOf("", cond, sym, in, status, msg, m.now())})
 }
 
@@ -404,4 +436,54 @@ func (h *handlers) readAlertEvents(w http.ResponseWriter, r *http.Request) {
 		n, _ = res.RowsAffected()
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": map[string]int64{"updated": n}})
+}
+
+// indicatorCol 是指标存库的写法：操作数的 JSON，没有为空串。
+func indicatorCol(op *Operand) string {
+	if op == nil {
+		return ""
+	}
+	b, _ := json.Marshal(op)
+	return string(b)
+}
+
+// checkAlertIndicator：指标条件要有指标（策略的指标键之一，参数合法）和周期；别的条件清掉这两项（TRD-10）。
+func checkAlertIndicator(a *Alert) error {
+	if !isIndCond(a.Cond) {
+		a.Indicator, a.Interval = nil, ""
+		return nil
+	}
+	if a.Indicator == nil {
+		return apiErr(errValidation, "指标条件要选指标（indicator）")
+	}
+	op := *a.Indicator
+	op.Kind = "ind"
+	if op.Params == nil {
+		op.Params = []float64{}
+	}
+	if err := op.validate(); err != nil {
+		return apiErr(errValidation, "%v", err)
+	}
+	if len(op.Params) > 4 {
+		return apiErr(errValidation, "指标参数最多 4 个")
+	}
+	for _, v := range op.Params {
+		if !finite(v) || v < 0 || v > 1000 {
+			return apiErr(errValidation, "指标参数要在 0 到 1000 之间")
+		}
+	}
+	a.Indicator = &op
+	if _, ok := Intervals[a.Interval]; !ok {
+		return apiErr(errValidation, "指标条件要选 K 线周期（interval），只能是 %s", intervalList())
+	}
+	return nil
+}
+
+func intervalList() string {
+	ks := make([]string, 0, len(Intervals))
+	for k := range Intervals {
+		ks = append(ks, k)
+	}
+	slices.SortFunc(ks, func(x, y string) int { return int(Intervals[x] - Intervals[y]) })
+	return strings.Join(ks, "、")
 }

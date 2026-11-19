@@ -7,7 +7,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { request, requestEnvelope, requestList } from '../api'
 import type { TradeInterval } from './trade'
 
+/** 前九个是回测原型的口径；后面一批（TRD-10）按通达信口径，由后端指标库 ta 算，见 GET /api/trade/indicators */
 export type TradeIndicator = 'price' | 'ma' | 'ema' | 'rsi' | 'macd' | 'boll_up' | 'boll_low' | 'volume' | 'atr'
+  | 'macd_dif' | 'macd_dea' | 'macd_bar' | 'kdj_k' | 'kdj_d' | 'kdj_j' | 'wr' | 'cci' | 'bias' | 'boll_mid' | 'bbi'
+  | 'psy' | 'roc' | 'mtm' | 'trix' | 'obv' | 'mfi' | 'vr' | 'cr' | 'pdi' | 'mdi' | 'adx'
 export type TradeCompare = 'cross_up' | 'cross_down' | 'gt' | 'lt'
 export type TradeOperand = { kind: 'ind'; ind: TradeIndicator; params: number[] } | { kind: 'num'; value: number }
 export type TradeRule = { id: string; left: TradeOperand; op: TradeCompare; right: TradeOperand }

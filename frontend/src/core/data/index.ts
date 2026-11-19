@@ -360,7 +360,7 @@ export {
 } from './trade'
 export type {
   TradeMarket, TradeKind, TradeInterval, TradeInstrument, TradeWatchlist, TradeSource, TradeSourceHealth, TradeDataStatus, TradeQuote,
-  TradeLevel, TradeBook, TradeFunding, TradeKline, TradeKlineMeta, TradeLive, TradeLiveTransport, TradeLiveOptions,
+  TradeLevel, TradeBook, TradeFunding, TradeKline, TradeKlineMeta, TradeKlineIndicator, TradeIndicatorLine, TradeLive, TradeLiveTransport, TradeLiveOptions,
 } from './trade'
 
 export {
@@ -368,7 +368,7 @@ export {
   usePatchTradeAlert, useRemoveTradeAlert, useRearmTradeAlert, useReadTradeAlertEvents, useTradeAlertFired, useTradeInstrumentMap,
 } from './tradeAlerts'
 export type {
-  TradeAlert, TradeAlertCond, TradeAlertNotify, TradeAlertInput, TradeAlertEvent, TradeAlertFired, TradeAlertImStatus, TradeAlertValue,
+  TradeAlert, TradeAlertCond, TradeAlertIndicator, TradeAlertNotify, TradeAlertInput, TradeAlertEvent, TradeAlertFired, TradeAlertImStatus, TradeAlertValue,
   TradeAlertValueStatus, TradeAlertEventPage,
 } from './tradeAlerts'
 

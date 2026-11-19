@@ -5,15 +5,16 @@ import { useMemo, useState } from 'react'
 import {
   errorText, useCreateTradeAlert, usePatchTradeAlert, useRemoveTradeAlert, useTradeAlertPreview,
   useTradeInstrument, useTradeInstrumentSearch, useTradeWatchlists,
-  type TradeAlert, type TradeAlertCond, type TradeAlertNotify, type TradeInstrument,
+  type TradeAlert, type TradeAlertCond, type TradeAlertNotify, type TradeIndicator, type TradeInstrument, type TradeInterval,
 } from '../../core/data'
 import { Button, Checkbox, Drawer, Field, IconClose, IconSearch, Input, Select, Switch, Textarea, cls } from '../../core/ui'
 import { KIND_SHORT, MARKETS, digitsFor, guessInstrument } from './model'
 import { useImConnectors } from './useImConnectors'
 import {
-  ALERT_COND, ALERT_CONDS, NOTIFIES, NOTIFY_LABEL, condFits, draftBody, draftErrors, draftOf, fillValue, fmtAlertValue, valueOk, withSymbol,
-  type AlertDraft,
+  ALERT_COND, ALERT_CONDS, NOTIFIES, NOTIFY_LABEL, condFits, draftBody, draftErrors, draftOf, fillValue, fmtAlertValue, isIndCond, valueOk, withInd,
+  withSymbol, type AlertDraft,
 } from './monitorModel'
+import { IND_DEFAULT, INDICATORS, STRATEGY_INTERVALS, TDX_INDICATORS, intervalLabel } from './strategyModel'
 
 const SYMBOL_RE = /^[A-Z][A-Z0-9_]{0,15}:[A-Za-z0-9][A-Za-z0-9._-]{0,47}$/
 
@@ -32,7 +33,9 @@ export function AlertDrawer({ alert, symbol, onClose }: { alert: TradeAlert | nu
   const busy = create.isPending || patch.isPending || remove.isPending
   const instQ = useTradeInstrument(d.symbol)
   const inst = instQ.data ?? guessInstrument(d.symbol)
-  const preview = useTradeAlertPreview(d.symbol, d.cond)
+  const indCond = isIndCond(d.cond)
+  const indBody = draftBody({ ...d, value: d.value || '0' })
+  const preview = useTradeAlertPreview(d.symbol, d.cond, indCond && indBody.indicator && indBody.interval ? { indicator: indBody.indicator, interval: indBody.interval } : undefined)
   const cur = preview.data
   const digits = digitsFor(instQ.data ?? undefined, cur?.price || cur?.value || 0)
   const conds = ALERT_CONDS.filter((c) => condFits(c, inst))
@@ -58,7 +61,7 @@ export function AlertDrawer({ alert, symbol, onClose }: { alert: TradeAlert | nu
     if (!alert) return
     remove.mutate(alert.id, { onSuccess: onClose, onError: (e: unknown) => setErr(errorText(e)) })
   }
-  const curText = cur?.status === 'ok' && cur.value !== null ? fmtAlertValue(d.cond, cur.value, digits) : '-'
+  const curText = cur?.status === 'ok' && cur.value !== null ? fmtAlertValue(d.cond, cur.value, digits, d.ind) : '-'
   const curHint = !cur ? '' : cur.status === 'ok' ? '' : cur.error || PREVIEW_STATUS[cur.status] || ''
 
   return (
@@ -89,6 +92,7 @@ export function AlertDrawer({ alert, symbol, onClose }: { alert: TradeAlert | nu
               invalid={d.value.trim() !== '' && !valueOk(d)} onChange={(e) => set('value', e.target.value)} />
           </Field>
         </div>
+        {indCond && <IndicatorFields d={d} setD={setD} />}
         <div className="mo-cur">
           <span className="muted">当前值</span>
           <span className="mo-cur-v" data-testid="mo-cur">{curText}</span>
@@ -96,9 +100,10 @@ export function AlertDrawer({ alert, symbol, onClose }: { alert: TradeAlert | nu
           {d.cond === 'pct_below' && <span className="faint">跌幅按正数填，例如 4 表示跌 4%</span>}
           {d.cond === 'limit_near' && <span className="faint">离涨停或跌停的距离，占昨收的百分比</span>}
           {(d.cond === 'price_above' || d.cond === 'price_below') && <span className="faint">价格在阈值{d.cond === 'price_above' ? '上方' : '下方'}时就算满足</span>}
+          {indCond && <span className="faint">{d.cond === 'ind_cross_up' || d.cond === 'ind_cross_down' ? '上一根在阈值另一侧、最新一根穿过去才算' : '最新一根（还没收盘，随行情变）的值'}</span>}
           <span className="spacer" />
           <Button size="sm" disabled={cur?.status !== 'ok' || cur.value === null}
-            onClick={() => { if (cur?.value != null) set('value', fillValue(d.cond, cur.value, digits)) }}>填入当前值</Button>
+            onClick={() => { if (cur?.value != null) set('value', fillValue(d.cond, cur.value, digits, d.ind)) }}>填入当前值</Button>
         </div>
 
         <section className="mo-group">
@@ -137,6 +142,41 @@ export function AlertDrawer({ alert, symbol, onClose }: { alert: TradeAlert | nu
         </Field>
       </form>
     </Drawer>
+  )
+}
+
+/** 指标条件：选指标（策略里能用的那些）、参数、K 线周期（TRD-10） */
+function IndicatorFields({ d, setD }: { d: AlertDraft; setD: (f: (x: AlertDraft) => AlertDraft) => void }) {
+  const keys = Object.keys(INDICATORS) as TradeIndicator[]
+  const opts = [...keys.filter((k) => !TDX_INDICATORS.has(k)), ...keys.filter((k) => TDX_INDICATORS.has(k))]
+    .filter((k) => k !== 'price' && k !== 'volume')
+    .map((k) => ({ value: k, label: TDX_INDICATORS.has(k) ? `${INDICATORS[k].label}（通达信口径）` : INDICATORS[k].label }))
+  return (
+    <>
+      <div className="field-row">
+        <Field label="指标" hint="在所选周期的 K 线上算">
+          <Select aria-label="指标" value={d.ind} options={opts} onValueChange={(v) => setD((x) => withInd(x, v as TradeIndicator))} />
+        </Field>
+        <Field label="周期">
+          <Select aria-label="周期" value={d.interval} options={STRATEGY_INTERVALS.map((iv) => ({ value: iv, label: intervalLabel(iv) }))}
+            onValueChange={(v) => setD((x) => ({ ...x, interval: v as TradeInterval }))} />
+        </Field>
+      </div>
+      {INDICATORS[d.ind].params.length > 0 && (
+        <div className="field-row">
+          {INDICATORS[d.ind].params.map((p, i) => (
+            <Field key={`${d.ind}-${i}`} label={p}>
+              <Input aria-label={`指标${p}`} inputMode="decimal" value={Number.isFinite(d.params[i] ?? IND_DEFAULT[d.ind][i]) ? String(d.params[i] ?? IND_DEFAULT[d.ind][i]) : ''}
+                invalid={!Number.isFinite(d.params[i] ?? IND_DEFAULT[d.ind][i])}
+                onChange={(e) => {
+                  const t = e.target.value.trim()
+                  setD((x) => { const ps = [...x.params]; ps[i] = t === '' ? NaN : Number(t); return { ...x, params: ps } })
+                }} />
+            </Field>
+          ))}
+        </div>
+      )}
+    </>
   )
 }
 

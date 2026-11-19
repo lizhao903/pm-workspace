@@ -14,7 +14,7 @@ import {
 import { Button, PageTitle, cls } from '../../core/ui'
 import { KIND_SHORT, MARKETS, guessInstrument } from './model'
 import {
-  CODE_KIND_LABEL, COMPARE, DIR_LABEL, INDICATORS, IND_DEFAULT, MODE_LABEL, STRATEGY_INTERVALS, blockerOf, codeKindOf, currencyOf, inputOf,
+  CODE_KIND_LABEL, COMPARE, DIR_LABEL, INDICATORS, IND_DEFAULT, MODE_LABEL, STRATEGY_INTERVALS, TDX_INDICATORS, blockerOf, codeKindOf, currencyOf, inputOf,
   instName, intervalLabel, latestOf, newRuleId, pctRaw, quickDefaults, quickParams, sig, spanText, timeAgo, tone, withParam, type QuickCfg,
 } from './strategyModel'
 import { NumInput, PlusIcon, Signed, Spark, StatusCell, XIcon } from './StrategyParts'
@@ -329,7 +329,12 @@ function OperandEditor({ o, onChange, allowNum, label }: { o: TradeOperand; onCh
         else onChange({ kind: 'ind', ind: v as TradeIndicator, params: [...IND_DEFAULT[v as TradeIndicator]] })
       }}>
         {allowNum && <option value="__num">数值</option>}
-        {(Object.keys(INDICATORS) as TradeIndicator[]).map((k) => <option key={k} value={k}>{INDICATORS[k].label}</option>)}
+        <optgroup label="常用（回测原型口径）">
+          {(Object.keys(INDICATORS) as TradeIndicator[]).filter((k) => !TDX_INDICATORS.has(k)).map((k) => <option key={k} value={k}>{INDICATORS[k].label}</option>)}
+        </optgroup>
+        <optgroup label="通达信口径">
+          {(Object.keys(INDICATORS) as TradeIndicator[]).filter((k) => TDX_INDICATORS.has(k)).map((k) => <option key={k} value={k}>{INDICATORS[k].label}</option>)}
+        </optgroup>
       </select>
       {o.kind === 'num' ? (
         <NumInput className="sg-numin sg-numin-wide" label={`${label}数值`} value={o.value} onChange={(value) => onChange({ kind: 'num', value })} />

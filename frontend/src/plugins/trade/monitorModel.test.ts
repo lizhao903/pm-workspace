@@ -12,7 +12,7 @@ const inst = (over: Partial<TradeInstrument>): TradeInstrument => ({
 })
 const alert = (over: Partial<TradeAlert> = {}): TradeAlert => ({
   id: 'al_1', symbol: 'BINANCE:BTCUSDT', cond: 'price_above', value: 70000, repeat: false, cooldown_min: 30, notify: ['app'], im_connector: '',
-  enabled: true, note: '', last_fired_at: '', created_at: '', updated_at: '', ...over,
+  enabled: true, note: '', last_fired_at: '', created_at: '', updated_at: '', indicator: null, interval: '', ...over,
 })
 
 describe('盯盘的纯函数', () => {

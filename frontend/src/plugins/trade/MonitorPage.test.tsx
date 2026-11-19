@@ -21,7 +21,7 @@ const WL: TradeWatchlist = { id: 'wl_1', name: '核心关注', symbols: ['BINANC
 
 const alertOf = (over: Partial<TradeAlert>): TradeAlert => ({
   id: 'al_1', symbol: 'BINANCE:BTCUSDT', cond: 'price_above', value: 70000, repeat: false, cooldown_min: 30, notify: ['app'], im_connector: '',
-  enabled: true, note: '', last_fired_at: '', created_at: iso(now - 86400_000), updated_at: '', ...over,
+  enabled: true, note: '', last_fired_at: '', created_at: iso(now - 86400_000), updated_at: '', indicator: null, interval: '', ...over,
 })
 const eventOf = (over: Partial<TradeAlertEvent>): TradeAlertEvent => ({
   id: 'ae_1', alert_id: 'al_1', symbol: 'BINANCE:BTCUSDT', cond: 'price_above', value: 70012.5, text: 'BTC/USDT 价格 70,012.5，上穿 70,000.0',

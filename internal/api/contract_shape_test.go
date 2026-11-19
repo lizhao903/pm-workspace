@@ -244,6 +244,9 @@ var contractSpecs = map[string]contractSpec{
 	"TradeKline":        {v: trade.Kline{}},
 	"TradeKlineMeta":    {v: trade.KlineMeta{}},
 	"TradeStreamEvent":  {v: trade.StreamEvent{}},
+
+	// 技术指标（TRD-10）
+	"TradeKlineIndicator": {v: trade.KlineIndicator{}},
 	// 盯盘提醒（TRD-03a）
 	"TradeAlert":      {v: trade.Alert{}},
 	"TradeAlertEvent": {v: trade.AlertEvent{}},
