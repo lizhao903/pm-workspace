@@ -21,7 +21,7 @@ export function SeriesPage({ series, videos, onOpenSeries, onModuleTab }: {
 
   return (
     <div className="vd-page">
-      <PageTitle parent="视频" count={series.length} desc="多集共用开场、收尾和模板；点系列看各集、改共用部分"
+      <PageTitle parent="做视频" count={series.length} desc="多集共用开场、收尾和模板；点系列看各集、改共用部分"
         actions={<Button variant="primary" onClick={() => setCreating(true)}><IconPlus />新建系列</Button>}>系列</PageTitle>
       <VideosTabs active="series" videos={videos} onSelect={onModuleTab} />
       {staleTotal > 0 && <div className="vd-banner" role="status">有 {staleTotal} 集改过共用部分还没同步，需要重新录屏渲染</div>}

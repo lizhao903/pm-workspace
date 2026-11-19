@@ -128,7 +128,7 @@ export function TopicsPage({ topics, clips, series, videos, onModuleTab, onOpenV
 
   return (
     <div className="vd-page">
-      <PageTitle parent="视频" count={topics.length} desc="从收集的素材里挑题、打分、想清楚角度，可开拍了就立项成视频"
+      <PageTitle parent="素材收集" count={topics.length} desc="从收集的素材里挑题、打分、想清楚角度，可开拍了就立项成视频"
         actions={<Button variant="primary" onClick={newTopic} disabled={create.isPending}><IconPlus />新建选题</Button>}>选题</PageTitle>
       <VideosTabs active="topics" videos={videos} onSelect={onModuleTab} />
       {create.isError && <div className="vd-err" role="alert">选题没建成：{errorText(create.error)}</div>}

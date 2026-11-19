@@ -8,6 +8,9 @@ import {
   ORIENT, STAGES, STAGE_FILTERS, TONE_COLOR, needsMe, orientText, stageIndex, stageLabel, stageOf, stepState, videoState, type StageFilter,
 } from './model'
 import { COVER_RATIO } from './artifactModel'
+import { tabModule, VIDEO_MODULE_LABEL, type ModuleTab } from './routes'
+
+export type { ModuleTab } from './routes'
 
 /** 阶段进度：8 段小条，做完的绿、当前的蓝（卡在检查点上的橙） */
 export function StageBar({ v }: { v: Video }) {
@@ -35,21 +38,27 @@ export const OrientTag = ({ o, large }: { o: VideoOrientation; large?: boolean }
   <span className={cls('vd-otag', large && 'vd-otag-lg')} title={orientText(o)}><OrientShape o={o} />{large ? orientText(o) : ORIENT[o].ratio}</span>
 )
 
-export type ModuleTab = 'all' | 'review' | 'calendar' | 'topics' | 'clips' | 'series' | 'publishes' | 'bilibili'
+// SPEC-videos-0.1：标签按模块排，各模块只列自己的（同原型 VideosTabs）
 const MODULE_TABS: { key: ModuleTab; label: string }[] = [
-  { key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'calendar', label: '日历' }, { key: 'topics', label: '选题' }, { key: 'clips', label: '素材收件箱' },
-  { key: 'series', label: '系列' }, { key: 'publishes', label: '发布记录' },
+  { key: 'all', label: '全部视频' }, { key: 'review', label: '待我处理' }, { key: 'series', label: '系列' },
+  { key: 'clips', label: '素材收件箱' }, { key: 'topics', label: '选题' },
+  { key: 'publishes', label: '发布记录' }, { key: 'calendar', label: '日历' },
   // B 站组件（TSK-0455）：账户数据和私信
-  { key: 'bilibili', label: 'B 站' },
+  { key: 'bilibili', label: 'B 站数据' },
 ]
 
-/** 模块标签栏：放在顶栏下面；「待我处理」后面是停在检查点或被退回的集数，「素材收件箱」后面是待整理的条数，为 0 不显示 */
+/**
+ * 模块标签栏：放在顶栏下面，只列 active 所在模块的标签；「待我处理」后面是停在检查点或被退回的集数，
+ * 「素材收件箱」后面是待整理的条数，为 0 不显示
+ */
 export function VideosTabs({ active, videos, onSelect }: { active: ModuleTab; videos: Video[]; onSelect: (t: ModuleTab) => void }) {
+  const mod = tabModule(active)
+  const tabs = MODULE_TABS.filter((t) => tabModule(t.key) === mod)
   const review = videos.filter(needsMe).length
   const todo = (useVideoClips().data ?? []).filter((c) => !c.triaged).length
   return (
-    <div className="vd-mtabs" role="tablist" aria-label="视频">
-      {MODULE_TABS.map((t) => (
+    <div className="vd-mtabs" role="tablist" aria-label={VIDEO_MODULE_LABEL[mod]}>
+      {tabs.map((t) => (
         <button key={t.key} type="button" role="tab" aria-selected={active === t.key} className={cls(active === t.key && 'on')}
           title={t.key === 'review' && review ? `${review} 集停在检查点或被退回` : t.key === 'clips' && todo ? `${todo} 条素材待整理` : undefined}
           onClick={() => onSelect(t.key)}>

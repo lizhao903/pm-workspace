@@ -20,6 +20,9 @@ describe('插件模块的菜单图标', () => {
 
   it('交易四个模块的图标和原型一致：candles、pulse、chart、swap；视频用 video', () => {
     expect(['markets', 'monitor', 'strategy', 'trading', 'videos'].map(moduleIconKey)).toEqual(['candles', 'pulse', 'chart', 'swap', 'video'])
+    // 视频拆成三个模块（SPEC-videos-0.1）：素材收集 inbox、发布与数据 bars，都归 video 插件
+    expect(['video_clips', 'video_publish'].map(moduleIconKey)).toEqual(['inbox', 'bars'])
+    expect(['video_clips', 'video_publish'].map(bundledOwnerOf)).toEqual(['video', 'video'])
   })
 
   it('模块归哪个插件按清单 provides.modules', () => {

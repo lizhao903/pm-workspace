@@ -347,7 +347,7 @@ Agent、知识库、技能、枚举值、运行异常、内网域名几节目前
 
 `MenuGroup`：`{ id: string; name: string; modules: ModuleKey[]; collapsed?: boolean }`。`name` 留空只分隔不显示标题；`collapsed` 为侧栏里默认折叠，无标题的组不折叠。`id` 由 `groupId()` 生成。
 
-`ModuleKey`：`today` 今日 / `projects` 项目 / `contacts` 联系人 / `messages` IM 消息 / `tasks` 任务 / `library` 文档 / `sop` SOP / `sessions` 会话 / `terminal` 终端 / `browser` 浏览器 / `videos` 视频 / `markets` 行情 / `monitor` 盯盘 / `strategy` 策略 / `trading` 交易。每个模块的说明见 `MODULES.desc`（模块行第二行显示）。
+`ModuleKey`：`today` 今日 / `projects` 项目 / `contacts` 联系人 / `messages` IM 消息 / `tasks` 任务 / `library` 文档 / `sop` SOP / `sessions` 会话 / `terminal` 终端 / `browser` 浏览器 / `videos` 做视频 / `video_clips` 素材收集 / `video_publish` 发布与数据（视频插件的三个模块，`SPEC-videos-0.1`；正式产品库里拆分前只记 `videos` 的工作台和模板，读的时候补成三个：素材收集排在做视频前面，有「发布与互动」分组的发布与数据放进那组最前面，否则跟在做视频后面） / `markets` 行情 / `monitor` 盯盘 / `strategy` 策略 / `trading` 交易。每个模块的说明见 `MODULES.desc`（模块行第二行显示）。
 
 `TEMPLATES`：`{ id: string; role: string; name: string; desc: string; groups: [string, ModuleKey[]][]; home: ModuleKey; mark?: Workbench['mark'] }[]`，`id` 为空串的是「自定义」（只有一组「今日」）。
 

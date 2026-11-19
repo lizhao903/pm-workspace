@@ -106,7 +106,7 @@ function fakeBackend(seedTopics: VideoTopic[], seedClips: VideoClip[] = []) {
 
 function show(path: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createMemoryRouter([{ path: '/videos/*', element: <Page /> }], { initialEntries: [path] })
+  const router = createMemoryRouter([{ path: '/videos/*', element: <Page /> }, { path: '/video_clips/*', element: <Page /> }, { path: '/video_publish/*', element: <Page /> }], { initialEntries: [path] })
   render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
   return router
 }
@@ -121,7 +121,7 @@ describe('选题库', () => {
       tp('tp_c', { title: '配速怎么练', tags: ['跑步'] }),
     ])
     const user = userEvent.setup()
-    const router = show('/videos/topics')
+    const router = show('/video_clips/topics')
     const idea = await screen.findByRole('region', { name: '想法' })
     expect(within(idea).getAllByRole('button').map((b) => b.textContent)).toEqual([expect.stringContaining('MCP'), expect.stringContaining('配速')])
     expect(within(screen.getByRole('region', { name: '已排期' })).getByText('碳板跑鞋')).toBeInTheDocument()
@@ -146,7 +146,7 @@ describe('选题库', () => {
   it('抽屉改草稿保存、打分，立项后跳到视频', async () => {
     const be = fakeBackend([tp('tp_a', { title: '' })])
     const user = userEvent.setup()
-    const router = show('/videos/topics?t=tp_a')
+    const router = show('/video_clips/topics?t=tp_a')
     const drawer = await screen.findByRole('dialog', { name: '未命名选题' })
     expect(within(drawer).getByRole('button', { name: '立项做成视频' })).toBeDisabled()
     await user.type(within(drawer).getByPlaceholderText('这一期讲什么'), '跑鞋怎么选')
@@ -168,7 +168,7 @@ describe('选题库', () => {
       id: 'cl_x', kind: 'note', title: '一条笔记', content: '一条笔记', source: '手动添加', tags: [], starred: false, topic_ids: ['tp_a'], triaged: true, created_at: T, updated_at: T,
     }])
     const user = userEvent.setup()
-    show('/videos/topics?t=tp_a')
+    show('/video_clips/topics?t=tp_a')
     const drawer = await screen.findByRole('dialog', { name: '要删的' })
     expect(within(drawer).getByText('一条笔记')).toBeInTheDocument()
     await user.click(within(drawer).getByRole('button', { name: '删除' }))
@@ -184,7 +184,7 @@ describe('素材收件箱', () => {
   it('收集评论后转为选题，打开新选题的抽屉', async () => {
     const be = fakeBackend([])
     const user = userEvent.setup()
-    const router = show('/videos/clips')
+    const router = show('/video_clips')
     expect(await screen.findByText('待整理的都处理完了')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '收集评论' }))
     const form = screen.getByRole('region', { name: '收集评论' })
@@ -196,10 +196,10 @@ describe('素材收件箱', () => {
     const card = await screen.findByRole('article', { name: '能讲讲 Cursor 和 Claude Code 怎么选吗' })
     expect(within(card).getByText('评论')).toBeInTheDocument()
     expect(within(card).getByText('326')).toBeInTheDocument()
-    expect(within(screen.getByRole('tablist', { name: '视频' })).getByRole('tab', { name: /素材收件箱/ })).toHaveTextContent('1')
+    expect(within(screen.getByRole('tablist', { name: '素材收集' })).getByRole('tab', { name: /素材收件箱/ })).toHaveTextContent('1')
 
     await user.click(within(card).getByRole('button', { name: '转为选题' }))
-    await waitFor(() => expect(router.state.location.pathname).toBe('/videos/topics'))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/video_clips/topics'))
     const drawer = await screen.findByRole('dialog', { name: '能讲讲 Cursor 和 Claude Code 怎么选吗' })
     expect(within(drawer).getByText('B 站评论 · 第 3 集')).toBeInTheDocument()
     expect(be.clips[0]).toMatchObject({ triaged: true, topic_ids: [be.topics[0].id] })
@@ -208,7 +208,7 @@ describe('素材收件箱', () => {
   it('粘贴链接收进来，归到选题、收藏、看过了、删除', async () => {
     const be = fakeBackend([tp('tp_a', { title: '进行中的题' }), tp('tp_b', { title: '做完了', status: 'made', video_id: 'vd_1' })])
     const user = userEvent.setup()
-    show('/videos/clips')
+    show('/video_clips')
     const input = await screen.findByRole('textbox', { name: '收进来' })
     await user.type(input, 'https://www.bilibili.com/video/BV1demo{Enter}')
     const card = await screen.findByRole('article', { name: 'www.bilibili.com/video/BV1demo' })
@@ -237,7 +237,7 @@ describe('素材收件箱', () => {
       id: 'cl_x', kind: 'trend', title: '热词', content: '', source: 'B 站热搜', heat: 21000, tags: [], starred: false, topic_ids: [], triaged: false, created_at: T, updated_at: T,
     }])
     const user = userEvent.setup()
-    show('/videos/clips')
+    show('/video_clips')
     const card = await screen.findByRole('article', { name: '热词' })
     expect(within(card).getByText('21,000')).toBeInTheDocument()
     await user.click(within(card).getByRole('button', { name: '看过了' }))

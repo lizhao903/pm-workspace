@@ -68,7 +68,7 @@ export function Detail({ video, videos, series, projects, tab, from, openArt, on
   return (
     <div className="vd-page">
       <PageTitle
-        parent={sr ? <button type="button" className="vd-crumb" onClick={() => onOpenSeries(sr.id)}>{sr.name}</button> : '视频'}
+        parent={sr ? <button type="button" className="vd-crumb" onClick={() => onOpenSeries(sr.id)}>{sr.name}</button> : '做视频'}
         desc={descText}
         actions={<>
           {pubCount > 0 && onOpenPublishes && <Button variant="outline" onClick={() => onOpenPublishes(v.id)}>发布记录<span className="seg-n">{pubCount}</span></Button>}

@@ -76,15 +76,45 @@ export const workspacesApi = {
   remove: (id: string) => request<null>('DELETE', one(id)),
 }
 
+// 视频插件原来只有一个模块 videos，SPEC-videos-0.1 拆成做视频 videos、素材收集 video_clips、发布与数据 video_publish。
+// 库里的工作台和模板不改（不写迁移），读的时候补齐：开着 videos、另外两个一个都没有的，当作拆分前的配置——
+// 素材收集放在做视频前面；有「发布与互动」分组的（视频创作工作台）发布与数据放进那组最前面，没有就跟在做视频后面。
+// 同原型 web-next/src/workspacedata.ts 的 TEMPLATES。在设置里改过、存过一次，库里就是补齐后的样子。
+// 边界：两个新模块都关掉、只留做视频的工作台，下次读会被当成拆分前的配置补回来，要隐藏就至少留一个或连做视频一起关。
+const VIDEO_SPLIT_FROM = 'videos'
+const VIDEO_CLIPS = 'video_clips'
+const VIDEO_PUBLISH = 'video_publish'
+const PUBLISH_GROUP = '发布与互动'
+
+export function splitVideoModules<G extends { name: string; modules: string[] }>(groups: G[]): G[] {
+  const all = groups.flatMap((g) => g.modules)
+  if (!all.includes(VIDEO_SPLIT_FROM) || all.includes(VIDEO_CLIPS) || all.includes(VIDEO_PUBLISH)) return groups
+  const pub = groups.findIndex((g) => g.name === PUBLISH_GROUP)
+  return groups.map((g, i) => {
+    const modules = g.modules.flatMap((m) => (m === VIDEO_SPLIT_FROM ? [VIDEO_CLIPS, m, ...(pub < 0 ? [VIDEO_PUBLISH] : [])] : [m]))
+    return { ...g, modules: i === pub ? [VIDEO_PUBLISH, ...modules] : modules }
+  })
+}
+
+/** 工作台和模板读回来后补齐视频模块，modules 跟着分组重算 */
+function upgradeVideo<W extends { groups: { name: string; modules: string[] }[]; modules: string[] }>(w: W): W {
+  const groups = splitVideoModules(w.groups)
+  return groups === w.groups ? w : { ...w, groups, modules: groups.flatMap((g) => g.modules) }
+}
+
 /** 全部工作台，按 position */
 export function useWorkspaces() {
-  return useQuery({ queryKey: dataKeys.workspaces.list, queryFn: ({ signal }) => workspacesApi.list(signal) })
+  return useQuery({ queryKey: dataKeys.workspaces.list, queryFn: ({ signal }) => workspacesApi.list(signal), select: selectWorkspaces })
 }
 
 /** 预设模板，只读，按原型的顺序 */
 export function useWorkspaceTemplates() {
-  return useQuery({ queryKey: dataKeys.workspaces.templates, queryFn: ({ signal }) => workspacesApi.templates(signal), staleTime: Infinity })
+  return useQuery({ queryKey: dataKeys.workspaces.templates, queryFn: ({ signal }) => workspacesApi.templates(signal), staleTime: Infinity, select: selectTemplates })
 }
+
+// select 用稳定的函数引用，结果按输入缓存，不会每次渲染都换新数组
+const selectWorkspaces = (xs: Workspace[]) => xs.map(upgradeVideo)
+const selectTemplates = (xs: WorkspaceTemplate[]) => xs.map(upgradeVideo)
 
 export function useCreateWorkspace() {
   const notify = useNotifyChange()

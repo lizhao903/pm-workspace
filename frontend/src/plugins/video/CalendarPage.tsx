@@ -245,7 +245,7 @@ export function CalendarPage({ videos, onModuleTab, onOpenVideo, onOpenTest }: {
 
   return (
     <div className="vd-page">
-      <PageTitle parent="视频" desc={`这周发什么、来不来得及：发布排期、计划首发日和商单交付；离首发 ${lateDays} 天内还没过第一章验收的标红，拖动改日期`}>日历</PageTitle>
+      <PageTitle parent="发布与数据" desc={`这周发什么、来不来得及：发布排期、计划首发日和商单交付；离首发 ${lateDays} 天内还没过第一章验收的标红，拖动改日期`}>日历</PageTitle>
       <VideosTabs active="calendar" videos={videos} onSelect={onModuleTab} />
       <div className="vcal-bar">
         <div className="vd-sort" role="group" aria-label="视图">

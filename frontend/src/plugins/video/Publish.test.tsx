@@ -118,7 +118,7 @@ function fakeBackend(opts: { platforms?: VideoPlatformInfo[]; submitFails?: bool
 
 function show(path: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createMemoryRouter([{ path: '/videos/*', element: <Page /> }, { path: '*', element: <div>别的页</div> }], { initialEntries: [path] })
+  const router = createMemoryRouter([{ path: '/videos/*', element: <Page /> }, { path: '/video_clips/*', element: <Page /> }, { path: '/video_publish/*', element: <Page /> }, { path: '*', element: <div>别的页</div> }], { initialEntries: [path] })
   render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
   return router
 }
@@ -129,7 +129,7 @@ describe('发布记录', () => {
   it('登记一条视频号发布：标题超长不能提交，登记后抽屉记在地址上，填链接、回填存快照', async () => {
     const be = fakeBackend()
     const user = userEvent.setup()
-    const router = show('/videos/publishes')
+    const router = show('/video_publish')
     expect(await screen.findByText('还没有发布记录')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: /新建发布/ }))
@@ -178,7 +178,7 @@ describe('发布记录', () => {
   it('接通的平台立即发布：建好就投稿，投不成显示原因，重试再投一次', async () => {
     const be = fakeBackend({ submitFails: true, platforms: plats({ connectors: [{ id: 'cn_1', name: 'B 站主号', account: '', status: 'connected' }] }) })
     const user = userEvent.setup()
-    show('/videos/publishes?p=new')
+    show('/video_publish?p=new')
     const d = await screen.findByRole('dialog', { name: '新建发布' })
     expect(within(d).getByText(/这集还没有 16:9、4:3 的竖屏封面/)).toBeInTheDocument()
     await user.click(within(d).getByRole('button', { name: '立即发布' }))
@@ -200,7 +200,7 @@ describe('封面 A/B', () => {
         metrics: { views: 1, likes: 0, comments: 0, shares: 0, impressions: 11000, ctr: 0.05, updated_at: T }, created_at: T, updated_at: T },
     )
     const user = userEvent.setup()
-    const router = show('/videos/publishes')
+    const router = show('/video_publish')
     await user.click(await screen.findByRole('button', { name: '新建测试' }))
     const d = screen.getByRole('dialog', { name: '新建封面测试' })
     expect(within(d).getByRole('radio', { name: '平台原生测试' })).toBeDisabled()
@@ -240,7 +240,7 @@ describe('封面 A/B', () => {
       arms: [{ cover_id: 'vaf_1', publish_id: 'pb_m' }, { cover_id: 'vaf_2', publish_id: 'pb_a' }, { cover_id: 'vaf_3', publish_id: 'pb_b' }],
       state: { days: 1, reached: 0, days_ok: false, imp_ok: false, gap_ok: false, arms: [] } })
     const user = userEvent.setup()
-    show('/videos/publishes?t=vct_9')
+    show('/video_publish?t=vct_9')
     const t = await screen.findByRole('dialog', { name: '封面 A/B 测试' })
     await user.click(within(t).getByRole('button', { name: '结束，不判胜负' }))
     expect(within(t).getByText('结束测试，不判胜负，主封面不变？')).toBeInTheDocument()

@@ -9,6 +9,9 @@
 // VID-05c 加了 /videos/publishes 发布记录（?video= 只看一集，?p= 发布抽屉，?t= 封面测试抽屉）
 // VID-06d 加了 /videos/calendar 内容日历（?m=week 周视图，?d= 看的那天，?p= 发布抽屉）
 // TSK-0455 加了 /videos/bilibili B 站组件（?c= 连接器，?v=dm 私信，?t= 对方 UID）
+// SPEC-videos-0.1 拆成三个一级模块，三个模块都挂这一个页面，按挂在哪个模块下（路径）决定显示哪些页面和标签，地址见 routes.ts：
+// 素材收件箱、选题搬到 /video_clips，发布记录、日历、B 站数据搬到 /video_publish，原来的地址重定向过去；数据和查询缓存三个模块共用。
+// 跳到别的模块的页面时地址换到那个模块下，一级菜单跟着切：从发布记录、日历、选题打开某一集落到做视频，某一集里点「发布记录」落到发布与数据。
 import { Navigate, useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { ErrorState, LoadingState, PageTitle } from '../../core/ui'
 import { errorText, isApiError, projectView, useProjects, useVideo, useVideoClips, useVideoSeries, useVideoTopics, useVideos } from '../../core/data'
@@ -18,7 +21,7 @@ import { ClipsPage } from './ClipsPage'
 import { Detail } from './Detail'
 import { ListPage } from './ListPage'
 import type { ModuleTab } from './parts'
-import { routeOf, tabPath, viewKey, viewPath, type ListView } from './routes'
+import { moduleOfRoot, routeOf, tabHref, tabModule, tabPath, videoHref, viewKey, viewPath, VIDEO_MODULE_LABEL, type ListView } from './routes'
 import { PublishPage } from './PublishPage'
 import { SeriesPage } from './SeriesPage'
 import { TopicsPage } from './TopicsPage'
@@ -28,11 +31,13 @@ type BackState = { from?: ModuleTab }
 
 export default function Page() {
   const rest = useParams()['*'] ?? ''
-  const { pathname, state } = useLocation()
+  const { pathname, search: query, state } = useLocation()
   const navigate = useNavigate()
   const [search, setSearch] = useSearchParams()
   const root = pathname.slice(0, pathname.length - rest.length).replace(/\/+$/, '')
-  const route = routeOf(rest)
+  const mod = moduleOfRoot(root)
+  const parent = VIDEO_MODULE_LABEL[mod]
+  const route = routeOf(rest, mod)
   const videos = useVideos()
   const series = useVideoSeries()
   const projects = useProjects()
@@ -41,23 +46,30 @@ export default function Page() {
   const clips = useVideoClips()
 
   if (route.kind === 'bad') return <Navigate to={root} replace />
+  // 旧地址（原来 /videos 下的素材、选题、发布记录、日历、B 站）换到新模块，查询串照带
+  if (route.kind === 'moved') return <Navigate to={route.to + query} replace state={state} />
+  // 今日「视频发布失败」「视频待发布」给的是 /videos/v/<id>?p=<发布 id>：打开发布与数据里这条发布记录的抽屉
+  const pub = route.kind === 'video' ? search.get('p') : null
+  if (route.kind === 'video' && pub) return <Navigate to={`${tabHref('publishes')}?${new URLSearchParams({ video: route.id, p: pub })}`} replace />
 
-  const from: ModuleTab = (state as BackState | null)?.from ?? 'all'
-  const go = (to: string, st?: BackState, replace?: boolean) => navigate(`${root}${to}`, { state: st, replace })
+  // 某一集属于做视频：从别的模块（发布记录、日历、选题）点进来的，标签栏高亮「全部视频」
+  const back = (state as BackState | null)?.from
+  const from: ModuleTab = back && tabModule(back) === 'videos' ? back : 'all'
+  const go = (to: string, st?: BackState, replace?: boolean) => navigate(videoHref(to), { state: st, replace })
   const onView = (v: ListView) => go(viewPath(v))
   const openVideo = (id: string, tab: ModuleTab) => go(`/v/${encodeURIComponent(id)}`, { from: tab })
   const openSeries = (id: string) => onView({ kind: 'series', id })
-  const onModuleTab = (t: ModuleTab) => (t === 'series' || t === 'topics' || t === 'clips' || t === 'publishes' || t === 'calendar' || t === 'bilibili' ? go(`/${t}`) : onView({ kind: t }))
+  const onModuleTab = (t: ModuleTab) => navigate(tabHref(t))
 
   const list = videos.data ?? []
   const seriesList = series.data ?? []
   const projectList = (projects.data?.data ?? []).map(projectView)
 
-  if (videos.isPending || series.isPending) return <section><PageTitle>视频</PageTitle><LoadingState /></section>
+  if (videos.isPending || series.isPending) return <section><PageTitle>{parent}</PageTitle><LoadingState /></section>
   if (videos.isError || series.isError) {
     return (
       <section>
-        <PageTitle>视频</PageTitle>
+        <PageTitle>{parent}</PageTitle>
         <ErrorState title="视频没加载出来" error={errorText(videos.error ?? series.error)}
           onRetry={() => { void videos.refetch(); void series.refetch() }} />
       </section>
@@ -81,11 +93,11 @@ export default function Page() {
 
   if (route.kind === 'topics' || route.kind === 'clips') {
     const label = route.kind === 'topics' ? '选题' : '素材收件箱'
-    if (topics.isPending || clips.isPending) return <section><PageTitle parent="视频">{label}</PageTitle><LoadingState /></section>
+    if (topics.isPending || clips.isPending) return <section><PageTitle parent={parent}>{label}</PageTitle><LoadingState /></section>
     if (topics.isError || clips.isError) {
       return (
         <section>
-          <PageTitle parent="视频">{label}</PageTitle>
+          <PageTitle parent={parent}>{label}</PageTitle>
           <ErrorState title={`${label}没加载出来`} error={errorText(topics.error ?? clips.error)}
             onRetry={() => { void topics.refetch(); void clips.refetch() }} />
         </section>
@@ -111,10 +123,10 @@ export default function Page() {
   const gone = isApiError(video.error, 'not_found')
   const v = gone ? undefined : video.data ?? list.find((x) => x.id === route.id)
   if (!v) {
-    if (video.isPending) return <section><PageTitle parent="视频">视频</PageTitle><LoadingState /></section>
+    if (video.isPending) return <section><PageTitle parent={parent}>视频</PageTitle><LoadingState /></section>
     return (
       <section>
-        <PageTitle parent="视频">{gone ? '视频不存在' : '视频'}</PageTitle>
+        <PageTitle parent={parent}>{gone ? '视频不存在' : '视频'}</PageTitle>
         {gone
           ? <div className="empty"><div className="empty-title">这个视频已经删除</div><div className="empty-desc">切到别的标签看看</div></div>
           : <ErrorState title="视频没加载出来" error={errorText(video.error)} onRetry={() => void video.refetch()} />}

@@ -82,7 +82,7 @@ export function ClipsPage({ clips, topics, videos, onModuleTab, onOpenTopic }: {
 
   return (
     <div className="vd-page">
-      <PageTitle parent="视频" count={clips.length} desc="评论、热榜、竞品、聊天里冒出来的点子先收进来，再挑出值得做的变成选题" actions={(
+      <PageTitle parent="素材收集" count={clips.length} desc="评论、热榜、竞品、聊天里冒出来的点子先收进来，再挑出值得做的变成选题" actions={(
         <>
           {note && <span className="tp-note" role="status">{note}</span>}
           <Button variant="outline" aria-pressed={collect === 'trend'} onClick={() => { setNote(''); setCollect(collect === 'trend' ? null : 'trend') }}>拉取热榜</Button>

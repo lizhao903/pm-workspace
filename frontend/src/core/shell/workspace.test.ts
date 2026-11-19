@@ -1,7 +1,7 @@
 // powered by dsh - https://github.com/deepseek-ai/deepseek-harness
 
 import { describe, expect, it } from 'vitest'
-import type { PluginInfo, Workspace } from '../data'
+import { splitVideoModules, type PluginInfo, type Workspace } from '../data'
 import type { ModuleDef } from '../plugin'
 import { buildMenu, isGroupFolded } from './menu'
 import {
@@ -104,5 +104,33 @@ describe('按工作台出菜单', () => {
     expect(isGroupFolded(g, ['ws:g3'])).toBe(false)
     expect(isGroupFolded({ id: 'x', name: '工作' }, ['x'])).toBe(true)
     expect(isGroupFolded({ id: 'x', name: '' , collapsed: true }, [])).toBe(false)
+  })
+})
+
+describe('视频拆成三个模块（SPEC-videos-0.1）', () => {
+  const grp = (name: string, modules: string[]) => ({ name, modules })
+  it('目录里有做视频、素材收集、发布与数据，都要 video 插件', () => {
+    expect(['videos', 'video_clips', 'video_publish'].every((k) => CATALOG_IDS.has(k))).toBe(true)
+    expect(pluginsForModules(['videos', 'video_clips', 'video_publish'])).toEqual(['video'])
+  })
+
+  it('视频创作工作台：素材收集、做视频放创作，发布与数据放发布与互动最前面', () => {
+    const old = [grp('', ['today']), grp('创作', ['videos', 'library', 'sessions']), grp('发布与互动', ['tasks', 'messages']), grp('合作', ['contacts', 'projects'])]
+    expect(splitVideoModules(old).map((g) => g.modules)).toEqual([
+      ['today'], ['video_clips', 'videos', 'library', 'sessions'], ['video_publish', 'tasks', 'messages'], ['contacts', 'projects'],
+    ])
+  })
+
+  it('没有发布与互动分组的（全部模块）：三个排在原来视频的位置', () => {
+    expect(splitVideoModules([grp('工作', ['projects']), grp('视频', ['videos'])]).map((g) => g.modules)).toEqual([['projects'], ['video_clips', 'videos', 'video_publish']])
+  })
+
+  it('已经是拆分后的配置、没开视频的不动；关掉其中一个的照用户的来', () => {
+    const split = [grp('创作', ['videos', 'library']), grp('发布', ['video_publish'])]
+    expect(splitVideoModules(split)).toBe(split)
+    const none = [grp('工作', ['projects'])]
+    expect(splitVideoModules(none)).toBe(none)
+    const clipsOnly = [grp('', ['video_clips'])]
+    expect(splitVideoModules(clipsOnly)).toBe(clipsOnly)
   })
 })

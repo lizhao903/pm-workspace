@@ -40,9 +40,12 @@ func TestManifestValid(t *testing.T) {
 	if _, ok := m.OptionalDepends["im"]; !ok {
 		t.Fatalf("optional_depends=%v，要弱依赖 im", m.OptionalDepends)
 	}
-	// 模块 key 和工作台目录（0023 的 ws_video）一致
-	if !reflect.DeepEqual(m.Provides.Modules, []string{"videos"}) {
+	// 模块 key 和工作台目录一致：0023 的 ws_video 只记 videos，SPEC-videos-0.1（0.11.0）拆出素材收集、发布与数据，前端读工作台时补齐
+	if !reflect.DeepEqual(m.Provides.Modules, []string{"videos", "video_clips", "video_publish"}) {
 		t.Fatalf("provides.modules=%v", m.Provides.Modules)
+	}
+	if !reflect.DeepEqual(m.Icons, map[string]string{"videos": "video", "video_clips": "inbox", "video_publish": "bars"}) {
+		t.Fatalf("icons=%v", m.Icons)
 	}
 }
 

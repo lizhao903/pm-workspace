@@ -58,6 +58,7 @@ export type {
 } from './schedules'
 export {
   useWorkspaces, useWorkspaceTemplates, useCreateWorkspace, usePatchWorkspace, useDeleteWorkspace, applyPatch as applyWorkspacePatch,
+  splitVideoModules,
 } from './workspaces'
 export type {
   Workspace, WorkspaceGroup, WorkspaceGroupInput, WorkspaceMark, WorkspaceTemplate, WorkspaceInput, WorkspacePatch,

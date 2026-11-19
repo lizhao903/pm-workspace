@@ -64,7 +64,7 @@ export function PublishPage({ videos, onModuleTab, onOpenVideo }: {
   const queries = [publishes, platforms, accounts, covers, tests]
   const head = (
     <>
-      <PageTitle parent="视频" count={publishes.data ? (videoId ? publishes.data.filter((p) => p.video_id === videoId).length : publishes.data.length) : undefined}
+      <PageTitle parent="发布与数据" count={publishes.data ? (videoId ? publishes.data.filter((p) => p.video_id === videoId).length : publishes.data.length) : undefined}
         desc="每个平台发了哪个比例、哪张封面，发出去以后回填播放数据"
         actions={<Button variant="primary" disabled={!publishes.data} onClick={() => openPub('new')}><IconPlus />新建发布</Button>}>发布记录</PageTitle>
       <VideosTabs active="publishes" videos={videos} onSelect={onModuleTab} />

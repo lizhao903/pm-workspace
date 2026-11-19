@@ -4,12 +4,14 @@ import { describe, expect, it } from 'vitest'
 import { PLUGIN_API_VERSION, deactivatePlugin, discoverPlugins, loadPlugins, moduleStore, sopNodeView, todayCardStore } from '../../core/plugin'
 
 describe('视频创作插件', () => {
-  it('启用后注册视频模块，停用后撤掉', async () => {
+  it('启用后注册做视频、素材收集、发布与数据三个模块（SPEC-videos-0.1），停用后撤掉', async () => {
     const r = await loadPlugins(discoverPlugins(), { enabled: ['projects', 'video'], apiVersion: PLUGIN_API_VERSION })
     expect(r.problems).toEqual([])
     const video = r.plugins.find((p) => p.id === 'video')!
     expect(video.permissions).toEqual(['fs:read:project', 'fs:write:project', 'network:media-platforms', 'process:spawn', 'fs:read:registered'])
-    expect(r.modules.filter((m) => m.plugin.id === 'video').map((m) => [m.def.id, m.def.label, m.def.path])).toEqual([['videos', '视频', 'videos']])
+    expect(r.modules.filter((m) => m.plugin.id === 'video').map((m) => [m.def.id, m.def.label, m.def.path])).toEqual([
+      ['videos', '做视频', 'videos'], ['video_clips', '素材收集', 'video_clips'], ['video_publish', '发布与数据', 'video_publish'],
+    ])
     // SOP 节点的展示：名字给流程图用，阶段、检查点按带不带检查点分开
     expect(sopNodeView('video_run_stage')?.label).toBe('跑视频阶段')
     expect(sopNodeView('video_wait_checkpoint')?.fields.find((f) => f.key === 'checkpoint')?.options?.().map((o) => o.value)).toEqual(['plan', 'ch1', 'audio', 'distribution'])

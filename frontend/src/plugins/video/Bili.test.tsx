@@ -74,7 +74,7 @@ function fakeBackend(opts: { login?: string; guardOnSend?: boolean; noConnector?
 
 function show(path: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createMemoryRouter([{ path: '/videos/*', element: <Page /> }], { initialEntries: [path] })
+  const router = createMemoryRouter([{ path: '/videos/*', element: <Page /> }, { path: '/video_clips/*', element: <Page /> }, { path: '/video_publish/*', element: <Page /> }], { initialEntries: [path] })
   render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
   return { router }
 }
@@ -82,16 +82,17 @@ function show(path: string) {
 afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers() })
 
 describe('B 站组件', () => {
-  it('路由和标签栏：/videos/bilibili 是 B 站页', async () => {
-    expect(routeOf('bilibili')).toEqual({ kind: 'bilibili' })
+  it('路由和标签栏：/video_publish/bilibili 是 B 站页', async () => {
+    expect(routeOf('bilibili', 'video_publish')).toEqual({ kind: 'bilibili' })
+    expect(routeOf('bilibili')).toEqual({ kind: 'moved', to: '/video_publish/bilibili' })
     fakeBackend()
-    show('/videos/bilibili')
-    expect(await screen.findByRole('tab', { name: 'B 站', selected: true })).toBeInTheDocument()
+    show('/video_publish/bilibili')
+    expect(await screen.findByRole('tab', { name: 'B 站数据', selected: true })).toBeInTheDocument()
   })
 
   it('账户概览：数字卡、昨日新增、开放平台来源说明、趋势', async () => {
     fakeBackend()
-    show('/videos/bilibili')
+    show('/video_publish/bilibili')
     expect(await screen.findByText('3,450')).toBeInTheDocument()
     expect(screen.getByText('昨日 +21')).toBeInTheDocument()
     expect(screen.getByText(/粉丝、关注、过审稿件取开放平台/)).toBeInTheDocument()
@@ -102,7 +103,7 @@ describe('B 站组件', () => {
 
   it('没登录时扫码：生成二维码，轮询到成功', async () => {
     const be = fakeBackend({ login: 'logged_out' })
-    show('/videos/bilibili')
+    show('/video_publish/bilibili')
     await userEvent.click(await screen.findByRole('button', { name: '生成二维码' }))
     expect(await screen.findByRole('img', { name: 'B 站登录二维码' })).toBeInTheDocument()
     await waitFor(() => expect(be.calls.filter((c) => c.path.endsWith('/login/poll')).length).toBeGreaterThanOrEqual(2), { timeout: 6000 })
@@ -111,14 +112,14 @@ describe('B 站组件', () => {
 
   it('没有连接器时引导新建', async () => {
     const be = fakeBackend({ noConnector: true })
-    show('/videos/bilibili')
+    show('/video_publish/bilibili')
     await userEvent.click(await screen.findByRole('button', { name: '新建并扫码登录' }))
     await waitFor(() => expect(be.calls.some((c) => c.method === 'POST' && c.path === '/api/connectors' && c.body?.tool === 'bilibili_web')).toBe(true))
   })
 
   it('私信：会话列表、消息记录，点发送才发，一次一条带 client_msg_id', async () => {
     const be = fakeBackend()
-    show('/videos/bilibili?v=dm&t=777')
+    show('/video_publish/bilibili?v=dm&t=777')
     expect(await screen.findByText('请问合作怎么联系', { selector: '.bl-bubble' })).toBeInTheDocument()
     const sessions = screen.getByRole('list', { name: '私信会话' })
     expect(within(sessions).getByText('热心观众')).toBeInTheDocument()
@@ -137,7 +138,7 @@ describe('B 站组件', () => {
 
   it('被限频：发送失败时显示退避原因，不自动重试', async () => {
     const be = fakeBackend({ guardOnSend: true })
-    show('/videos/bilibili?v=dm&t=777')
+    show('/video_publish/bilibili?v=dm&t=777')
     const box = await screen.findByRole('textbox', { name: '私信内容' })
     fireEvent.change(box, { target: { value: '在的' } })
     await userEvent.click(screen.getByRole('button', { name: '发送' }))

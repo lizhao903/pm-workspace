@@ -1638,7 +1638,7 @@ api.sopNodes.register({
 
 - 谁能写：任何插件的 `plugin.json`。校验前后端一致（`internal/plugin/manifest.go`、`frontend/src/core/plugin/manifest.ts`）：图标 key 必须是 `^[a-z][a-z0-9_]*$`；`icons` 的键必须是本插件 `provides.modules` 里的模块，值必须是字符串。不合法时清单校验失败：后端第一方插件 `MustParse` 直接 panic（清单写错是编译期问题），前端不加载这个插件。
 - 权限：不要权限。
-- 外壳怎么取（`frontend/src/core/shell/pluginIcons.ts`、`icons.tsx`）：模块的图标 key 取 `icons[模块 id]`，没有取 `icon`；按构建时打进来的清单算，插件启没启用不影响；两个插件给同一模块时取先发现的那个。渲染时内核模块（今日、任务、文档、联系人、会话、设置）的内置图标优先，其次是插件图标集里的 key（现有 `folder`、`message`、`terminal`、`globe`、`video`、`candles`、`pulse`、`chart`、`swap`、`flow`），外壳不认识的 key 用默认图标。加新图标 key 改 `icons.tsx` 的 `PLUGIN_ICONS`。
+- 外壳怎么取（`frontend/src/core/shell/pluginIcons.ts`、`icons.tsx`）：模块的图标 key 取 `icons[模块 id]`，没有取 `icon`；按构建时打进来的清单算，插件启没启用不影响；两个插件给同一模块时取先发现的那个。渲染时内核模块（今日、任务、文档、联系人、会话、设置）的内置图标优先，其次是插件图标集里的 key（现有 `folder`、`message`、`terminal`、`globe`、`video`、`inbox`、`bars`、`mic`、`candles`、`pulse`、`chart`、`swap`、`flow`；`inbox`、`bars` 是视频插件的素材收集、发布与数据，SPEC-videos-0.1），外壳不认识的 key 用默认图标。加新图标 key 改 `icons.tsx` 的 `PLUGIN_ICONS`。
 
 例子（`internal/plugins/im/plugin.json`）：
 

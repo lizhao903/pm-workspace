@@ -2,15 +2,15 @@
 
 | 项 | 内容 |
 |---|---|
-| 模块 key | `videos` |
-| 原型入口 | 一级菜单「视频」，http://127.0.0.1:7778 |
+| 模块 key | `videos`（做视频）、`video_clips`（素材收集）、`video_publish`（发布与数据）：同一个视频插件登记的三个一级模块 |
+| 原型入口 | 一级菜单「做视频」「素材收集」「发布与数据」，http://127.0.0.1:7778 |
 | 源码 | `web-next/src/videos.tsx`（`VideosTabs`、`VideosListPage`、`StageDist`、`SeriesSettingsDrawer`、`VideoDetail`、`ScriptDesk`、`TextPane`、`ArtifactDrawer`）、`web-next/src/videopublish.tsx`（`SeriesPage`、`PublishPage`、`NewPublishDrawer`、`PublishDrawer`）、`web-next/src/topics.tsx`（`TopicsPage`、`TopicDrawer`、`ClipsPage`）、`web-next/src/videocalendar.tsx`（`CalendarPage`）、`web-next/src/videodeals.tsx`（`DealsTab`、`DealDrawer`）；接线在 `web-next/src/App.tsx`（`videoView`、`videoFrom`、`videoTexts`、`makeVideoFromTopic`、`newVideo`、`channelOf`、`movePublish`、`moveTarget`、`saveDeal`、`makeDealReport`、`openDealFromMessage`，定时发布同步和发布失败上报两个 effect） |
 | 数据文件 | `web-next/src/videodata.ts`（视频、系列、检查点、产出物、文稿正文、发布记录、日历条目、商单）、`web-next/src/topicdata.ts`（选题、素材）；定时发布在 `web-next/src/scheduledata.ts`（`ScheduleAction` 的 `publish`），发布失败在 `web-next/src/incidentdata.ts`（模块「发布」） |
 | 截图 | [`shots/videos/`](shots/videos/) |
 | 负责任务 | PROTO-04f3 |
 | 对应开发任务 | 见下表「引用本规格的开发任务」 |
 | 状态 | 已整理 |
-| 最后对照 | 2026-10-29，原型提交 `444aee8`（`web-next/src` 最后一次改动 `d164967`） |
+| 最后对照 | 2026-10-29，原型提交 `444aee8`（`web-next/src` 最后一次改动 `d164967`）；2026-11-18 拆成三个一级模块（`SPEC-videos-0.1`，原型已改）；2026-11-19 正式前端已实现（video 0.11.0，实现差异见 `SPEC-videos-0.4`） |
 
 ### 引用本规格的开发任务
 
@@ -38,7 +38,20 @@
 
 给视频博主用：按 web-video-presentation 技能的制作流程管一集视频（选题、内容编写、规划检查、网页开发、第一章验收、其余章节、音频、录屏、分发包），四个检查点要人确认；每一步的产出物带比例、版本和验收记录；多集归成系列共用开场收尾；做完按平台登记发布并回填数据。前面还有选题和素材收件箱两页，负责「做什么」。
 
-模块没有二级菜单，顶栏下面一排八个标签（`VideosTabs`）：全部视频、待我处理、日历、选题、素材收件箱、系列、发布记录、B 站（TSK-0455，见 `SPEC-videos-18`）。商单不在视频模块的标签里，在项目详情的「商单」标签（视频模块开着才有），见 `SPEC-videos-16`。「待我处理」和「素材收件箱」标签后面带数字（停在检查点或被退回的集数、待整理的素材数），一级菜单「视频」在有待处理的集时亮红点。打开某一集时标签栏还在，高亮按从哪进来的算：从系列进来高亮「系列」，其余高亮「全部视频」。
+视频插件登记三个一级模块，各自没有二级菜单，顶栏下面一排标签（`VideosTabs`，只列当前模块的标签）：
+
+| 模块 | key | 标签 | 一级菜单提示 |
+|---|---|---|---|
+| 素材收集 | `video_clips` | 素材收件箱、选题 | 待整理的素材数 |
+| 做视频 | `videos` | 全部视频、待我处理、系列 | 有停在检查点或被退回的集时亮红点 |
+| 发布与数据 | `video_publish` | 发布记录、日历、B 站数据（TSK-0455，见 `SPEC-videos-18`） | 有发布失败时亮红点，带失败条数 |
+
+- SPEC-videos-0.1 拆分（2026-11-18）：原来一个「视频」模块八个标签，做视频、找素材、发布和看数据挤在一起；按「做什么 → 做 → 发出去看效果」拆成三个模块，工作台里可以分别开关、分别放进不同的菜单分组（视频创作工作台：素材收集、做视频放「创作」，发布与数据放「发布与互动」）。
+- SPEC-videos-0.2 数据和视图状态三个模块共用（原型 `App.tsx` 的 `videoView`）。跳到别的模块的视图时一级菜单跟着切（`videoModuleOf`）：从发布记录、日历打开某一集落到「做视频」；选题立项后打开新建的那集落到「做视频」；某一集里点「发布记录」落到「发布与数据」。从菜单点进一个模块时，当前视图不属于它就落到它的首个标签（`VIDEO_HOME`）。
+- SPEC-videos-0.3 页面标题的上级显示模块名（做视频、素材收集、发布与数据），不再是「视频」。
+- SPEC-videos-0.4 正式前端（2026-11-19，video 0.11.0）已实现 0.1 到 0.3：清单 `provides.modules` 是 `videos`、`video_clips`、`video_publish`，三个模块挂同一个页面（`frontend/src/plugins/video/Page.tsx`、`routes.ts`），地址是 `/videos`（全部视频、`/review`、`/series`、`/v/<id>`）、`/video_clips`（素材收件箱、`/topics`）、`/video_publish`（发布记录、`/calendar`、`/bilibili`），原来 `/videos/clips`、`/videos/topics`、`/videos/publishes`、`/videos/calendar`、`/videos/bilibili` 重定向到新位置；今日卡片给的 `/videos/v/<id>?p=<发布 id>` 落到发布与数据的这条发布记录。和原型不同的地方：一级菜单沿用正式产品「只给红点、不放数字」的规矩（第四十一批决策），素材收集有待整理素材时也是红点，条数和发布失败条数都写在悬停提示里；从菜单点进模块一律落到首个标签（视图记在地址上，不像原型留着当前视图）；库里的工作台和模板不改，读的时候把只开着 `videos` 的补成三个，见 `SPEC-settings-2`。
+
+商单不在视频模块的标签里，在项目详情的「商单」标签（视频插件开着才有），见 `SPEC-videos-16`。「待我处理」和「素材收件箱」标签后面带数字（停在检查点或被退回的集数、待整理的素材数）。打开某一集时标签栏还在，高亮按从哪进来的算：从系列进来高亮「系列」，其余高亮「全部视频」。
 
 ### 页面清单
 
@@ -416,7 +429,7 @@
 | 进来 | 项目 | 删除项目 | 这个项目的视频 `project_id` 清空，记录保留；删除前的影响里写「N 个视频会移出项目」 | `SPEC-projects-13.10`、`SPEC-projects-13.11` |
 | 出去 | 设置（连接器，内容平台） | 新建发布里平台没接入或异常，点「去接入」「去修复」 | 跳到设置 / 连接器，分类筛到内容平台；已有连接器打开它的抽屉，没有就打开这个平台的新建抽屉 | `SPEC-videos-8.8`、`SPEC-settings-3.3`、`SPEC-settings-5` |
 | 进来 | 设置（连接器，内容平台） | 连接器状态、工具清单 | 决定每个平台的 `ChannelState`：能不能自动发、只能登记、提示修复 | `SPEC-videos-0` `ChannelState`、`SPEC-settings-5` |
-| 进来 | 设置（工作台与模块） | 工作台模板「视频博主」 | 首页就是视频模块；模块不在当前工作台时一级菜单没有「视频」 | `SPEC-settings-2` |
+| 进来 | 设置（工作台与模块） | 工作台模板「视频博主」 | 首页是做视频；三个模块各自不在当前工作台时一级菜单没有它（拆分前只开着「视频」的工作台读的时候补成三个） | `SPEC-settings-2` |
 | 出去 | 浏览器 | 产出物「预览」、发布记录「打开链接」 | 在内置浏览器新开标签：演示工程、成片、封面预览地址是 `http://127.0.0.1:7801/<视频目录>/<路径>`；发布链接直接打开 | `SPEC-videos-12.10`、`SPEC-videos-9.9`、`SPEC-browser-3` |
 | 进来 | Agent（技能） | 产出物的来源 | 技能列表里有内置的「网页演示做视频」（`sk_video`，web-video-presentation）和「视频数据复盘」（`sk_video_review`）；产出物 `source.type` 可以是 `skill`、`agent`、`sop`。制作流程里每个阶段可以配技能或 Agent 当执行器，跑完的产出物来源记成它（VID-03p，`SPEC-videos-10.19`） | `SPEC-settings-15`、`SPEC-settings-16`、`SPEC-videos-12.2` |
 | 出去 | SOP | 制作阶段交给 SOP 跑、SOP 里的「发布到平台」节点 | 原型：阶段执行器可以选 SOP，流程库里有内置的「视频周更」（`sop_video_weekly`，8 步：文稿处理、规划检查、开发第 1 章、检查第 1 章、并行开发其余章节、音频检查、渲染、分发包检查），SOP 产出的产出物 `source.type = 'sop'`。原型里执行器选 SOP 只模拟跑完，不真的发起一次 SOP 执行；「发布到平台」节点原型未做。正式版：视频插件登记 SOP 节点和模板（VID-03d），节点类型的登记方式按 SOP 的插件节点 | `SPEC-sop-11`、`SPEC-sop-0` |
@@ -458,7 +471,7 @@
 
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
-| SPEC-videos-1.1 | 页面标题 | 展示 | 「全部视频」，前面是「视频」，后面是总集数，说明「按系列分组；点系列看全部集数」 |
+| SPEC-videos-1.1 | 页面标题 | 展示 | 「全部视频」，前面是「做视频」，后面是总集数，说明「按系列分组；点系列看全部集数」 |
 | SPEC-videos-1.2 | 右上「新建视频」 | 点击 | 新建一集单集视频（标题「新视频」，比例横屏，阶段选题（VID-09p 起，原来是内容编写），四个检查点待确认，目录 `videos/new-<n>`，章节 3），直接打开它的详情（`SPEC-videos-10`） |
 | SPEC-videos-1.3 | 阶段分布条 | 展示 / 点击 | 上面一条按阶段分段、宽度按集数比例：已完成绿色，有等我处理的段橙色，其余蓝色；下面一排「阶段名 + 集数」的小块。点一段或一块按这个阶段筛（再点取消），出现「清除」 |
 | SPEC-videos-1.4 | 搜索框 | 输入 | 按标题、目录、集数过滤；有内容时不再分组 |
@@ -504,7 +517,7 @@
 
 | 编号 | 元素 | 操作 | 结果 |
 |---|---|---|---|
-| SPEC-videos-2.1 | 标签「待我处理」的数字 | 展示 | 等我处理的集数，鼠标悬停「N 集停在检查点或被退回」；为 0 不显示。一级菜单「视频」同时亮红点 |
+| SPEC-videos-2.1 | 标签「待我处理」的数字 | 展示 | 等我处理的集数，鼠标悬停「N 集停在检查点或被退回」；为 0 不显示。一级菜单「做视频」同时亮红点 |
 | SPEC-videos-2.2 | 页面标题 | 展示 | 「待我处理」，说明「停在检查点上等你确认，或者被退回要改的」 |
 | SPEC-videos-2.3 | 搜索、项目筛选、排序 | 同 `SPEC-videos-1.4` 到 `1.6` | 默认按更新倒序 |
 | SPEC-videos-2.4 | 视频行 | 点击 | 打开视频详情的制作流程，当前检查点上有「通过」「退回」（`SPEC-videos-10.6`）；处理完回到这里，那一集不再出现 |

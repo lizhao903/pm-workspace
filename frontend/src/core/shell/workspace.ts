@@ -20,7 +20,10 @@ export const MODULE_CATALOG: readonly { key: string; label: string; desc: string
   { key: 'runs', label: '运行', desc: 'Agent 与任务的执行一页看到' },
   { key: 'terminal', label: '终端', desc: '分屏终端，能启停项目原型' },
   { key: 'browser', label: '浏览器', desc: '内置浏览器：看原型、Google Drive 文件' },
-  { key: 'videos', label: '视频', desc: '视频制作流程、产出物、系列和多平台发布' },
+  // 视频插件拆成三个一级模块（SPEC-videos-0.1）；原来只有一个「视频」的工作台读的时候补齐，见 core/data/workspaces.ts splitVideoModules
+  { key: 'videos', label: '做视频', desc: '视频制作流程、检查点、产出物和系列' },
+  { key: 'video_clips', label: '素材收集', desc: '评论、热榜、竞品、想法收进来，整理成选题' },
+  { key: 'video_publish', label: '发布与数据', desc: '多平台发布、发布日历、平台账户数据' },
   { key: 'markets', label: '行情', desc: '数币、A 股、港股、美股的看盘和期权 T 型报价' },
   { key: 'monitor', label: '盯盘', desc: '盯盘墙、价格与异动提醒、市场时段' },
   { key: 'etf', label: '宽基监控', desc: '宽基 ETF 份额与资金流、异动提醒和规则' },

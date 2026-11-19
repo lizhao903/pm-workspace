@@ -31,6 +31,9 @@ const PLUGIN_ICONS: Readonly<Record<string, ReactNode>> = {
   mic: svg(<><rect x="5.9" y="1.8" width="4.2" height="7.4" rx="2.1" {...line} /><path d="M3.5 7.6a4.5 4.5 0 0 0 9 0M8 12.1v2.1M5.6 14.2h4.8" {...round} /></>),
   chart: svg(<><path d="M2 13.5h12M3.5 11l3-3.5 2.5 2 4-5" {...round} /><path d="M10.5 4.5h2.5V7" {...round} /></>),
   swap: svg(<path d="M3 5h9.5l-2.5-2.5M13 11H3.5L6 13.5" {...round} />),
+  // 视频插件的素材收集、发布与数据（SPEC-videos-0.1），线条照原型 App.tsx 的 video_clips、video_publish
+  inbox: svg(<><path d="M2 9.5 3.8 3h8.4L14 9.5v3.3c0 .6-.4 1-1 1H3c-.6 0-1-.4-1-1Z" {...line} strokeLinejoin="round" /><path d="M2 9.5h3.5l.8 1.7h3.4l.8-1.7H14" {...line} strokeLinejoin="round" /></>),
+  bars: svg(<><path d="M2 13.5h12M4.5 11V8.5M8 11V6.5M11.5 11V4" {...round} /><path d="m9.8 3.6 1.7-1.6 1.7 1.6" {...round} /></>),
   flow: svg(<><rect x="1.8" y="2" width="4.4" height="3.6" rx="1" {...line} /><rect x="9.8" y="6.2" width="4.4" height="3.6" rx="1" {...line} /><rect x="1.8" y="10.4" width="4.4" height="3.6" rx="1" {...line} /><path d="M6.2 3.8h2.2a1.4 1.4 0 0 1 1.4 1.4V8M9.8 8v2.8a1.4 1.4 0 0 1-1.4 1.4H6.2" {...line} /></>),
 }
 

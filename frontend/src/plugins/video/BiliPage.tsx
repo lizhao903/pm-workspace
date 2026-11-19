@@ -47,7 +47,7 @@ export function BiliPage({ videos, onModuleTab }: { videos: Video[]; onModuleTab
 
   const head = (
     <>
-      <PageTitle parent="视频" desc="B 站账户数据、按天趋势和私信。网页端是非官方接口，可能变化；登录凭证存在保险箱里，页面上看不到">B 站</PageTitle>
+      <PageTitle parent="发布与数据" desc="B 站账户数据、按天趋势和私信。网页端是非官方接口，可能变化；登录凭证存在保险箱里，页面上看不到">B 站</PageTitle>
       <VideosTabs active="bilibili" videos={videos} onSelect={onModuleTab} />
     </>
   )

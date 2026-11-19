@@ -80,7 +80,7 @@ function fakeBackend() {
 
 function show(path: string) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  const router = createMemoryRouter([{ path: '/videos/*', element: <Page /> }, { path: '*', element: <div>别的页</div> }], { initialEntries: [path] })
+  const router = createMemoryRouter([{ path: '/videos/*', element: <Page /> }, { path: '/video_clips/*', element: <Page /> }, { path: '/video_publish/*', element: <Page /> }, { path: '*', element: <div>别的页</div> }], { initialEntries: [path] })
   render(<QueryClientProvider client={qc}><RouterProvider router={router} /></QueryClientProvider>)
   return { router, qc }
 }
@@ -94,7 +94,7 @@ afterEach(() => { vi.unstubAllGlobals() })
 describe('内容日历', () => {
   it('月视图按网格首尾取数，格子里有发布、首发日和商单交付，落后的标红', async () => {
     const be = fakeBackend()
-    show('/videos/calendar?d=2099-03-10')
+    show('/video_publish/calendar?d=2099-03-10')
     expect(await screen.findByRole('grid', { name: '2099 年 3 月' })).toBeInTheDocument()
     // 2099-03-01 是周日：网格从 2-23 画到 4-5
     expect(be.calls.some((c) => c.path === '/api/video/calendar?from=2099-02-23&to=2099-04-05')).toBe(true)
@@ -109,7 +109,7 @@ describe('内容日历', () => {
 
   it('拖动已定时的发布改到另一天，时刻不变；刷新后还是新日期', async () => {
     const be = fakeBackend()
-    show('/videos/calendar?d=2099-03-10')
+    show('/video_publish/calendar?d=2099-03-10')
     const chip = await within(await cellAfter('2099-03-12')).findByRole('button', { name: /B 站首发/ })
     const dt = { effectAllowed: '', dropEffect: '', setData: () => {} }
     fireEvent.dragStart(chip, { dataTransfer: dt })
@@ -128,7 +128,7 @@ describe('内容日历', () => {
   it('在详情里改首发日；已定时的不能挪到过去；能打开发布抽屉和视频', async () => {
     const be = fakeBackend()
     const user = userEvent.setup()
-    const { router } = show('/videos/calendar?d=2099-03-10')
+    const { router } = show('/video_publish/calendar?d=2099-03-10')
     await user.click(await within(await cellAfter('2099-03-14')).findByRole('button', { name: /第 1 集/ }))
     const panel = screen.getByRole('region', { name: '详情' })
     expect(within(panel).getByRole('note')).toHaveTextContent('离计划首发 2099-03-14 只剩 4 天，第一章还在等验收')
@@ -152,7 +152,7 @@ describe('内容日历', () => {
   it('周视图记在地址上，翻周按周取数', async () => {
     const be = fakeBackend()
     const user = userEvent.setup()
-    const { router } = show('/videos/calendar?d=2099-03-10')
+    const { router } = show('/video_publish/calendar?d=2099-03-10')
     await screen.findByRole('grid', { name: '2099 年 3 月' })
     await user.click(screen.getByRole('button', { name: '周' }))
     expect(router.state.location.search).toContain('m=week')
@@ -164,7 +164,7 @@ describe('内容日历', () => {
 
   it('事件流里来了发布失败的通知，格子马上变成失败', async () => {
     const be = fakeBackend()
-    const { qc } = show('/videos/calendar?d=2099-03-10')
+    const { qc } = show('/video_publish/calendar?d=2099-03-10')
     const chip = await within(await cellAfter('2099-03-12')).findByRole('button', { name: /B 站首发/ })
     expect(chip).not.toHaveClass('vcal-t-danger')
     const sources: FakeES[] = []

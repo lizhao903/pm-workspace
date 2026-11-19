@@ -268,7 +268,8 @@ describe('SOP 页面', () => {
     expect(post).toMatchObject({ name: '客户反馈转需求 副本', trigger: 'manual', steps: FLOW.steps, fields: FLOW.fields })
   })
 
-  it('用到当前工作台没开的插件节点的流程：流程库和详情标「需要视频模块」，排在最后', async () => {
+  // 视频插件的首个模块是做视频（SPEC-videos-0.1 拆成三个模块后），所以写「需要做视频模块」
+  it('用到当前工作台没开的插件节点的流程：流程库和详情标「需要做视频模块」，排在最后', async () => {
     const user = userEvent.setup()
     const video: SopFlow = { ...FLOW, id: 'sop_video_weekly', name: '视频周更', steps: [{ key: 'a', name: '文稿处理', kind: 'video_run_stage' }] }
     fakeBackend({
@@ -277,12 +278,12 @@ describe('SOP 页面', () => {
       plugins: [{ id: 'video', name: '视频创作', provides: { modules: ['videos'], sop_nodes: ['video_run_stage'] } }],
     })
     const router = renderPage('/sop/library')
-    expect(await screen.findByText('需要视频模块')).toBeInTheDocument()
+    expect(await screen.findByText('需要做视频模块')).toBeInTheDocument()
     const cards = screen.getAllByRole('button', { name: /客户反馈转需求|视频周更/ })
     expect(cards.map((c) => c.textContent?.includes('视频周更'))).toEqual([false, true])
     await user.click(cards[1])
     expect(router.state.location.pathname).toBe('/sop/flows/sop_video_weekly')
-    expect(await screen.findByText('需要视频模块')).toBeInTheDocument()
+    expect(await screen.findByText('需要做视频模块')).toBeInTheDocument()
   })
 
   it('流程已删除时详情说明', async () => {

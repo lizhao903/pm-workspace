@@ -167,7 +167,7 @@ export function ListPage({ view, videos, series, projects, onOpen, onView, onMod
 
   return (
     <div className="vd-page">
-      <PageTitle parent={view.kind === 'series' ? <button type="button" className="vd-crumb" onClick={() => onModuleTab('series')}>系列</button> : '视频'}
+      <PageTitle parent={view.kind === 'series' ? <button type="button" className="vd-crumb" onClick={() => onModuleTab('series')}>系列</button> : '做视频'}
         count={scope.length} desc={desc} actions={(
           <>
             {sr && <Button variant="outline" onClick={() => setSettings(true)}>系列设置</Button>}

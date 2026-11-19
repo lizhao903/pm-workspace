@@ -26,11 +26,14 @@ describe('menuMarks', () => {
     expect(menuMarks({}).conversations).toBeUndefined()
   })
 
-  it('视频：待验收、待发布、发布失败有条目才出红点，清掉后消失', () => {
+  it('视频三个模块（SPEC-videos-0.1）：做视频看待验收，发布与数据看发布失败，素材收集看待整理素材；待发布不出红点', () => {
     const v = (w: number, s: number, f: number): Today => ({ cards: [card('video_waiting', w), card('video_scheduled', s), card('video_failed', f), card('video_deal_due', 4)] })
-    expect(menuMarks({ today: v(0, 0, 0) }).videos).toBeUndefined()
-    expect(menuMarks({ today: v(2, 0, 1) }).videos).toEqual({ alert: true, hint: '2 件视频待验收，1 条发布失败' })
-    expect(menuMarks({ today: v(0, 3, 0) }).videos?.hint).toBe('3 条待发布')
+    const none = menuMarks({ today: v(0, 3, 0), clipsPending: 0 })
+    expect([none.videos, none.video_clips, none.video_publish]).toEqual([undefined, undefined, undefined])
+    const m = menuMarks({ today: v(2, 0, 1), clipsPending: 5 })
+    expect(m.videos).toEqual({ alert: true, hint: '2 集停在检查点或被退回' })
+    expect(m.video_publish).toEqual({ alert: true, hint: '1 条发布失败' })
+    expect(m.video_clips).toEqual({ alert: true, hint: '5 条素材待整理' })
     expect(menuMarks({ today: today(2, 1) }).videos).toBeUndefined()
   })
 

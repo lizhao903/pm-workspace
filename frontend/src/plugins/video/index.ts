@@ -1,13 +1,16 @@
 // powered by dsh - https://github.com/deepseek-ai/deepseek-harness
 
 // 视频创作插件（VID-01a 起）：清单在后端 internal/plugins/video/plugin.json，这里只有入口。
-// 模块 key 是 videos，同工作台目录（core/shell/workspace.ts）；视频列表和详情的制作流程、设置是 VID-01c，产出物和系列页是 VID-01d。
+// 视频列表和详情的制作流程、设置是 VID-01c，产出物和系列页是 VID-01d。
+// SPEC-videos-0.1 起登记三个一级模块（key 同工作台目录 core/shell/workspace.ts）：做视频 videos、素材收集 video_clips、发布与数据 video_publish，
+// 三个都挂同一个页面（Page.tsx），按路径决定显示哪些页面和标签；菜单上的红点在外壳 core/shell/marks.ts。
 // 另登记两个 SOP 节点的展示（名字、颜色、配置项），不登记时流程图上只能显示 kind；商单（VID-08d）登记项目标签和今日卡片；VID-07b 登记视频的三张今日卡片
 import { lazy } from 'react'
 import { definePlugin } from '../../core/plugin'
 import { DealsTabBadge } from './DealBadge'
 import { DealDueCard, type DealDueItem } from './DealDueCard'
 import { STAGES } from './model'
+import { VIDEO_MODULE_LABEL, VIDEO_MODULES } from './routes'
 import { FailedCard, ScheduledCard, WaitingCard } from './TodayCards'
 import type { TodayPublish, TodayWaiting } from './todayModel'
 
@@ -16,12 +19,7 @@ const stageOpts = (checkpoint: boolean) => STAGES.filter((s) => s.checkpoint ===
 
 export default definePlugin({
   activate(api) {
-    api.modules.register({
-      id: 'videos',
-      label: '视频',
-      path: 'videos',
-      load: () => import('./Page'),
-    })
+    for (const id of VIDEO_MODULES) api.modules.register({ id, label: VIDEO_MODULE_LABEL[id], path: id, load: () => import('./Page') })
     // 商单（VID-08d）：项目详情的「商单」标签，在「任务」后面；账期快到的进今日卡片 video_deal_due
     api.projectTabs.register({ key: 'deals', label: '商单', after: 'tasks', page: lazy(() => import('./DealsTab')), badge: DealsTabBadge })
     // 今日卡片（VID-07b）：待验收、24 小时内定时、发布失败，数据和顺序同后端 today.go
