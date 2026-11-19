@@ -12,7 +12,8 @@ export type TradeCompare = 'cross_up' | 'cross_down' | 'gt' | 'lt'
 export type TradeOperand = { kind: 'ind'; ind: TradeIndicator; params: number[] } | { kind: 'num'; value: number }
 export type TradeRule = { id: string; left: TradeOperand; op: TradeCompare; right: TradeOperand }
 export type TradeRuleGroup = { logic: 'all' | 'any'; rules: TradeRule[] }
-export type TradeStrategyMode = 'rules' | 'code'
+/** builtin 是内置策略（TRD-09）：信号写在后端，参数见 GET /api/trade/strategy-builtins */
+export type TradeStrategyMode = 'rules' | 'code' | 'builtin'
 export type TradeDirection = 'long' | 'short' | 'both'
 
 export type TradeStrategy = {
@@ -32,11 +33,23 @@ export type TradeStrategy = {
   position_pct: number
   /** 代码模式的源码；后端不执行，按内置近似回测 */
   code: string
+  /** 内置策略的 id（mode=builtin 时才有值，TRD-09） */
+  builtin: string
   /** 可调参数；键的顺序有意义（值相同的取先出现的），后端原样保留 */
   params: Record<string, number>
+  /** 按币种的资金权重（TRD-09）：没写的标的按 1 算，空对象是平均分 */
+  symbol_weights: Record<string, number>
   tags: string[]
   updated_at: string
   created_at: string
+}
+
+/** 内置策略的一个参数（TRD-09） */
+export type TradeBuiltinParam = { key: string; label: string; default: number; min: number; max: number; step: number; unit: string; help: string }
+/** 内置策略（TRD-09）：趋势周期由入场周期聚合；trend_mode 是趋势周期取未收盘的那根（partial）还是只用已收盘的（closed） */
+export type TradeBuiltinStrategy = {
+  id: string; name: string; desc: string; source: string; trend_interval: TradeInterval; entry_interval: TradeInterval; trend_mode: 'partial' | 'closed'
+  direction: TradeDirection; symbols: string[]; stop_loss: number; take_profit: number; position_pct: number; params: TradeBuiltinParam[]; warm_bars: number
 }
 
 /** POST、PATCH 能写的字段 */
@@ -53,6 +66,9 @@ export type TradeBacktestConfig = {
   fee_bp: number
   slippage_ticks: number
   params: Record<string, number>
+  /** 回测区间（UTC 日期，左闭右开，TRD-09）；给了时 bars 按区间算 */
+  start?: string
+  end?: string
 }
 
 export type TradeBacktestTrade = { t: number; symbol: string; side: 'buy' | 'sell'; price: number; qty: number; pnl?: number; reason: string }
@@ -60,9 +76,12 @@ export type TradeBacktestStats = {
   total_return: number; annual: number; max_dd: number; sharpe: number; win_rate: number; trades: number; profit_factor: number; bench_return: number
 }
 export type TradeEquityPoint = { t: number; v: number; bench: number }
-export type TradeBacktestResult = { equity: TradeEquityPoint[]; trades: TradeBacktestTrade[]; stats: TradeBacktestStats; note?: string }
-export type TradeSweepPoint = { value: number; total_return: number; max_dd: number; sharpe: number }
-export type TradeSweep = { param: string; points: TradeSweepPoint[]; at: string }
+/** 每个标的单独的统计（TRD-09），capital 是它分到的资金 */
+export type TradeSymbolStats = { symbol: string; capital: number; stats: TradeBacktestStats }
+export type TradeBacktestResult = { equity: TradeEquityPoint[]; trades: TradeBacktestTrade[]; stats: TradeBacktestStats; per_symbol?: TradeSymbolStats[]; note?: string }
+/** params 只有网格扫描才有（TRD-09） */
+export type TradeSweepPoint = { value: number; params?: Record<string, number>; total_return: number; max_dd: number; sharpe: number; win_rate: number; trades: number }
+export type TradeSweep = { param: string; grid?: string[]; points: TradeSweepPoint[]; at: string }
 
 type BacktestBase = {
   id: string
@@ -93,10 +112,13 @@ export type TradeBacktestStart = {
   fee_bp?: number
   slippage_ticks?: number
   params?: Record<string, number>
+  start?: string
+  end?: string
 }
 
 export const tradeStrategyKeys = {
   strategies: ['trade', 'strategies'] as const,
+  builtins: ['trade', 'strategy-builtins'] as const,
   strategy: (id: string) => ['trade', 'strategies', id] as const,
   backtests: ['trade', 'backtests'] as const,
   backtest: (id: string) => ['trade', 'backtests', 'one', id] as const,
@@ -107,6 +129,7 @@ const seg = encodeURIComponent
 
 export const tradeStrategyApi = {
   strategies: () => requestList<TradeStrategy>('/api/trade/strategies').then((r) => r.data),
+  builtins: () => requestList<TradeBuiltinStrategy>('/api/trade/strategy-builtins').then((r) => r.data),
   strategy: (id: string) => request<TradeStrategy>('GET', '/api/trade/strategies/' + seg(id)),
   createStrategy: (body: TradeStrategyInput = {}) => request<TradeStrategy>('POST', '/api/trade/strategies', { body }),
   patchStrategy: (id: string, body: TradeStrategyInput) => request<TradeStrategy>('PATCH', '/api/trade/strategies/' + seg(id), { body }),
@@ -121,6 +144,9 @@ export const tradeStrategyApi = {
   removeBacktest: (id: string) => request<null>('DELETE', '/api/trade/backtests/' + seg(id)),
   sweep: async (id: string, param: string, values: number[]) =>
     (await requestEnvelope<TradeSweep>('POST', `/api/trade/backtests/${seg(id)}/sweep`, { body: { param, values } })).data,
+  /** 多参数网格扫描（TRD-09）：最多 4 个参数、64 组 */
+  sweepGrid: async (id: string, grid: Record<string, number[]>) =>
+    (await requestEnvelope<TradeSweep>('POST', `/api/trade/backtests/${seg(id)}/sweep`, { body: { grid } })).data,
 }
 
 const POLL_MS = 1_000
@@ -128,6 +154,9 @@ const IDLE_MS = 30_000
 const busy = (s: TradeBacktestStatus) => s === 'queued' || s === 'running'
 
 export const useTradeStrategies = () => useQuery({ queryKey: tradeStrategyKeys.strategies, queryFn: tradeStrategyApi.strategies })
+
+/** 内置策略目录（TRD-09）：跟着二进制走，不会变，取一次 */
+export const useTradeBuiltins = () => useQuery({ queryKey: tradeStrategyKeys.builtins, queryFn: tradeStrategyApi.builtins, staleTime: Infinity })
 
 /** 回测记录：有排队、运行中的时每秒重取（进度），否则 30 秒一次 */
 export const useTradeBacktests = () =>

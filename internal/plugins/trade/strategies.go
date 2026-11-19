@@ -31,7 +31,7 @@ const (
 
 // strategyFields 是 POST、PATCH 认的字段；id 和时间由后端管。
 var strategyFields = []string{"name", "desc", "mode", "symbols", "interval", "direction", "entry", "exit",
-	"stop_loss", "take_profit", "position_pct", "code", "params", "tags"}
+	"stop_loss", "take_profit", "position_pct", "code", "builtin", "params", "symbol_weights", "tags"}
 
 // stamp 是毫秒精度、定长的 RFC3339 UTC，字符串比较就是时间先后。
 func stamp(t time.Time) string { return t.UTC().Format("2006-01-02T15:04:05.000Z07:00") }
@@ -41,7 +41,7 @@ func newStrategy() Strategy {
 	return Strategy{
 		Name: "新策略", Mode: "rules", Symbols: []string{}, Interval: "1h", Direction: "long",
 		Entry: RuleGroup{Logic: "all", Rules: []Rule{}}, Exit: RuleGroup{Logic: "any", Rules: []Rule{}},
-		PositionPct: 20, Params: Params{}, Tags: []string{},
+		PositionPct: 20, Params: Params{}, SymbolWeights: map[string]float64{}, Tags: []string{},
 	}
 }
 
@@ -65,7 +65,31 @@ func (s *Strategy) normalize() error {
 	if s.Params == nil {
 		s.Params = Params{}
 	}
+	// 资金权重：标的删了的那一项跟着去掉
+	ws := map[string]float64{}
+	for k, v := range s.SymbolWeights {
+		if slices.Contains(s.Symbols, k) {
+			ws[k] = v
+		}
+	}
+	s.SymbolWeights = ws
 	var errs []string
+	if s.Mode == "builtin" {
+		// 内置策略（TRD-09）：周期、方向由内置策略定，没有条件规则；参数按内置的顺序补默认值、查范围
+		b, ok := builtinOf(s.Builtin)
+		if !ok {
+			return errors.New("内置策略不认识：" + s.Builtin + "（可选的见 GET /api/trade/strategy-builtins）")
+		}
+		s.Interval, s.Direction = b.EntryInterval, b.Direction
+		s.Entry, s.Exit = RuleGroup{Logic: "all", Rules: []Rule{}}, RuleGroup{Logic: "any", Rules: []Rule{}}
+		ps, err := b.fill(s.Params)
+		if err != nil {
+			return err
+		}
+		s.Params = ps
+	} else {
+		s.Builtin = ""
+	}
 	seen := map[string]bool{}
 	for _, g := range []*RuleGroup{&s.Entry, &s.Exit} {
 		if g.Rules == nil {
@@ -136,6 +160,7 @@ func applyStrategy(st *Strategy, raw map[string]json.RawMessage) error {
 	for k, v := range raw {
 		m[k] = v
 	}
+	builtinDefaults(st, m, raw)
 	b, err := json.Marshal(m)
 	if err != nil {
 		return err
@@ -176,6 +201,9 @@ func (s *Strategy) normalizeRead() error {
 	}
 	if s.Params == nil {
 		s.Params = Params{}
+	}
+	if s.SymbolWeights == nil {
+		s.SymbolWeights = map[string]float64{}
 	}
 	for _, g := range []*RuleGroup{&s.Entry, &s.Exit} {
 		if g.Rules == nil {
@@ -307,4 +335,34 @@ func (h *handlers) removeStrategy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"data": nil})
+}
+
+// builtinDefaults：切到内置策略（新建时选了内置、或换了另一个内置）时，请求里没给的字段取内置策略的默认值：
+// 止损、止盈、仓位、参数、标的（策略还没有标的时）、名称（还是「新策略」时）。
+func builtinDefaults(st *Strategy, m, raw map[string]json.RawMessage) {
+	var mode, id string
+	_ = json.Unmarshal(m["mode"], &mode)
+	_ = json.Unmarshal(m["builtin"], &id)
+	if mode != "builtin" || (st.Mode == "builtin" && st.Builtin == id) {
+		return
+	}
+	b, ok := builtinOf(id)
+	if !ok {
+		return
+	}
+	set := func(k string, v any) {
+		if _, given := raw[k]; !given {
+			m[k], _ = json.Marshal(v)
+		}
+	}
+	set("stop_loss", b.StopLoss)
+	set("take_profit", b.TakeProfit)
+	set("position_pct", b.PositionPct)
+	set("params", b.defaults())
+	if len(st.Symbols) == 0 {
+		set("symbols", b.Symbols)
+	}
+	if st.Name == "" || st.Name == newStrategy().Name {
+		set("name", b.Name)
+	}
 }

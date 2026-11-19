@@ -35,7 +35,7 @@ func TestManifestValid(t *testing.T) {
 	if err != nil {
 		t.Fatalf("清单不合法：%v", err)
 	}
-	if m.ID != "trade" || m.TablePrefix != "trade_" || m.Version != "0.7.0" || m.Name != "交易套件" {
+	if m.ID != "trade" || m.TablePrefix != "trade_" || m.Version != "0.8.0" || m.Name != "交易套件" {
 		t.Fatalf("id=%s table_prefix=%s version=%s name=%s", m.ID, m.TablePrefix, m.Version, m.Name)
 	}
 	if !slices.Equal(m.Permissions, append(slices.Clone(tradePerms), LivePerm)) {
@@ -535,7 +535,8 @@ func TestFakeSource(t *testing.T) {
 	if !ks[4].Time.Equal(at.Truncate(time.Hour)) {
 		t.Errorf("最后一根应当是当前这个小时：%v", ks[4].Time)
 	}
-	if _, err := f.Klines(ctx, KlineQuery{Symbol: "FAKE:BTCUSDT", Interval: "3m", Limit: 5}); !errors.Is(err, ErrUnsupported) {
+	// 3m 在 TRD-09 加进了周期表，这里换一个不支持的
+	if _, err := f.Klines(ctx, KlineQuery{Symbol: "FAKE:BTCUSDT", Interval: "2m", Limit: 5}); !errors.Is(err, ErrUnsupported) {
 		t.Errorf("不认识的周期：%v", err)
 	}
 	ob, err := f.OrderBook(ctx, "FAKE:ETHUSDT", 3)

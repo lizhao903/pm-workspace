@@ -39,8 +39,8 @@ function runOf(over: Partial<TradeRun> = {}): TradeRun {
 }
 const strategy: TradeStrategy = {
   id: 'st_1', name: '双均线趋势', desc: '', mode: 'rules', symbols: ['BINANCE:BTCUSDT'], interval: '1h', direction: 'long',
-  entry: { logic: 'all', rules: [] }, exit: { logic: 'any', rules: [] }, stop_loss: 5, take_profit: 0, position_pct: 30, code: '', params: { fast: 12 },
-  tags: [], updated_at: NOW, created_at: NOW,
+  entry: { logic: 'all', rules: [] }, exit: { logic: 'any', rules: [] }, stop_loss: 5, take_profit: 0, position_pct: 30, code: '', builtin: '', params: { fast: 12 },
+  symbol_weights: {}, tags: [], updated_at: NOW, created_at: NOW,
 }
 function riskOf(over: Partial<TradeRisk> = {}): TradeRisk {
   return {

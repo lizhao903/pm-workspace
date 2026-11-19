@@ -18,6 +18,7 @@ import {
   instName, intervalLabel, latestOf, newRuleId, pctRaw, quickDefaults, quickParams, sig, spanText, timeAgo, tone, withParam, type QuickCfg,
 } from './strategyModel'
 import { NumInput, PlusIcon, Signed, Spark, StatusCell, XIcon } from './StrategyParts'
+import { BuiltinLogic, RangeFields, SymbolWeights } from './BuiltinParts'
 import { StrategyRunsPanel } from './StrategyRuns'
 
 const SAVE_DELAY = 500
@@ -114,7 +115,9 @@ export function StrategyEditor({ strategy, backtests, now, onOpenBacktest, onDel
   ].join('，')
   const run = async () => {
     if (blocker || !(await flush())) return
-    start.mutate({ strategy_id: st.id, bars: qc.bars, capital: qc.capital, fee_bp: qc.fee_bp, slippage_ticks: qc.slippage_ticks, params: quickParams(st, qc) })
+    // 内置策略按日期区间回测（TRD-09），bars 由后端按区间算
+    const range = st.mode === 'builtin' && qc.start && qc.end ? { start: qc.start, end: qc.end } : { bars: qc.bars }
+    start.mutate({ strategy_id: st.id, ...range, capital: qc.capital, fee_bp: qc.fee_bp, slippage_ticks: qc.slippage_ticks, params: quickParams(st, qc) })
   }
 
   return (
@@ -133,7 +136,7 @@ export function StrategyEditor({ strategy, backtests, now, onOpenBacktest, onDel
               <span className="sg-sec-title">策略逻辑</span>
               <span className="spacer" />
               <div className="sg-seg sg-seg-sm" role="group" aria-label="模式">
-                {(['rules', 'code'] as const).map((m) => <button key={m} type="button" className={cls(st.mode === m && 'on')} aria-pressed={st.mode === m} onClick={() => set({ mode: m })}>{MODE_LABEL[m]}</button>)}
+                {(st.mode === 'builtin' ? (['builtin', 'rules', 'code'] as const) : (['rules', 'code'] as const)).map((m) => <button key={m} type="button" className={cls(st.mode === m && 'on')} aria-pressed={st.mode === m} onClick={() => set({ mode: m })}>{MODE_LABEL[m]}</button>)}
               </div>
             </div>
             {st.mode === 'rules' ? (
@@ -141,6 +144,8 @@ export function StrategyEditor({ strategy, backtests, now, onOpenBacktest, onDel
                 <GroupEditor title="入场条件" hint={st.direction === 'both' ? '满足时做多，有空单先平' : st.direction === 'short' ? '满足时开空' : '满足时开多'} group={st.entry} onChange={(entry) => set({ entry })} />
                 <GroupEditor title="出场条件" hint={st.direction === 'both' ? '满足时做空，有多单先平' : '满足时平仓'} group={st.exit} onChange={(exit) => set({ exit })} />
               </>
+            ) : st.mode === 'builtin' ? (
+              <BuiltinLogic st={st} set={set} />
             ) : (
               <CodeEditor st={st} set={set} />
             )}
@@ -155,7 +160,7 @@ export function StrategyEditor({ strategy, backtests, now, onOpenBacktest, onDel
             </div>
           </section>
 
-          <ParamsTable st={st} setParams={(params) => set({ params })} setParam={(k, v) => set(withParam(st, k, v))} />
+          {st.mode !== 'builtin' && <ParamsTable st={st} setParams={(params) => set({ params })} setParam={(k, v) => set(withParam(st, k, v))} />}
         </div>
 
         <div className="sg-col sg-side">
@@ -232,7 +237,14 @@ function BasicInfo({ st, set, nameErr, onNameBlur }: { st: TradeStrategy; set: (
         </div>
       </div>
       <SymbolPicker value={st.symbols} onChange={(symbols) => set({ symbols })} />
+      <SymbolWeights st={st} set={set} />
       {currencies.size > 1 && <div className="field-hint-line">选了不同币种的标的，回测按各自币种直接相加，不做汇率换算</div>}
+      {st.mode === 'builtin' ? (
+        <div className="field">
+          <span className="field-label">K 线周期和方向</span>
+          <span className="sg-muted">{intervalLabel(st.interval)} 入场 · {DIR_LABEL[st.direction]}（内置策略固定）</span>
+        </div>
+      ) : <>
       <div className="field">
         <span className="field-label">K 线周期</span>
         <div className="sg-seg sg-seg-wrap" role="group" aria-label="K 线周期">
@@ -245,6 +257,7 @@ function BasicInfo({ st, set, nameErr, onNameBlur }: { st: TradeStrategy; set: (
           {(Object.keys(DIR_LABEL) as TradeStrategy['direction'][]).map((k) => <button key={k} type="button" className={cls(st.direction === k && 'on')} aria-pressed={st.direction === k} onClick={() => set({ direction: k })}>{DIR_LABEL[k]}</button>)}
         </div>
       </div>
+      </>}
     </section>
   )
 }
@@ -451,6 +464,12 @@ function QuickPanel({ st, qc, setQc, blocker, busy, error, onRun }: {
   return (
     <section className="sg-sec" aria-label="快速回测">
       <div className="sg-sec-title">快速回测<span className="sg-hint">{st.symbols.length} 个标的 · {intervalLabel(st.interval)}</span></div>
+      {st.mode === 'builtin' ? (
+        <>
+          <RangeFields qc={qc} setQc={setQc} />
+          <label className="field"><span className="field-label">初始资金<span className="sg-hint">{currencyOf(st.symbols)}</span></span><NumInput label="初始资金" min={1} value={qc.capital} onChange={(v) => setQc({ ...qc, capital: Math.max(1, v) })} /></label>
+        </>
+      ) : <>
       <div className="field">
         <span className="field-label">区间：最近 {qc.bars} 根<span className="sg-hint">{spanText(qc.bars, st.interval)}</span></span>
         <div className="sg-seg sg-seg-full" role="group" aria-label="区间">
@@ -461,6 +480,7 @@ function QuickPanel({ st, qc, setQc, blocker, busy, error, onRun }: {
         <label className="field"><span className="field-label">初始资金<span className="sg-hint">{currencyOf(st.symbols)}</span></span><NumInput label="初始资金" min={1} value={qc.capital} onChange={(v) => setQc({ ...qc, capital: Math.max(1, v) })} /></label>
         <label className="field"><span className="field-label">K 线根数</span><NumInput label="K 线根数" min={50} value={qc.bars} onChange={(v) => setQc({ ...qc, bars: Math.max(50, Math.min(5000, Math.round(v))) })} /></label>
       </div>
+      </>}
       <div className="sg-field-row">
         <label className="field"><span className="field-label">手续费<span className="sg-hint">万分之</span></span><NumInput label="手续费" min={0} value={qc.fee_bp} onChange={(v) => setQc({ ...qc, fee_bp: Math.max(0, v) })} /></label>
         <label className="field"><span className="field-label">滑点<span className="sg-hint">跳</span></span><NumInput label="滑点" min={0} value={qc.slippage_ticks} onChange={(v) => setQc({ ...qc, slippage_ticks: Math.max(0, v) })} /></label>

@@ -161,6 +161,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("GET /api/trade/stream", h.stream)
 		registerAlertRoutes(m, h)
 		// 策略和回测（TRD-04b，strategies.go、backtests_api.go）
+		m.HandleFunc("GET /api/trade/strategy-builtins", h.listBuiltins)
 		m.HandleFunc("GET /api/trade/strategies", h.listStrategies)
 		m.HandleFunc("POST /api/trade/strategies", h.addStrategy)
 		m.HandleFunc("GET /api/trade/strategies/{id}", h.getStrategy)

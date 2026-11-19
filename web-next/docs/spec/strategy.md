@@ -22,6 +22,7 @@
 | TRD-05b | 策略部署到模拟盘账户 | `SPEC-strategy-8`（运行记录页）；部署本身见 `SPEC-trading-7` |
 | TRD-05c | 前端交易页接模拟盘 | `SPEC-strategy-5` 侧栏「运行记录」、`SPEC-strategy-8` |
 | TRD-08c、TRD-08d | 实盘部署闸门 | 本文件里带实盘标记的条目 |
+| TRD-09 | 内置策略（autotrader 移植）、多周期、按币种资金权重、按日期区间回测、网格扫描 | `SPEC-strategy-9`（原型未同步） |
 
 策略与回测是交易套件的子插件之一，依赖行情（`SPEC-markets`）。部署到账户上跑的部分归交易执行（`SPEC-trading`）：本模块只发起部署和查看运行记录，启停在交易里做。
 
@@ -74,6 +75,25 @@
 | `boll_low` | 布林下轨 | 周期、倍数 | 20、2 | 布林下轨 |
 | `volume` | 成交量 | 无 | 无 | 成交量 |
 | `atr` | ATR | 周期 | 14 | ATR |
+
+正式版（TRD-10，原型未同步）在上面九个之后加一批通达信口径的指标（后端指标库 `internal/plugins/trade/ta` 算，口径见 `docs/api-contract.md`「技术指标」；上面九个保持原型口径，回测结果不变）。编辑器的指标下拉分两组：「常用（回测原型口径）」「通达信口径」。
+
+| key | 显示 | 参数 | 默认参数 | 规则文字里的短名 |
+|---|---|---|---|---|
+| `macd_dif`、`macd_dea`、`macd_bar` | MACD DIF / DEA / 柱（通达信，乘 2） | 快、慢、信号 | 12、26、9 | DIF、DEA、MACD |
+| `kdj_k`、`kdj_d`、`kdj_j` | KDJ K / D / J | N、M1、M2 | 9、3、3 | K、D、J |
+| `wr` | 威廉 WR | 周期 | 10 | WR |
+| `cci` | CCI | 周期 | 14 | CCI |
+| `bias` | 乖离率 BIAS | 周期 | 6 | BIAS |
+| `boll_mid` | 布林中轨 | 周期、倍数 | 20、2 | 布林中轨 |
+| `bbi` | BBI | 无（固定 3、6、12、24） | 无 | BBI |
+| `psy`、`roc`、`mtm`、`trix` | 心理线 PSY、变动率 ROC、动量 MTM、TRIX | 周期、均线 | 12、6 / 12、6 / 12、6 / 12、9 | PSY、ROC、MTM、TRIX |
+| `obv` | OBV | 无 | 无 | OBV |
+| `mfi` | MFI | 周期 | 14 | MFI |
+| `vr`、`cr` | VR、CR | 周期 | 26 | VR、CR |
+| `pdi`、`mdi`、`adx` | DMI +DI / -DI / ADX | M1、M2 | 14、6 | +DI、-DI、ADX |
+
+这一批的参数保存时按指标的范围校验（周期 1 到 500 的整数），回测扫参换出不合法的值时按范围夹住。
 
 `Operand` 规则的一边：`{ kind: 'ind'; ind: Indicator; params: number[] }` 指标，或 `{ kind: 'num'; value: number }` 数值。
 
@@ -703,3 +723,29 @@ RSI 超卖反弹（入场两条条件、全部满足）：
 |---|---|---|---|---|
 | 出去 | 交易 | 「到交易里管理」 | 策略运行视图 | `SPEC-trading-6` |
 | 读 | 交易 | 运行和账户 | 运行状态、盈亏、日志 | `SPEC-trading-0` |
+
+## SPEC-strategy-9 内置策略（TRD-09）
+
+用户 2026-11-19 提「把 autotrader 需要的功能加入到项目，并且配置上策略」。**原型未同步**（原型 `web-next/src` 没有内置策略，只按本节和正式前端）。正式前端 `frontend/src/plugins/trade/BuiltinParts.tsx`，接口见 `docs/api-contract.md`「内置策略和多周期（TRD-09）」。
+
+内置策略是信号写在后端（Go）、参数可调的策略，`mode` 为 `builtin`。第一批从 autotrader 移植：「KDJ 1h 定趋势 + 3m 定买卖点」（`kdj-short-1h3m`，autotrader 主策略）、「SuperTrend + ADX 1h 定方向 + 3m 翻多入场」（`supertrend-adx-1h3m`）。都是 3m 入场、1h 定趋势，1h 由 3m 聚合；只做多。
+
+### 交互
+
+| 编号 | 元素 | 操作 | 结果 |
+|---|---|---|---|
+| SPEC-strategy-9.1 | 策略库「从内置策略新建」 | 点击 | 在「新建策略」左边。点开列出内置策略（名称，灰字「1 时 定趋势 · 3 分 入场 · N 个参数」），选一个就新建一条：名称、推荐标的、止损止盈仓位、参数都取内置的默认值，进编辑页。目录没取到时菜单里写「没取到：原因」 |
+| SPEC-strategy-9.2 | 策略库按模式筛 | 点击 | 多一档「内置策略」，带条数 |
+| SPEC-strategy-9.3 | 编辑页「策略逻辑」 | 显示 | 模式切换多「内置策略」一档（只有内置策略才有这档；切到条件规则或代码后回不来，要重新从内置策略新建）。下面是：小标「1 时 定趋势 · 3 分 入场」和灰字「趋势周期用当前还没收盘的那根 / 只用已收盘的，由 3 分 K 线聚合」、说明、灰字「移植自 …」；再两组参数「信号参数」「出场和仓位」，每个参数一格（中文名、单位、数字框），悬停写说明、默认值、范围和参数键名；改过的格高亮，「全部恢复默认」把参数改回默认。输入超出范围时夹到边上（后端同样会拒越界的值） |
+| SPEC-strategy-9.4 | 编辑页「基本信息」周期和方向 | 显示 | 内置策略不能改周期和方向，换成一行「3 分 入场 · 只做多（内置策略固定）」 |
+| SPEC-strategy-9.5 | 编辑页「可调参数」 | 显示 | 内置策略不显示（参数在「策略逻辑」里） |
+| SPEC-strategy-9.6 | 编辑页「资金权重」 | 输入 | 标的两个以上时出现在标的下面（所有模式都有）：每个标的一格权重，名字后面灰字写占比（如 50%）；没写的按 1 算。改过的格高亮，「平均分」清空权重。回测分资金、部署算下单量都按权重分 |
+| SPEC-strategy-9.7 | 快速回测「区间（UTC）」 | 输入 | 内置策略不按「最近 N 根」，换成开始、结束两个日期（默认最近 30 天），灰字「N 天，含开始不含结束」，开始不早于结束时标红。发起时带 `start`、`end`，根数由后端算（最多 200000 根 3m，约 416 天） |
+| SPEC-strategy-9.8 | 回测报告「分标的统计」 | 显示 | 统计卡下面，多标的或内置策略才有：每个标的一行，分到资金、收益（涨跌色）、最大回撤、胜率（没有交易为「—」）、交易笔数 |
+| SPEC-strategy-9.9 | 回测报告「参数扫描」 | 显示 | 网格扫描（接口 `grid` 发起，页面还没有发起入口）的结果每行写这一组的取值「stop_loss=3 sell_gate=1.5」，悬停写胜率和笔数；「回测」按这一组的取值重跑 |
+| SPEC-strategy-9.10 | 回测报告「策略快照」 | 显示 | 模式后面灰字写内置策略的 id；按区间回测的多一行「区间 起 到 止（UTC，不含结束日）」；规则那块换成「内置策略：信号写在后端，见上面的参数」 |
+| SPEC-strategy-9.11 | 部署 | 点击 | 同 `SPEC-trading-7`，但内置策略只能部署到模拟盘账户；选实盘账户提交时后端回 400「内置策略只能部署到模拟盘账户，实盘部署还没开放」 |
+
+### 数据
+
+`TradeBuiltinStrategy`、`TradeBuiltinParam`（`GET /api/trade/strategy-builtins`）；`TradeStrategy` 多 `builtin`、`symbol_weights`；`TradeBacktestConfig` 多 `start`、`end`；`TradeBacktestResult` 多 `per_symbol`；`TradeSweep` 多 `grid`，`TradeSweepPoint` 多 `params`、`win_rate`、`trades`。

@@ -341,6 +341,12 @@ var runFields = []string{"strategy_id", "account_id", "symbols", "params", "capi
 
 // deployKind 是部署按什么跑：rules（条件规则，含退回双均线的代码策略）、grid（网格近似）；期现基差回错。
 func deployKind(st Strategy) (string, error) {
+	if st.Mode == "builtin" {
+		if _, ok := builtinOf(st.Builtin); !ok {
+			return "", apiErr(errValidation, "内置策略不认识：%s", st.Builtin)
+		}
+		return "builtin", nil
+	}
 	if st.Mode != "code" {
 		return "rules", nil
 	}
@@ -397,6 +403,10 @@ func (h *handlers) createRun(ctx context.Context, raw map[string]json.RawMessage
 	}
 	if kind == "rules" && st.Mode == "rules" && len(st.Entry.Rules) == 0 {
 		return Run{}, apiErr(errValidation, "策略的入场规则为空，部署了也不会开仓")
+	}
+	if kind == "builtin" && !a.Paper {
+		// TRD-09：内置策略还没过实盘评审，不进实盘下单路径
+		return Run{}, apiErr(errValidation, "内置策略只能部署到模拟盘账户，实盘部署还没开放")
 	}
 	rules, err := pp.risk(ctx)
 	if err != nil {
@@ -472,6 +482,11 @@ func (h *handlers) createRun(ctx context.Context, raw map[string]json.RawMessage
 			}
 			if slices.Contains(ReservedParams, p.Key) && (p.Value < 0 || p.Value > 100) {
 				return Run{}, apiErr(errValidation, "%s 要在 0 到 100 之间", p.Key)
+			}
+		}
+		if b, ok := builtinOf(st.Builtin); ok && kind == "builtin" {
+			if err := b.check(over); err != nil {
+				return Run{}, apiErr(errValidation, "%v", err)
 			}
 		}
 		params = params.Merge(over)
@@ -791,6 +806,9 @@ func (rn *runner) evalSymbol(ctx context.Context, x Run, st Strategy, a account,
 		rn.noteErr(ctx, x.ID, sym, sym+" 不在标的表里，算不了信号")
 		return lb, nil
 	}
+	if st.Mode == "builtin" {
+		return rn.evalBuiltin(ctx, x, st, in, sym, lb, latest, step, now)
+	}
 	grid := st.Mode == "code" && CodeKindOf(st) == CodeGrid
 	warm := 2
 	if !grid {
@@ -1004,10 +1022,21 @@ func (rn *runner) order(ctx context.Context, x Run, in ledgerInst, sym, side str
 	return nil
 }
 
-// sizeFor 是开仓数量：分配资金 / 标的数 × 仓位比例 / (价格 × 乘数)，按最小下单量向下取整。
-func sizeFor(x Run, st Strategy, in ledgerInst, px float64) fx {
+// allocFor 是这个标的分到的资金：分配资金按策略的币种权重分（TRD-09），没有权重时平均分。
+func allocFor(x Run, st Strategy, sym string) float64 {
+	shares := capitalShares(x.Capital.Float(), x.Symbols, st.SymbolWeights)
+	for i, s := range x.Symbols {
+		if s == sym {
+			return shares[i]
+		}
+	}
+	return x.Capital.Float() / float64(max(1, len(x.Symbols)))
+}
+
+// sizeFor 是开仓数量：这个标的分到的资金 × 仓位比例 / (价格 × 乘数)，按最小下单量向下取整。
+func sizeFor(x Run, st Strategy, in ledgerInst, px float64, sym string) fx {
 	pct := numOf(x.Params, "position_pct", st.PositionPct) / 100
-	alloc := x.Capital.Float() / float64(max(1, len(x.Symbols)))
+	alloc := allocFor(x, st, sym)
 	raw := alloc * pct / (px * in.Mult.Float())
 	q, ok := fxFromFloat(raw)
 	if !ok {
@@ -1044,7 +1073,7 @@ func (rn *runner) actRules(ctx context.Context, x Run, st Strategy, a account, i
 		}
 	}
 	size := func() fx {
-		n := sizeFor(x, st, in, b.C)
+		n := sizeFor(x, st, in, b.C, sym)
 		if n <= 0 {
 			rn.log(ctx, x.ID, "warn", bt+"：入场信号，但分配资金不足一手，没开仓")
 		}
@@ -1094,7 +1123,7 @@ func (rn *runner) actGrid(ctx context.Context, x Run, st Strategy, a account, in
 	grids := math.Max(2, jsRound(numOf(prm, "grids", 20)))
 	step := (upper - lower) / grids
 	pct := numOf(prm, "position_pct", st.PositionPct) / 100
-	alloc := x.Capital.Float() / float64(max(1, len(x.Symbols)))
+	alloc := allocFor(x, st, sym)
 	mid := (lower + upper) / 2
 	cp := alloc * pct / (grids / 2) / (mid * in.Mult.Float())
 	unit := math.Min(numOf(prm, "qty", cp), cp)

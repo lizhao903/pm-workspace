@@ -235,7 +235,7 @@ func (o *OKX) Ticker(ctx context.Context, symbol string) (Ticker, error) {
 }
 
 // okxBars 是周期到 OKX bar 参数的对照；日线、周线用 UTC 对齐。
-var okxBars = map[string]string{"1m": "1m", "5m": "5m", "15m": "15m", "1h": "1H", "4h": "4H", "1d": "1Dutc", "1w": "1Wutc"}
+var okxBars = map[string]string{"1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "1h": "1H", "4h": "4H", "1d": "1Dutc", "1w": "1Wutc"}
 
 // okxPage 是 candles 一页最多多少根。
 const okxPage = 300

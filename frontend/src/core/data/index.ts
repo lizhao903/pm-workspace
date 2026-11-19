@@ -375,11 +375,12 @@ export type {
 export {
   tradeStrategyKeys, tradeStrategyApi, useTradeStrategies, useTradeBacktests, useTradeBacktest, useTradeBacktestCompare, useCreateTradeStrategy,
   usePatchTradeStrategy, useRemoveTradeStrategy, useStartTradeBacktest, useRerunTradeBacktest, useRemoveTradeBacktest, useSweepTradeBacktest,
+  useTradeBuiltins,
 } from './tradeStrategy'
 export type {
   TradeIndicator, TradeCompare, TradeOperand, TradeRule, TradeRuleGroup, TradeStrategyMode, TradeDirection, TradeStrategy, TradeStrategyInput,
   TradeBacktestStatus, TradeBacktestConfig, TradeBacktestTrade, TradeBacktestStats, TradeEquityPoint, TradeBacktestResult, TradeSweepPoint,
-  TradeSweep, TradeBacktest, TradeBacktestBrief, TradeBacktestStart,
+  TradeSweep, TradeBacktest, TradeBacktestBrief, TradeBacktestStart, TradeBuiltinParam, TradeBuiltinStrategy, TradeSymbolStats,
 } from './tradeStrategy'
 
 export {

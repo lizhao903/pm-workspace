@@ -12,7 +12,7 @@ import { request, requestEnvelope, requestList } from '../api'
 
 export type TradeMarket = 'crypto' | 'cn' | 'hk' | 'us'
 export type TradeKind = 'spot' | 'perp' | 'future' | 'option'
-export type TradeInterval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w'
+export type TradeInterval = '1m' | '3m' | '5m' | '15m' | '1h' | '4h' | '1d' | '1w'
 
 export type TradeInstrument = {
   symbol: string

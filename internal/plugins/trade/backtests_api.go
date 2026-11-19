@@ -21,7 +21,34 @@ import (
 const (
 	maxSweepValues = 20
 	maxCompare     = 4
+	maxGridParams  = 4  // 网格扫描最多几个参数（TRD-09）
+	maxGridCombos  = 64 // 网格扫描最多几组
 )
+
+// objectKeys 按出现顺序回 JSON 对象的键。
+func objectKeys(b []byte) ([]string, error) {
+	var ps map[string]json.RawMessage
+	if err := json.Unmarshal(b, &ps); err != nil || ps == nil {
+		return nil, errors.New("not object")
+	}
+	dec := json.NewDecoder(strings.NewReader(string(b)))
+	if _, err := dec.Token(); err != nil {
+		return nil, err
+	}
+	var keys []string
+	for dec.More() {
+		k, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		keys = append(keys, k.(string))
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return nil, err
+		}
+	}
+	return keys, nil
+}
 
 var btStatuses = []string{"queued", "running", "done", "failed"}
 
@@ -118,6 +145,8 @@ type btBody struct {
 	FeeBp         *float64  `json:"fee_bp"`
 	SlippageTicks *float64  `json:"slippage_ticks"`
 	Params        Params    `json:"params"`
+	Start         *string   `json:"start"`
+	End           *string   `json:"end"`
 }
 
 func decodeStrict(raw map[string]json.RawMessage, allowed []string, v any) error {
@@ -163,7 +192,7 @@ func (h *handlers) addBacktest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body btBody
-	if err := decodeStrict(raw, []string{"strategy_id", "symbols", "interval", "bars", "capital", "fee_bp", "slippage_ticks", "params"}, &body); err != nil {
+	if err := decodeStrict(raw, []string{"strategy_id", "symbols", "interval", "bars", "capital", "fee_bp", "slippage_ticks", "params", "start", "end"}, &body); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -184,6 +213,9 @@ func (h *handlers) addBacktest(w http.ResponseWriter, r *http.Request) {
 	if body.Interval != nil {
 		cfg.Interval = *body.Interval
 	}
+	if st.Mode == "builtin" {
+		cfg.Bars = 14400 // 内置策略默认回测 3m 30 天
+	}
 	if body.Bars != nil {
 		cfg.Bars = *body.Bars
 	}
@@ -197,6 +229,16 @@ func (h *handlers) addBacktest(w http.ResponseWriter, r *http.Request) {
 		cfg.SlippageTicks = *body.SlippageTicks
 	}
 	if cfg.Params, err = overrideParams(st, st.Params, body.Params); err != nil {
+		h.fail(w, r, err)
+		return
+	}
+	if body.End != nil {
+		cfg.End = strings.TrimSpace(*body.End)
+	}
+	if body.Start != nil {
+		cfg.Start = strings.TrimSpace(*body.Start)
+	}
+	if err := rangeBars(&cfg); err != nil {
 		h.fail(w, r, err)
 		return
 	}
@@ -257,9 +299,36 @@ func (h *handlers) rerunBacktest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, map[string]any{"data": b})
 }
 
+// rangeBars：给了 start、end（TRD-09）时 bars 按区间算（左闭右开）；end 不能晚于今天。
+func rangeBars(cfg *BacktestConfig) error {
+	if cfg.End == "" {
+		return nil
+	}
+	end, err := time.Parse(time.DateOnly, cfg.End)
+	if err != nil {
+		return apiErr(errValidation, "end 要是 YYYY-MM-DD")
+	}
+	if end.After(time.Now().UTC().Add(24 * time.Hour)) {
+		return apiErr(errValidation, "end 不能晚于明天")
+	}
+	if cfg.Start == "" {
+		return nil
+	}
+	start, err := time.Parse(time.DateOnly, cfg.Start)
+	if err != nil || !start.Before(end) {
+		return apiErr(errValidation, "start 要是 YYYY-MM-DD，且早于 end")
+	}
+	step, ok := Intervals[cfg.Interval]
+	if !ok {
+		return apiErr(errValidation, "周期不认识：%s", cfg.Interval)
+	}
+	cfg.Bars = int(end.Sub(start) / step)
+	return nil
+}
+
 // enqueue 校验、拍快照、落一条 queued，叫醒调度。
 func (h *handlers) enqueue(ctx context.Context, st Strategy, cfg BacktestConfig) (Backtest, error) {
-	if err := checkConfig(cfg); err != nil {
+	if err := checkConfig(cfg, st); err != nil {
 		return Backtest{}, apiErr(errValidation, "%v", err)
 	}
 	if st.Mode == "rules" && len(st.Entry.Rules) == 0 {
@@ -315,12 +384,27 @@ func (h *handlers) sweepBacktest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Param  string    `json:"param"`
-		Values []float64 `json:"values"`
+		Param  string               `json:"param"`
+		Values []float64            `json:"values"`
+		Grid   map[string][]float64 `json:"grid"`
 	}
-	if err := decodeStrict(raw, []string{"param", "values"}, &body); err != nil {
+	if err := decodeStrict(raw, []string{"param", "values", "grid"}, &body); err != nil {
 		h.fail(w, r, err)
 		return
+	}
+	// 网格扫描（TRD-09）：grid 的键按请求里出现的顺序
+	gridOrder := []string{}
+	if g, ok := raw["grid"]; ok {
+		if body.Param != "" || body.Values != nil {
+			h.fail(w, r, apiErr(errValidation, "param、values 和 grid 只能给一种"))
+			return
+		}
+		keys, err := objectKeys(g)
+		if err != nil {
+			h.fail(w, r, apiErr(errValidation, "grid 要是参数名到取值数组的对象"))
+			return
+		}
+		gridOrder = keys
 	}
 	b, to, err := loadBacktest(ctx, h.c, r.PathValue("id"))
 	if err != nil {
@@ -331,19 +415,64 @@ func (h *handlers) sweepBacktest(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, r, apiErr(errValidation, "回测完成后才能扫参"))
 		return
 	}
-	if !SweepableParams(b.StrategySnapshot).Has(body.Param) {
+	dedup := func(xs []float64) []float64 {
+		var out []float64
+		for _, v := range xs {
+			if finite(v) && !slices.Contains(out, v) {
+				out = append(out, v)
+			}
+		}
+		return out
+	}
+	var grid []GridAxis
+	if len(gridOrder) > 0 {
+		if len(gridOrder) > maxGridParams {
+			h.fail(w, r, apiErr(errValidation, "grid 最多 %d 个参数", maxGridParams))
+			return
+		}
+		n := 1
+		for _, k := range gridOrder {
+			if !SweepableParams(b.StrategySnapshot).Has(k) {
+				h.fail(w, r, apiErr(errValidation, "参数 %s 不能扫：只能扫策略参数和 stop_loss、take_profit、position_pct", k))
+				return
+			}
+			vs := dedup(body.Grid[k])
+			if len(vs) == 0 {
+				h.fail(w, r, apiErr(errValidation, "grid.%s 至少要 1 个有限数", k))
+				return
+			}
+			n *= len(vs)
+			grid = append(grid, GridAxis{Param: k, Values: vs})
+		}
+		if n > maxGridCombos {
+			h.fail(w, r, apiErr(errValidation, "grid 的组合数 %d 超过 %d", n, maxGridCombos))
+			return
+		}
+	} else if !SweepableParams(b.StrategySnapshot).Has(body.Param) {
 		h.fail(w, r, apiErr(errValidation, "参数 %s 不能扫：只能扫策略参数和 stop_loss、take_profit、position_pct", body.Param))
 		return
 	}
-	var values []float64
-	for _, v := range body.Values {
-		if finite(v) && !slices.Contains(values, v) {
-			values = append(values, v)
-		}
-	}
-	if len(values) == 0 || len(values) > maxSweepValues {
+	values := dedup(body.Values)
+	if grid == nil && (len(values) == 0 || len(values) > maxSweepValues) {
 		h.fail(w, r, apiErr(errValidation, "values 要有 1 到 20 个不同的数"))
 		return
+	}
+	if b.StrategySnapshot.Mode == "builtin" {
+		if bi, ok := builtinOf(b.StrategySnapshot.Builtin); ok {
+			var over Params
+			for _, ax := range grid {
+				for _, v := range ax.Values {
+					over = append(over, Param{ax.Param, v})
+				}
+			}
+			for _, v := range values {
+				over = append(over, Param{body.Param, v})
+			}
+			if err := bi.check(over); err != nil {
+				h.fail(w, r, apiErr(errValidation, "%v", err))
+				return
+			}
+		}
 	}
 	if h.p.bt == nil {
 		h.fail(w, r, errors.New("回测调度没起来"))
@@ -363,7 +492,11 @@ func (h *handlers) sweepBacktest(w http.ResponseWriter, r *http.Request) {
 				err = failf(failEngine, "%v", x)
 			}
 		}()
-		points = Sweep(cfg, b.StrategySnapshot, body.Param, values, hist.data())
+		if grid != nil {
+			points = SweepGrid(cfg, b.StrategySnapshot, grid, hist.data())
+		} else {
+			points = Sweep(cfg, b.StrategySnapshot, body.Param, values, hist.data())
+		}
 	}()
 	if err == nil {
 		err = hist.check()
@@ -373,6 +506,9 @@ func (h *handlers) sweepBacktest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rec := SweepRecord{Param: body.Param, Points: points, At: stamp(time.Now())}
+	if grid != nil {
+		rec.Param, rec.Grid = grid[0].Param, gridOrder
+	}
 	sj, _ := json.Marshal(rec)
 	if _, err := h.c.Store().Exec(ctx, `UPDATE trade_backtests SET sweep = ? WHERE id = ?`, string(sj), b.ID); err != nil {
 		h.fail(w, r, err)

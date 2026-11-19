@@ -78,8 +78,10 @@ type BacktestBrief struct {
 }
 
 // SweepRecord 是一次参数扫描：同一份配置、同一段数据，只改 param 各跑一次。
+// 网格扫描（TRD-09）时 Grid 是参与扫描的参数（顺序同请求），Param 是其中第一个，每个点带 params。
 type SweepRecord struct {
 	Param  string       `json:"param"`
+	Grid   []string     `json:"grid,omitempty"`
 	Points []SweepPoint `json:"points"`
 	At     string       `json:"at"`
 }
@@ -307,7 +309,7 @@ func (b *btRunner) execute(ctx context.Context, id string) {
 		return
 	}
 	pr := &progress{b: b, ctx: wctx, id: id}
-	res, from, to, err := b.compute(ctx, bt, time.Time{}, pr.set)
+	res, from, to, err := b.compute(ctx, bt, endOf(bt.Config), pr.set)
 	if err != nil {
 		var f *btFail
 		msg := failEngine + err.Error()
@@ -370,7 +372,7 @@ func (b *btRunner) compute(ctx context.Context, bt Backtest, end time.Time, onPr
 	if err := st.Validate(); err != nil {
 		return BacktestResult{}, 0, 0, failf(failParam, "%v", err)
 	}
-	if err := checkConfig(cfg); err != nil {
+	if err := checkConfig(cfg, st); err != nil {
 		return BacktestResult{}, 0, 0, failf(failParam, "%v", err)
 	}
 	h, err := newHistory(ctx, b, cfg, end, onProgress)
@@ -409,9 +411,50 @@ func (b *btRunner) compute(ctx context.Context, bt Backtest, end time.Time, onPr
 	return res, from, to, nil
 }
 
+// 回测根数上限：条件规则、代码策略 5000；内置策略（TRD-09，3m 回测几个月）200000。
+const (
+	maxBars        = 5000
+	maxBuiltinBars = 200000
+)
+
+// endOf 是配置里 end 日期之前最后一根 K 线所在的时刻（零值表示截至最近一根收盘的）。
+func endOf(cfg BacktestConfig) time.Time {
+	if cfg.End == "" {
+		return time.Time{}
+	}
+	d, err := time.Parse(time.DateOnly, cfg.End)
+	if err != nil {
+		return time.Time{}
+	}
+	return d.Add(-time.Millisecond)
+}
+
 // checkConfig 是发起和执行时都查的配置范围（SPEC-strategy-0 BacktestConfig）。
-func checkConfig(cfg BacktestConfig) error {
+func checkConfig(cfg BacktestConfig, st Strategy) error {
 	var errs []string
+	limit := maxBars
+	if st.Mode == "builtin" {
+		limit = maxBuiltinBars
+		if b, ok := builtinOf(st.Builtin); ok {
+			if cfg.Interval != b.EntryInterval {
+				errs = append(errs, "内置策略「"+b.Name+"」只能用 "+b.EntryInterval+" 回测")
+			}
+			if err := b.check(cfg.Params); err != nil {
+				errs = append(errs, err.Error())
+			}
+		}
+	}
+	for _, x := range []struct{ k, v string }{{"start", cfg.Start}, {"end", cfg.End}} {
+		if x.v == "" {
+			continue
+		}
+		if _, err := time.Parse(time.DateOnly, x.v); err != nil {
+			errs = append(errs, x.k+" 要是 YYYY-MM-DD")
+		}
+	}
+	if cfg.Start != "" && (cfg.End == "" || cfg.Start >= cfg.End) {
+		errs = append(errs, "给了 start 就要给 end，且 start 早于 end")
+	}
 	if len(cfg.Symbols) == 0 {
 		errs = append(errs, "先选至少一个标的")
 	}
@@ -423,8 +466,8 @@ func checkConfig(cfg BacktestConfig) error {
 	if _, ok := Intervals[cfg.Interval]; !ok {
 		errs = append(errs, "周期不认识："+cfg.Interval)
 	}
-	if cfg.Bars < 50 || cfg.Bars > 5000 {
-		errs = append(errs, "K 线根数要在 50 到 5000")
+	if cfg.Bars < 50 || cfg.Bars > limit {
+		errs = append(errs, fmt.Sprintf("K 线根数要在 50 到 %d", limit))
 	}
 	if !(cfg.Capital > 0) || !finite(cfg.Capital) {
 		errs = append(errs, "初始资金要大于 0")

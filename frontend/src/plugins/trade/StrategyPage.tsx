@@ -7,10 +7,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router'
 import {
-  QueryState, errorText, useCreateTradeStrategy, useTradeBacktests, useTradeRuns, useTradeStrategies, type TradeBacktestBrief, type TradeStrategy,
+  QueryState, errorText, useCreateTradeStrategy, useTradeBacktests, useTradeRuns, useTradeStrategies, type TradeBacktestBrief, type TradeBuiltinStrategy,
+  type TradeStrategy,
 } from '../../core/data'
 import { Button, EmptyState, InSubnavHost, PageTitle, Pill, SearchSelect, Subnav, cls } from '../../core/ui'
 import { BacktestReportPage, BacktestsPage } from './BacktestPages'
+import { NewFromBuiltin } from './BuiltinParts'
 import { MARKETS } from './model'
 import { StrategyEditor } from './StrategyEditor'
 import { StrategyRunsPage } from './StrategyRuns'
@@ -54,6 +56,8 @@ export default function StrategyPage() {
   const openStrategy = (id: string) => void navigate(`${root}/s/${encodeURIComponent(id)}`)
   const openBacktest = (id: string) => void navigate(`${root}/backtests/${encodeURIComponent(id)}`)
   const onNew = () => create.mutate(undefined, { onSuccess: (st) => openStrategy(st.id) })
+  // 从内置策略新建（TRD-09）：后端补内置的名称、标的、参数和风控默认值
+  const onNewBuiltin = (b: TradeBuiltinStrategy) => create.mutate({ mode: 'builtin', builtin: b.id }, { onSuccess: (st) => openStrategy(st.id) })
   const select = (k: NavKey) => {
     if (k === 'list') void navigate(root)
     else if (k === 'backtests') void navigate(`${root}/backtests`)
@@ -94,7 +98,7 @@ export default function StrategyPage() {
   if (route.kind === 'list') {
     body = (
       <QueryState query={strategies} errorTitle="策略没取到">
-        {(sts) => <StrategyListPage strategies={sts} backtests={bts} now={now} onOpen={openStrategy} onNew={onNew} creating={create.isPending}
+        {(sts) => <StrategyListPage strategies={sts} backtests={bts} now={now} onOpen={openStrategy} onNew={onNew} onNewBuiltin={onNewBuiltin} creating={create.isPending}
           createError={create.error ? errorText(create.error) : ''} />}
       </QueryState>
     )
@@ -143,8 +147,9 @@ function useNow(ms: number) {
 
 /* ---------- 策略库（SPEC-strategy-2） ---------- */
 
-function StrategyListPage({ strategies, backtests, now, onOpen, onNew, creating, createError }: {
-  strategies: TradeStrategy[]; backtests: TradeBacktestBrief[]; now: number; onOpen: (id: string) => void; onNew: () => void; creating: boolean; createError: string
+function StrategyListPage({ strategies, backtests, now, onOpen, onNew, onNewBuiltin, creating, createError }: {
+  strategies: TradeStrategy[]; backtests: TradeBacktestBrief[]; now: number; onOpen: (id: string) => void; onNew: () => void
+  onNewBuiltin: (b: TradeBuiltinStrategy) => void; creating: boolean; createError: string
 }) {
   const [mode, setMode] = useState<'' | TradeStrategy['mode']>('')
   const [market, setMarket] = useState('')
@@ -157,12 +162,15 @@ function StrategyListPage({ strategies, backtests, now, onOpen, onNew, creating,
   return (
     <div className="sg-page">
       <PageTitle parent="策略" count={strategies.length} desc="条件规则或代码写的交易策略，回测通过后部署到实盘或模拟盘" actions={
-        <Button variant="primary" onClick={onNew} disabled={creating}><PlusIcon />新建策略</Button>
+        <>
+          <NewFromBuiltin disabled={creating} onPick={onNewBuiltin} />
+          <Button variant="primary" onClick={onNew} disabled={creating}><PlusIcon />新建策略</Button>
+        </>
       }>策略库</PageTitle>
       {createError && <div className="sg-alert" role="alert"><span>新建失败：{createError}</span></div>}
       <div className="sg-toolbar">
         <div className="sg-seg" role="group" aria-label="按模式筛">
-          {([['', '全部'], ['rules', '条件规则'], ['code', '代码']] as const).map(([k, l]) => (
+          {([['', '全部'], ['rules', '条件规则'], ['code', '代码'], ['builtin', '内置策略']] as const).map(([k, l]) => (
             <button key={k} type="button" className={cls(mode === k && 'on')} aria-pressed={mode === k} onClick={() => setMode(k)}>
               {l}<span className="seg-n">{strategies.filter((s) => !k || s.mode === k).length}</span>
             </button>

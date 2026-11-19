@@ -91,7 +91,7 @@ type KlineQuery struct {
 
 // Intervals 是 K 线周期和它的时长。
 var Intervals = map[string]time.Duration{
-	"1m": time.Minute, "5m": 5 * time.Minute, "15m": 15 * time.Minute,
+	"1m": time.Minute, "3m": 3 * time.Minute, "5m": 5 * time.Minute, "15m": 15 * time.Minute,
 	"1h": time.Hour, "4h": 4 * time.Hour, "1d": 24 * time.Hour, "1w": 7 * 24 * time.Hour,
 }
 

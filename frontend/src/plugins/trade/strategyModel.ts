@@ -9,7 +9,7 @@ import type {
 import type { CSSProperties } from 'react'
 import { DOWN, INTERVALS, MARKETS, UP, guessInstrument, intervalMs } from './model'
 
-export const MODE_LABEL: Record<TradeStrategyMode, string> = { rules: '条件规则', code: '代码' }
+export const MODE_LABEL: Record<TradeStrategyMode, string> = { rules: '条件规则', code: '代码', builtin: '内置策略' }
 export const DIR_LABEL: Record<TradeDirection, string> = { long: '只做多', short: '只做空', both: '多空双向' }
 export const BT_STATUS: Record<TradeBacktestStatus, { label: string; color: string }> = {
   queued: { label: '排队中', color: '#a19d92' }, running: { label: '运行中', color: '#3d4fd6' }, done: { label: '已完成', color: '#2f7d43' }, failed: { label: '失败', color: '#c0352b' },
@@ -32,7 +32,7 @@ export const RESERVED_PARAMS = ['stop_loss', 'take_profit', 'position_pct'] as c
 export const RESERVED_LABEL: Record<string, string> = { stop_loss: '止损 %', take_profit: '止盈 %', position_pct: '仓位 %' }
 /** K 线周期按钮：编辑页只给到日线，同原型 */
 export const STRATEGY_INTERVALS: TradeInterval[] = ['1m', '5m', '15m', '1h', '4h', '1d']
-export const intervalLabel = (iv: TradeInterval) => INTERVALS.find((x) => x.key === iv)?.label ?? (iv === '1w' ? '周线' : iv)
+export const intervalLabel = (iv: TradeInterval) => INTERVALS.find((x) => x.key === iv)?.label ?? (iv === '1w' ? '周线' : iv === '3m' ? '3 分' : iv)
 
 export const opText = (o: TradeOperand) => (o.kind === 'num' ? String(o.value) : o.params.length ? `${IND_SHORT[o.ind]}(${o.params.join(', ')})` : IND_SHORT[o.ind])
 export const ruleText = (r: TradeRule) => `${opText(r.left)} ${COMPARE[r.op]} ${opText(r.right)}`
@@ -118,10 +118,17 @@ let seq = 0
 export const newRuleId = () => `rl_${Date.now().toString(36)}${(seq++).toString(36)}`
 
 /** 快速回测的本地设置（SPEC-strategy-5） */
-export type QuickCfg = { bars: number; capital: number; fee_bp: number; slippage_ticks: number; over: Record<string, number> }
+/** start、end 是回测区间（UTC 日期，左闭右开）：内置策略（TRD-09）按区间回测，给了就不看 bars */
+export type QuickCfg = { bars: number; capital: number; fee_bp: number; slippage_ticks: number; over: Record<string, number>; start?: string; end?: string }
 export const quickDefaults = (st: TradeStrategy): QuickCfg => ({
   bars: 1000, capital: 100000, fee_bp: st.symbols[0] && marketOf(st.symbols[0]) === 'crypto' ? 5 : 3, slippage_ticks: 1, over: {},
+  ...(st.mode === 'builtin' ? builtinRange(Date.now()) : {}),
 })
+/** 内置策略默认回测最近 30 天（到今天 0 点，UTC） */
+export function builtinRange(now: number) {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10)
+  return { start: day(now - 30 * 86_400_000), end: day(now) }
+}
 /** 本次回测的参数：策略参数加覆盖（只认策略里有的参数名） */
 export const quickParams = (st: TradeStrategy, qc: QuickCfg) => ({
   ...st.params, ...Object.fromEntries(Object.entries(qc.over).filter(([k]) => k in st.params)),

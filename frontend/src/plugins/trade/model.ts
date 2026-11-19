@@ -25,7 +25,7 @@ export const INTERVALS: { key: TradeInterval; label: string; ms: number }[] = [
   { key: '4h', label: '4 时', ms: 14_400_000 },
   { key: '1d', label: '日线', ms: 86_400_000 },
 ]
-export const intervalMs = (iv: TradeInterval) => INTERVALS.find((x) => x.key === iv)?.ms ?? (iv === '1w' ? 7 * 86_400_000 : 60_000)
+export const intervalMs = (iv: TradeInterval) => INTERVALS.find((x) => x.key === iv)?.ms ?? (iv === '1w' ? 7 * 86_400_000 : iv === '3m' ? 180_000 : 60_000)
 
 const VENUE_MARKET: Record<string, TradeMarket> = {
   BINANCE: 'crypto', OKX: 'crypto', FAKE: 'crypto', BYBIT: 'crypto', DERIBIT: 'crypto',

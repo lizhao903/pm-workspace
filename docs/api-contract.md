@@ -3721,7 +3721,7 @@ DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`�
 
 ## 交易套件插件 trade
 
-TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.7.0），不依赖别的插件，权限是 `network:market-data`（普通，公开行情）和 `network:exchanges`（高，0.5.0 起，用于交易所账户的只读接口，0.7.0 起加实盘闸门放行的下单、撤单、查单，见下文「交易所账户只读接入」「实盘下单」；从 0.4.0 升级时要用户确认这条新增权限，确认前实盘账户同步失败，原因是「插件 trade 的 network:exchanges 权限还没确认，到插件管理里升级并确认」）；0.6.0 起清单声明 `trade:live`（最高风险），但它是单独申请的权限：安装、升级都不授予，要用户本人在交易设置里过实盘评审后申请（见下文「实盘评审闸门和实盘开关」）；**永不提币、永不划转**（没有任何提币、划转、借贷的接口和代码路径）；做行情、回测、模拟盘、交易所账户的只读同步和对账，0.7.0 起（TRD-08d）实盘账户可以下单、撤单、部署：每一笔都要过实盘闸门（评审通过、`trade:live` 已授予、实盘开关开着、账户选了读取 + 交易、Key 现查有交易权限且没有提币划转权限），交易所的写操作只有下单、撤单、查单，见下文「实盘下单」。模拟盘的委托只在本地撮合。表前缀 `trade_`，迁移在插件目录：`migrations/0001_trade.sql` 建 `trade_instruments`、`trade_watchlists`；`0002_market_cache.sql`（TRD-02a）建 `trade_klines`（收盘了的 K 线）、`trade_kline_spans`（已向交易所取过的区间）、`trade_quotes`（每个标的最近一次的最新价，30 秒落一次）。`0003_alerts.sql`（TRD-03a）建 `trade_alerts`（盯盘提醒）、`trade_alert_events`（提醒触发记录）。`0004_strategy_backtest.sql`（TRD-04b）建 `trade_strategies`（策略）、`trade_backtests`（回测记录）。`0005_paper_trading.sql`（TRD-05a）建 `trade_accounts`（模拟盘账户）、`trade_orders`（委托）、`trade_fills`（成交流水，持仓也从这里取）、`trade_day_marks`（每个账户每个 UTC 日的起始权益）。`0006_strategy_runs.sql`（TRD-05b）建 `trade_runs`（部署）、`trade_run_logs`（部署日志）。`0007_risk.sql`（TRD-06a）建 `trade_risk`（风控规则和熔断状态）、`trade_halts`（熔断记录）。`0008_live_accounts.sql`（TRD-07a）给 `trade_accounts` 加 `connector_id`、`status`、`error`、`want_trade`、`key_perms`，建 `trade_live_state`（每个实盘账户最近一次只读同步拉到的交易所数据和估值）、`trade_live_holdings`、`trade_live_orders`（对账用的本地记录）、`trade_live_fills`（交易所成交历史）。`0009_audit.sql`（TRD-08a）建 `trade_audit`（交易审计的查询索引）。`0010_recon.sql`（TRD-08b）给 `trade_risk` 加三个自动熔断阈值，建 `trade_recons`（对账记录）、`trade_recon_items`（对账差异）。`0011_live_review.sql`（TRD-08c）建 `trade_live_checks`（评审清单每一项的确认）、`trade_live_reviews`（评审记录，只追加）、`trade_live_switch`（实盘开关）。`0012_live_orders.sql`（TRD-08d）给 `trade_orders` 加 `live`、`ex_client_id`、`ex_order_id`、`submitted_at`、`checked_at`（实盘委托），建 `ex_client_id` 的唯一索引和 `(live, status)` 索引。一个插件提供四个功能模块 `markets`（行情）、`monitor`（盯盘）、`strategy`（策略与回测）、`trading`（交易执行），以后要单独装时再拆。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。编进二进制的行情源是 Binance（`binance`，TRD-01b）和 OKX（`okx`，TRD-01c）的公开行情，只读、不带任何 API Key；不出网的假行情源 `fake` 只给测试和离线演示，设环境变量 `PMW_TRADE_DEMO=1` 才登记。两个真实源各登记一个连接器 `binance_market`、`okx_market`（类别 `market`，认证方式 `none`，连通测试是 ping 一次交易所），清单 `provides.connectors` 声明了这两个；0.5.0 起还有交易所账户的 `binance_account`、`okx_account`（类别 `market`，认证方式 `token`，见下文「交易所账户只读接入」）。后台任务：`trade_market` 常驻刷新行情（见下文「行情缓存和推送」），`trade_instruments` 启用时先跑一次、之后每 24 小时把每个源的标的同步一遍（同 `POST /api/trade/sources/{id}/sync`），`trade_alerts` 每 2 秒检查一次盯盘提醒（TRD-03a，见下文「盯盘提醒」），`trade_backtests` 常驻执行排队的回测（TRD-04b，见下文「策略和回测」），`trade_paper` 常驻撮合模拟盘挂单、检查强平和日亏损熔断（TRD-05a、TRD-06a，见下文「模拟盘账户、委托和撮合」「风控」），`trade_runs` 常驻按 K 线收盘给运行中的部署算信号、下单（TRD-05b，见下文「策略部署」），`trade_live` 每 30 秒看一遍：到点（每个账户每分钟一次）的实盘账户只读同步并对账，再看行情源断开要不要熔断（TRD-07a、TRD-08b，见下文「交易所账户只读接入」「对账和自动熔断」）。发布事件 `trade.alert_fired`、`trade.halted`、`trade.halt_released`（清单 `emits`），通知 kind 为 `trade.alert`、`trade.halt`、`trade.liquidation`、`trade.account`（交易账户异常、恢复）、`trade.recon`（对账差异）。
+TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`，0.8.0），不依赖别的插件，权限是 `network:market-data`（普通，公开行情）和 `network:exchanges`（高，0.5.0 起，用于交易所账户的只读接口，0.7.0 起加实盘闸门放行的下单、撤单、查单，见下文「交易所账户只读接入」「实盘下单」；从 0.4.0 升级时要用户确认这条新增权限，确认前实盘账户同步失败，原因是「插件 trade 的 network:exchanges 权限还没确认，到插件管理里升级并确认」）；0.6.0 起清单声明 `trade:live`（最高风险），但它是单独申请的权限：安装、升级都不授予，要用户本人在交易设置里过实盘评审后申请（见下文「实盘评审闸门和实盘开关」）；**永不提币、永不划转**（没有任何提币、划转、借贷的接口和代码路径）；做行情、回测、模拟盘、交易所账户的只读同步和对账，0.7.0 起（TRD-08d）实盘账户可以下单、撤单、部署：每一笔都要过实盘闸门（评审通过、`trade:live` 已授予、实盘开关开着、账户选了读取 + 交易、Key 现查有交易权限且没有提币划转权限），交易所的写操作只有下单、撤单、查单，见下文「实盘下单」。模拟盘的委托只在本地撮合。表前缀 `trade_`，迁移在插件目录：`migrations/0001_trade.sql` 建 `trade_instruments`、`trade_watchlists`；`0002_market_cache.sql`（TRD-02a）建 `trade_klines`（收盘了的 K 线）、`trade_kline_spans`（已向交易所取过的区间）、`trade_quotes`（每个标的最近一次的最新价，30 秒落一次）。`0003_alerts.sql`（TRD-03a）建 `trade_alerts`（盯盘提醒）、`trade_alert_events`（提醒触发记录）。`0004_strategy_backtest.sql`（TRD-04b）建 `trade_strategies`（策略）、`trade_backtests`（回测记录）。`0005_paper_trading.sql`（TRD-05a）建 `trade_accounts`（模拟盘账户）、`trade_orders`（委托）、`trade_fills`（成交流水，持仓也从这里取）、`trade_day_marks`（每个账户每个 UTC 日的起始权益）。`0006_strategy_runs.sql`（TRD-05b）建 `trade_runs`（部署）、`trade_run_logs`（部署日志）。`0007_risk.sql`（TRD-06a）建 `trade_risk`（风控规则和熔断状态）、`trade_halts`（熔断记录）。`0008_live_accounts.sql`（TRD-07a）给 `trade_accounts` 加 `connector_id`、`status`、`error`、`want_trade`、`key_perms`，建 `trade_live_state`（每个实盘账户最近一次只读同步拉到的交易所数据和估值）、`trade_live_holdings`、`trade_live_orders`（对账用的本地记录）、`trade_live_fills`（交易所成交历史）。`0009_audit.sql`（TRD-08a）建 `trade_audit`（交易审计的查询索引）。`0010_recon.sql`（TRD-08b）给 `trade_risk` 加三个自动熔断阈值，建 `trade_recons`（对账记录）、`trade_recon_items`（对账差异）。`0011_live_review.sql`（TRD-08c）建 `trade_live_checks`（评审清单每一项的确认）、`trade_live_reviews`（评审记录，只追加）、`trade_live_switch`（实盘开关）。`0012_live_orders.sql`（TRD-08d）给 `trade_orders` 加 `live`、`ex_client_id`、`ex_order_id`、`submitted_at`、`checked_at`（实盘委托），建 `ex_client_id` 的唯一索引和 `(live, status)` 索引。一个插件提供四个功能模块 `markets`（行情）、`monitor`（盯盘）、`strategy`（策略与回测）、`trading`（交易执行），以后要单独装时再拆。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。编进二进制的行情源是 Binance（`binance`，TRD-01b）和 OKX（`okx`，TRD-01c）的公开行情，只读、不带任何 API Key；不出网的假行情源 `fake` 只给测试和离线演示，设环境变量 `PMW_TRADE_DEMO=1` 才登记。两个真实源各登记一个连接器 `binance_market`、`okx_market`（类别 `market`，认证方式 `none`，连通测试是 ping 一次交易所），清单 `provides.connectors` 声明了这两个；0.5.0 起还有交易所账户的 `binance_account`、`okx_account`（类别 `market`，认证方式 `token`，见下文「交易所账户只读接入」）。后台任务：`trade_market` 常驻刷新行情（见下文「行情缓存和推送」），`trade_instruments` 启用时先跑一次、之后每 24 小时把每个源的标的同步一遍（同 `POST /api/trade/sources/{id}/sync`），`trade_alerts` 每 2 秒检查一次盯盘提醒（TRD-03a，见下文「盯盘提醒」），`trade_backtests` 常驻执行排队的回测（TRD-04b，见下文「策略和回测」），`trade_paper` 常驻撮合模拟盘挂单、检查强平和日亏损熔断（TRD-05a、TRD-06a，见下文「模拟盘账户、委托和撮合」「风控」），`trade_runs` 常驻按 K 线收盘给运行中的部署算信号、下单（TRD-05b，见下文「策略部署」），`trade_live` 每 30 秒看一遍：到点（每个账户每分钟一次）的实盘账户只读同步并对账，再看行情源断开要不要熔断（TRD-07a、TRD-08b，见下文「交易所账户只读接入」「对账和自动熔断」）。发布事件 `trade.alert_fired`、`trade.halted`、`trade.halt_released`（清单 `emits`），通知 kind 为 `trade.alert`、`trade.halt`、`trade.liquidation`、`trade.account`（交易账户异常、恢复）、`trade.recon`（对账差异）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -3737,7 +3737,7 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 | GET | `/api/trade/quotes?symbols=` | `TradeQuote[]` + `meta.total`，按 `symbols` 的顺序；`symbols` 必填，逗号分隔、去重，最多 200 个，格式不对 400。轮询用（SSE 连不上时前端退回这个）：内存里还没有的当场取一次，查过的标的之后 30 秒内按每秒一次刷新 |
 | GET | `/api/trade/book?symbol=&depth=` | `TradeBook`，`depth` 默认 10、1 到 20；查过的标的之后 30 秒内盘口每秒刷新 |
 | GET | `/api/trade/funding?symbol=` | `TradeFunding`；不是永续的 `status` 为 `unsupported` |
-| GET | `/api/trade/klines?symbol=&interval=&limit=&end=` | `TradeKline[]`（按时间正序）+ `meta` 为 `TradeKlineMeta`。`interval` 是 `1m` / `5m` / `15m` / `1h` / `4h` / `1d` / `1w`，默认 `15m`；`limit` 默认 200、1 到 1000；`end` 是 RFC3339，不传为现在。没有源的标的回 200、`data` 为空、`meta.status` 为 `no_source`；交易所取不到又一根缓存都没有时 502 `upstream` |
+| GET | `/api/trade/klines?symbol=&interval=&limit=&end=` | `TradeKline[]`（按时间正序）+ `meta` 为 `TradeKlineMeta`。`interval` 是 `1m` / `3m`（0.8.0 起，TRD-09）/ `5m` / `15m` / `1h` / `4h` / `1d` / `1w`，默认 `15m`；`limit` 默认 200、1 到 1000；`end` 是 RFC3339，不传为现在。没有源的标的回 200、`data` 为空、`meta.status` 为 `no_source`；交易所取不到又一根缓存都没有时 502 `upstream` |
 | GET | `/api/trade/stream?symbols=&focus=` | SSE（`text/event-stream`），每条一行 `data: <TradeStreamEvent>`；`symbols` 同 `/quotes`，`focus` 是正在看的那个标的（可选），额外推它的盘口和资金费率 |
 
 `TradeInstrument`：`{symbol, name, market, kind, venue, digits, lot, multiplier, expiry, underlying, strike, right, limit, source, updated_at}`，同原型 `Instrument`，去掉模拟用的 `base`、`vol`，多 `source`（最近一次同步它的行情源 id）和 `updated_at`。`symbol` 全局唯一，形如 `BINANCE:BTCUSDT`、`SSE:600519`、`OKX:ETH-USDT-SWAP`（交易场所大写字母、数字、下划线，冒号后是代码）。`market` 是 `crypto` / `cn` / `hk` / `us`，`kind` 是 `spot` / `perp` / `future` / `option`；`digits` 是价格小数位，`lot` 最小下单量，`multiplier` 合约乘数。`expiry`（`YYYY-MM-DD`）、`underlying`（标的的 symbol）、`strike`、`right`（`call` / `put`，只有期权有）、`limit`（A 股涨跌停幅度，`0.1` 即 10%）没有时省略。同步时不合格的标的（格式不对、市场品种不在源的覆盖里、最小下单量或合约乘数不是正数、期权没写看涨看跌）跳过，不写表。
@@ -3847,23 +3847,26 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
+| GET | `/api/trade/strategy-builtins` | `TradeBuiltinStrategy[]` + `meta.total`：内置策略目录（TRD-09，见下文「内置策略和多周期」），前端建策略、出参数表单用 |
 | GET | `/api/trade/strategies` | `TradeStrategy[]` + `meta.total`，按 `updated_at` 新的在前，不分页 |
 | POST | `/api/trade/strategies` | `TradeStrategy` 的可写字段，都可选，回 201 + `TradeStrategy`；没传的取「新建策略」的默认值：名称「新策略」、条件规则、没有标的、`1h`、只做多、入场出场都空、止损止盈 0、仓位 20、没有参数和标签 |
 | GET | `/api/trade/strategies/{id}` | `TradeStrategy` |
 | PATCH | `/api/trade/strategies/{id}` | 可写字段的任意子集，只改出现的，数组、对象整体替换，每次都更新 `updated_at`；回 `TradeStrategy`。编辑页自动保存用 |
 | DELETE | `/api/trade/strategies/{id}` | `data` 为 `null`；回测记录保留（带快照）；这个策略没停的部署全部停止（`stop_reason`「策略已删除」）、撤掉它们的挂单（TRD-05b） |
 | GET | `/api/trade/backtests?strategy_id=&status=` | `TradeBacktestBrief[]` + `meta.total/queued/running/done/failed`（筛选后的各状态条数），按 `created_at` 新的在前，不分页。`status` 是 `queued` / `running` / `done` / `failed`，不认识 400 |
-| POST | `/api/trade/backtests` | `{strategy_id, symbols?, interval?, bars?, capital?, fee_bp?, slippage_ticks?, params?}`，回 201 + `TradeBacktest`（`status=queued`）。用策略这一刻的样子拍快照；`symbols`、`interval` 不传取策略的，`bars` 默认 1000、`capital` 默认 100000、`fee_bp` 数币默认 5 其余 3、`slippage_ticks` 默认 1；`params` 是覆盖，盖在策略参数上，键只能是策略里有的参数和 `stop_loss`、`take_profit`、`position_pct`。策略不存在 404；没有标的、条件规则模式下入场规则为空、范围不对 400 |
+| POST | `/api/trade/backtests` | `{strategy_id, symbols?, interval?, bars?, capital?, fee_bp?, slippage_ticks?, params?, start?, end?}`，回 201 + `TradeBacktest`（`status=queued`）。用策略这一刻的样子拍快照；`symbols`、`interval` 不传取策略的，`bars` 默认 1000（内置策略 14400，即 3m 30 天）、`start`、`end`（TRD-09）是 UTC 日期 `YYYY-MM-DD`、左闭右开：给了 `end` 回测到它之前最后一根，再给 `start` 时 `bars` 按区间算（覆盖请求里的 `bars`），`end` 不能晚于明天、`start` 要早于 `end`；`capital` 默认 100000、`fee_bp` 数币默认 5 其余 3、`slippage_ticks` 默认 1；`params` 是覆盖，盖在策略参数上，键只能是策略里有的参数和 `stop_loss`、`take_profit`、`position_pct`。策略不存在 404；没有标的、条件规则模式下入场规则为空、范围不对 400 |
 | GET | `/api/trade/backtests/compare?ids=` | `TradeBacktest[]`（不带 `sweep`）+ `meta.total`，按 `ids` 的顺序；`ids` 逗号分隔 2 到 4 个，都要已完成，否则 400；有不存在的 404 |
 | GET | `/api/trade/backtests/{id}` | `TradeBacktest`，带完整结果和最近一次扫描 |
 | DELETE | `/api/trade/backtests/{id}` | `data` 为 `null`；在跑的先打断 |
 | POST | `/api/trade/backtests/{id}/rerun` | `{params?}`（可以不带 body），用这条的配置再发起一次，回 201 + 新的 `TradeBacktest`；策略还在用当前的策略拍快照，删了用这条的快照；`params` 盖在原配置的参数上（扫描结果里点「回测」用）。排队中、运行中的 400 |
-| POST | `/api/trade/backtests/{id}/sweep` | `{param, values}`，同步跑完回 `TradeSweep`，并存在这条回测上（覆盖上一次）；不新增回测记录。只能扫已完成的回测（否则 400），用和它同一段 K 线（截至 `data_to`）；`param` 是策略参数或三个保留键，`values` 去重后 1 到 20 个有限数。取数据出问题 502 `upstream`，`message` 同下文「失败原因」 |
+| POST | `/api/trade/backtests/{id}/sweep` | `{param, values}` 或 `{grid}`（二选一，TRD-09 网格扫描），同步跑完回 `TradeSweep`，并存在这条回测上（覆盖上一次）；不新增回测记录。只能扫已完成的回测（否则 400），用和它同一段 K 线（截至 `data_to`）；`param` 是策略参数或三个保留键，`values` 去重后 1 到 20 个有限数。`grid` 是参数名到取值数组的对象，最多 4 个参数、组合数最多 64，键的要求同 `param`、每个键去重后至少 1 个有限数，各参数取值的笛卡尔积各跑一次，顺序是 `grid` 里第一个参数变得最慢；内置策略的取值还要在参数范围内（否则 400）。取数据出问题 502 `upstream`，`message` 同下文「失败原因」 |
 
-`TradeStrategy`：`{id, name, desc, mode, symbols, interval, direction, entry, exit, stop_loss, take_profit, position_pct, code, params, tags, updated_at, created_at}`，同原型 `Strategy`。
+`TradeStrategy`：`{id, name, desc, mode, symbols, interval, direction, entry, exit, stop_loss, take_profit, position_pct, code, builtin, params, symbol_weights, tags, updated_at, created_at}`，同原型 `Strategy`，多 `builtin`、`symbol_weights`（TRD-09）。
 
 - `name` 去首尾空白，不能为空，最多 80 字；`desc` 最多 2000 字；`code` 最多 32KB。
-- `mode` 是 `rules` / `code`；`interval` 是 `1m` / `5m` / `15m` / `1h` / `4h` / `1d` / `1w`；`direction` 是 `long` / `short` / `both`。
+- `mode` 是 `rules` / `code` / `builtin`（内置策略，TRD-09）；`interval` 是 `1m` / `3m` / `5m` / `15m` / `1h` / `4h` / `1d` / `1w`；`direction` 是 `long` / `short` / `both`。
+- `builtin` 是内置策略的 id（`mode=builtin` 时必填，见 `GET /api/trade/strategy-builtins`），其他模式为空串。`mode=builtin` 时 `interval`、`direction` 由内置策略定（传了也改回去），`entry`、`exit` 清空，`params` 按内置策略的参数顺序补默认值，不认识的键、越界的值 400；新建或换成另一个内置策略时，请求里没给的 `stop_loss`、`take_profit`、`position_pct`、`params` 取内置默认，策略还没有标的时 `symbols` 取内置推荐，名称还是「新策略」时取内置策略的名字。
+- `symbol_weights` 是按币种的资金权重（`{symbol: 权重}`，对照 autotrader 的 capital_allocation）：回测分资金、部署算下单量都按它分，没写的标的按 1 算，空对象表示平均分；键要是 `symbols` 里的（标的删了对应的权重跟着去掉），值大于 0、不超过 1000000。
 - `symbols` 有序去重，每个要是 symbol 格式，最多 20 个，不要求已在标的表里（回测时才查）。`tags` 去空白、去重，最多 20 个。
 - `entry`、`exit` 是 `{logic, rules}`，`logic` 是 `all` / `any`，`rules` 是 `TradeRule[]`，每组最多 50 条。
 - `stop_loss`、`take_profit`、`position_pct` 是百分数，0 到 100，0 表示不设。
@@ -3874,7 +3877,7 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 
 `TradeOperand`：`{kind, ind, params, value}`。`kind` 为 `ind`（指标）时有 `ind`、`params`，`ind` 是 `price` / `ma` / `ema` / `rsi` / `macd` / `boll_up` / `boll_low` / `volume` / `atr`，`params` 最多 3 个数；`kind` 为 `num`（数值）时只有 `value`。
 
-`TradeBacktestConfig`：`{strategy_id, symbols, interval, bars, capital, fee_bp, slippage_ticks, params}`，同原型 `BacktestConfig`。`bars` 是回测最近多少根 K 线，50 到 5000；`capital` 大于 0；`fee_bp`（万分之几）、`slippage_ticks`（跳）不能为负；`params` 是策略参数加本次覆盖，顺序同策略。
+`TradeBacktestConfig`：`{strategy_id, symbols, interval, bars, capital, fee_bp, slippage_ticks, params, start?, end?}`，同原型 `BacktestConfig`，多 `start`、`end`（TRD-09，发起时给了才有）。`bars` 是回测最近多少根 K 线，50 到 5000（内置策略 50 到 200000）；`capital` 大于 0；`fee_bp`（万分之几）、`slippage_ticks`（跳）不能为负；`params` 是策略参数加本次覆盖，顺序同策略。
 
 `TradeBacktest`：`{id, name, config, status, progress, strategy_snapshot, result?, error?, created_at, started_at?, finished_at?, data_from?, data_to?, sweep?}`，同原型 `Backtest`，多开始时间、数据区间和最近一次扫描。
 
@@ -3887,15 +3890,17 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 
 `TradeBacktestBrief`：`{id, name, config, status, progress, strategy_snapshot, stats?, note?, error?, created_at, started_at?, finished_at?, data_from?, data_to?}`，列表用：不带资金曲线、成交和扫描，`stats`（`TradeBacktestStats`）、`note` 完成才有。
 
-`TradeBacktestResult`：`{equity, trades, stats, note?}`，同原型 `BacktestResult`。`equity` 每项 `{t, v, bench}`（`t` 是 K 线开盘时刻的毫秒时间戳，`bench` 是等权买入持有的基准），和回测区间的 K 线一一对应；`trades` 是 `TradeBacktestTrade[]`，按时间排；`note` 是说明，几条用「；」连起来。
+`TradeBacktestResult`：`{equity, trades, stats, per_symbol?, note?}`，同原型 `BacktestResult`，多 `per_symbol`（TRD-09：多标的或内置策略才有，`TradeSymbolStats[]`，按标的顺序）。资金曲线超过 5000 点时等间隔抽样到 5000 点以内（保留首尾，`note` 里写明），统计按全部 K 线算。`equity` 每项 `{t, v, bench}`（`t` 是 K 线开盘时刻的毫秒时间戳，`bench` 是等权买入持有的基准），和回测区间的 K 线一一对应；`trades` 是 `TradeBacktestTrade[]`，按时间排；`note` 是说明，几条用「；」连起来。
 
 `TradeBacktestTrade`：`{t, symbol, side, price, qty, pnl?, reason}`，`side` 是 `buy` / `sell`，`pnl` 只有减仓的成交才有。
 
 `TradeBacktestStats`：`{total_return, annual, max_dd, sharpe, win_rate, trades, profit_factor, bench_return}`，口径同 `SPEC-strategy-0`「`stats` 统计」。
 
-`TradeSweep`：`{param, points, at}`，`points` 是 `TradeSweepPoint[]`，按请求里 `values` 的顺序（去重后）；`at` 是扫描时间。
+`TradeSweep`：`{param, grid?, points, at}`，`points` 是 `TradeSweepPoint[]`，按请求里 `values` 的顺序（去重后）；`at` 是扫描时间。网格扫描时 `grid` 是参与扫描的参数名（顺序同请求），`param` 是其中第一个。
 
-`TradeSweepPoint`：`{value, total_return, max_dd, sharpe}`。
+`TradeSweepPoint`：`{value, params?, total_return, max_dd, sharpe, win_rate, trades}`。`win_rate`、`trades` 同 `TradeBacktestStats`（TRD-09 加）；网格扫描时 `params` 是这一组的取值（键序同 `grid`），`value` 是第一个参数的取值。
+
+`TradeSymbolStats`：`{symbol, capital, stats}`，`capital` 是这个标的分到的资金（按 `symbol_weights`），`stats` 是 `TradeBacktestStats`，按分到的资金算。
 
 执行：
 
@@ -3909,6 +3914,33 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
   - 「回测被中断：」——后端重启、插件停用或回测被删。
   前三种同时记一条运行异常（级别 `error`，模块「交易」，标题「「<策略名>」回测失败」，按「策略 + 原因分类」合并）。
 - 不记审计、不发事件。
+
+### 内置策略和多周期（TRD-09）
+
+0.8.0 起。内置策略是信号逻辑用 Go 写在插件里（`builtin.go`）、参数可调的策略，策略 `mode` 为 `builtin`、`builtin` 是下面目录里的 id。第一批从 autotrader（用户自己的 Python 量化脚本集）移植，信号逐行对照它的代码、用它的 K 线和指标函数对拍（`testdata/autotrader_golden.json`）：
+
+- `kdj-short-1h3m`「KDJ 1h 定趋势 + 3m 定买卖点」：autotrader 主策略（`strategy_kdj_short_1h3m.compute_signals`，出场同 `run_kdj_short_1h3m.py`）；
+- `supertrend-adx-1h3m`「SuperTrend + ADX 1h 定方向 + 3m 翻多入场」：参数同 autotrader 的 `run_supertrend_hl_1h3m.py`。
+
+没有迁移：策略整份存在 `trade_strategies.body`（JSON），回测配置、扫描结果也是 JSON 列，新加的字段直接带进去；旧数据读出来 `builtin` 为空串、`symbol_weights` 为空对象。
+
+`TradeBuiltinStrategy`：`{id, name, desc, source, trend_interval, entry_interval, trend_mode, direction, symbols, stop_loss, take_profit, position_pct, params, warm_bars}`。`trend_interval`、`entry_interval` 是趋势周期、入场周期（现在都是 `1h`、`3m`）；`trend_mode` 是趋势周期取哪一根：`partial`（当前还没收盘的那根，截至这根入场 K 线，同 autotrader 实盘）或 `closed`（只用已收盘的）；`direction` 现在都是 `long`；`symbols` 是推荐标的；`stop_loss`、`take_profit`、`position_pct` 是默认值；`params` 是 `TradeBuiltinParam[]`；`warm_bars` 是回测、部署要多取的入场周期 K 线（指标预热）。
+
+`TradeBuiltinParam`：`{key, label, default, min, max, step, unit, help}`，取值范围 `[min, max]`。
+
+多周期：只取入场周期（3m）一种 K 线，趋势周期（1h）由它按 UTC 整点聚合（开取第一根的开、高取最高、低取最低、收取最后一根的收、量相加），回测和部署一样。
+
+持仓管理（只做多，回测和部署同一套，参数为 0 表示不用）：
+
+- 盘中（按这根入场 K 线的最高最低价，先看止损再看止盈）：止损线 = 成本 ×（1 − `stop_loss`%）；开仓以来最高价（不含当前这根）的浮盈到 `breakeven_trigger`% 后抬到成本，到 `trail_arm`% 后抬到 最高价 ×（1 − `trail_giveback`%）。开仓后不满 `min_bars_before_stop` 根时只认应急止损（成本 ×（1 − `early_stop`%））和已启动的移动止盈。止盈：最高价到 成本 ×（1 + `take_profit`%）。斥候仓还没补满时最高价到 首笔价 ×（1 + `pyramid_add_trigger`%）就补满。回测按触发价成交（跳空越过按开盘价），部署按市价。
+- 收盘：有卖出信号、且收盘价相对成本的浮盈 ≥ `sell_gate`% 才按信号卖；斥候仓有买入信号、收盘价不低于首笔价就补满；空仓有买入信号就开首笔 = 分到的资金 × `position_pct`% × `pyramid_first_pct`%，补满用剩下的部分。成本是加仓后的均价。
+- 部署时持仓的首笔价、开仓时间、加没加过仓都从这个部署自己的成交重放（上次清仓之后的那一轮），不另存状态，后端重启后照样接得上。
+
+回测：`interval` 只能是内置策略的入场周期（否则 400），`params` 的取值要在参数范围内（否则 400）；取「`bars` + `warm_bars`」根入场周期 K 线。结果带 `per_symbol`。
+
+部署：**只能部署到模拟盘账户**，部署到实盘账户 400「内置策略只能部署到模拟盘账户，实盘部署还没开放」（实盘账户先过「要用户本人」那一关，不是用户本人时仍是 403 `not_user`）；`params` 覆盖的取值要在参数范围内（否则 400）。每根入场周期 K 线收盘后取最近「`warm_bars` + 错过的根数（最多 1000）」根算信号，按上面的持仓管理下单（统一下单入口、逐笔风控、幂等键同条件规则，动作是 `entry` / `add` / `exit`）。日志：开仓「<K 线时间> 收盘 <价>：买入信号，开多（首笔 40%）」，加仓「…：浮盈到 0.50%，补满仓位」或「…：买入信号，补满仓位」，出场「…：<应急止损 2.5% / 止损 4.5% / 保本 / 移动止盈 / 止盈 6.5%>（触发价 <价>），平多」或「…：出场信号，平多」；补算同条件规则。
+
+升级：已装 0.7.0 的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（`{id}` 为 `trade`）升级到 0.8.0。内置策略这部分（TRD-09）没有新迁移、没有新权限，原有策略、回测、部署不受影响；同一版本里别的改动带的迁移（见各自小节）升级时一起应用，迁移没应用完的插件启动时不加载。
 
 ### 模拟盘账户、委托和撮合（TRD-05a）
 
@@ -4016,8 +4048,9 @@ TRD-01a 起。插件 `trade`（`internal/plugins/trade`，清单 `plugin.json`�
 信号和下单（后台常驻任务 `trade_runs`，每 5 秒看一遍运行中的部署，新建、恢复后立刻看一遍）：
 
 - 每个标的在策略周期的 K 线收盘后算一次信号。K 线走行情缓存（同 `/api/trade/klines`），取不到时写一条 warn 日志（同一个问题只写一次），下一轮再试。
+- 内置策略（`mode=builtin`）的信号和下单见上文「内置策略和多周期」。
 - 规则和指标复用回测引擎（`ApplyParams`、`Series`、`warmOf`、`evalGroup`，参数替换同 `SPEC-strategy-0` 约定 2、3）：条件规则和「未识别，按双均线」的代码策略按约定 6 开平仓；止损止盈按刚收盘那根的最高最低价对部署的持仓均价判断（约定 1），触发了按市价平仓（回测按止损价成交，模拟盘只能按当时的最新价加滑点）；网格近似按收盘价算目标仓位（约定 10，每格数量取 `qty` 但不让满仓超过分配资金 × 仓位比例，按区间中点估），和部署持仓差超过半格就补齐，部署盈亏跌破分配资金 ×（1 − 止损）时平仓并停止部署。
-- 开仓数量 = 分配资金 / 标的数 × 仓位比例 /（收盘价 × 乘数），按最小下单量向下取整；不够一手不开，写 warn 日志。平仓数量是部署自己的持仓，但不超过账户里这个标的同方向的持仓（手动平掉的不再平）。
+- 开仓数量 = 这个标的分到的资金 × 仓位比例 /（收盘价 × 乘数），按最小下单量向下取整；分到的资金按策略的 `symbol_weights` 分（0.8.0 起，TRD-09；没有权重时是 分配资金 / 标的数，同以前）；不够一手不开，写 warn 日志。平仓数量是部署自己的持仓，但不超过账户里这个标的同方向的持仓（手动平掉的不再平）。
 - 下单都是市价单，走统一下单入口（`source` 为 `run`，带 `run_id`，部署时已确认过，不要二次确认）。幂等键是「部署 + 标的 + K 线时间 + 动作」，同一根 K 线重算不会重复下单。日志：信号「<K 线时间> 收盘 <价>：入场信号，开多，市价买入 N」，成交「成交：买入 N <标的名> @ <价>」（同原型），被风控拦「风控拦截：…，<原因>」（warn），被拒「委托被拒：…」（warn）。
 - **后端重启**：运行中的部署照常继续，第一轮写一条「后端重启，部署继续运行」。每个标的记着算到哪一根，重启后中间错过的 K 线逐根补算信号、合成一条日志「补算 <标的> N 根 K 线（<起> 到 <止>）：<哪根出了什么信号，或没有信号>。后端没在跑时错过的 K 线只补算、不补下单」；只有收盘后宽限期内（周期的十分之一，至少 1 分钟、至多一个周期）的那根才下单。一次最多补算 1000 根（含指标预热），更早的写明没有补算。
 - 删策略时它没停的部署全部停止（`stop_reason`「策略已删除」）、撤掉它们的挂单。

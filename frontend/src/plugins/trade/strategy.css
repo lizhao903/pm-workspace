@@ -276,3 +276,16 @@
   .sr-when { display: none; }
   .sr-cell { align-items: flex-start; }
 }
+
+/* 内置策略（TRD-09，SPEC-strategy-9） */
+.sg-builtin { display: grid; gap: 10px; }
+.sg-builtin-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sg-builtin-desc { margin: 0; line-height: 1.6; color: var(--muted); }
+.sg-builtin-new { position: relative; display: inline-flex; }
+.sg-builtin-new .sg-pick-menu { right: 0; left: auto; min-width: 320px; }
+.sg-builtin-opt { grid-template-columns: 1fr; }
+.sg-per-symbol { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sg-per-symbol th { text-align: left; font-weight: 500; color: var(--faint); padding: 4px 8px; border-bottom: 1px solid var(--line); }
+.sg-per-symbol td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+.sg-per-symbol td.up { color: var(--trade-up); }
+.sg-per-symbol td.down { color: var(--trade-down); }

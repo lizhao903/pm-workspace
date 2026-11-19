@@ -12,6 +12,7 @@ import {
 import { Button, EmptyState, PageTitle, SearchSelect, cls } from '../../core/ui'
 import { DOWN, UP, fmtPct, fmtPrice } from './model'
 import { CodeLines } from './StrategyEditor'
+import { PerSymbolTable } from './BuiltinParts'
 import {
   CODE_KIND_LABEL, DIR_LABEL, MODE_LABEL, codeKindOf, currencyOf, defaultSweepValues, drawdown, fmtT, instName, intervalLabel, metricOf,
   barStyle, money, parseSweepValues, pctRaw, ruleText, segments, spanText, sweepableParams, timeAgo, tone, type MetricKey,
@@ -237,6 +238,8 @@ function BacktestReport({ b, strategyAlive, now, onOpenStrategy, onOpen, onBack 
             ))}
           </div>
 
+          <PerSymbolTable rows={r.per_symbol} />
+
           <section className="sg-sec" aria-label="资金曲线">
             <div className="sg-sec-head">
               <span className="sg-sec-title">资金曲线</span>
@@ -373,17 +376,18 @@ function SweepPanel({ b, onRerun, rerunBusy }: { b: TradeBacktest; onRerun: (par
       {sweep.error && <div className="sg-alert" role="alert"><span>扫描失败：{errorText(sweep.error)}</span></div>}
       {res && (
         <div className="bt-sweep" role="table" aria-label="扫描结果">
-          <div className="bt-sweep-row sg-th" role="row"><span>{res.param}</span><span>总收益</span><span>回撤</span><span>夏普</span><span /></div>
-          {rows.map((x) => (
-            <div key={x.value} className={cls('bt-sweep-row', x === best && 'best')} role="row">
-              <span className="sg-num sg-mono">{x.value}{x.value === cur(res.param) && <span className="faint"> 当前</span>}</span>
+          <div className="bt-sweep-row sg-th" role="row"><span>{res.grid ? res.grid.join(' × ') : res.param}</span><span>总收益</span><span>回撤</span><span>夏普</span><span /></div>
+          {rows.map((x, i) => (
+            <div key={i} className={cls('bt-sweep-row', x === best && 'best')} role="row">
+              {x.params ? <span className="sg-mono sg-small" title={`胜率 ${pctRaw(x.win_rate)} · ${x.trades} 笔`}>{Object.entries(x.params).map(([k, v]) => `${k}=${v}`).join(' ')}</span>
+                : <span className="sg-num sg-mono">{x.value}{x.value === cur(res.param) && <span className="faint"> 当前</span>}</span>}
               <span className="bt-bar-cell">
                 <span className="bt-bar-track"><i style={barStyle(x.total_return, max)} /></span>
                 <Signed x={x.total_return} />
               </span>
               <span className="sg-num sg-muted">{pctRaw(x.max_dd)}</span>
               <span className="sg-num">{x.sharpe.toFixed(2)}</span>
-              <button type="button" className="sg-act sg-act-quiet" disabled={rerunBusy} title="按这个值发起一次正式回测" onClick={() => onRerun({ [res.param]: x.value })}>回测</button>
+              <button type="button" className="sg-act sg-act-quiet" disabled={rerunBusy} title="按这个值发起一次正式回测" onClick={() => onRerun(x.params ?? { [res.param]: x.value })}>回测</button>
             </div>
           ))}
         </div>
@@ -440,7 +444,8 @@ function Snapshot({ st, cfg }: { st: TradeStrategy; cfg: TradeBacktestConfig }) 
     <div className="bt-snap">
       <dl className="bt-kv">
         <div><dt>名称</dt><dd>{st.name || '未命名策略'}</dd></div>
-        <div><dt>模式</dt><dd>{MODE_LABEL[st.mode]}{st.mode === 'code' && <span className="faint"> · 按「{CODE_KIND_LABEL[codeKindOf(st)]}」近似</span>}</dd></div>
+        <div><dt>模式</dt><dd>{MODE_LABEL[st.mode]}{st.mode === 'code' && <span className="faint"> · 按「{CODE_KIND_LABEL[codeKindOf(st)]}」近似</span>}{st.mode === 'builtin' && <span className="faint sg-mono"> · {st.builtin}</span>}</dd></div>
+        {cfg.start && cfg.end && <div><dt>区间</dt><dd className="sg-num">{cfg.start} 到 {cfg.end}（UTC，不含结束日）</dd></div>}
         <div><dt>标的</dt><dd>{cfg.symbols.map(instName).join('、') || '-'}</dd></div>
         <div><dt>周期 / 方向</dt><dd>{intervalLabel(cfg.interval)} · {DIR_LABEL[st.direction]}</dd></div>
         <div><dt>止损 / 止盈</dt><dd className="sg-num">{st.stop_loss ? `${st.stop_loss}%` : '不设'} / {st.take_profit ? `${st.take_profit}%` : '不设'}</dd></div>
@@ -460,7 +465,7 @@ function Snapshot({ st, cfg }: { st: TradeStrategy; cfg: TradeBacktestConfig }) 
             </div>
           ))}
         </div>
-      ) : <CodeLines code={st.code} />}
+      ) : st.mode === 'builtin' ? <div className="faint">内置策略：信号写在后端，见上面的参数</div> : <CodeLines code={st.code} />}
     </div>
   )
 }

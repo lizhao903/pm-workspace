@@ -11,7 +11,7 @@ const st: TradeStrategy = {
   id: 'st_1', name: '双均线', desc: '', mode: 'rules', symbols: ['BINANCE:BTCUSDT'], interval: '4h', direction: 'long',
   entry: { logic: 'all', rules: [{ id: 'r1', left: { kind: 'ind', ind: 'ema', params: [12] }, op: 'cross_up', right: { kind: 'ind', ind: 'ema', params: [48] } }] },
   exit: { logic: 'any', rules: [{ id: 'r2', left: { kind: 'ind', ind: 'rsi', params: [14] }, op: 'gt', right: { kind: 'num', value: 48 } }] },
-  stop_loss: 6, take_profit: 0, position_pct: 30, code: '', params: { fast: 12, slow: 48 }, tags: [], updated_at: 'a', created_at: 'b',
+  stop_loss: 6, take_profit: 0, position_pct: 30, code: '', builtin: '', params: { fast: 12, slow: 48 }, symbol_weights: {}, tags: [], updated_at: 'a', created_at: 'b',
 }
 
 describe('策略页的纯函数', () => {

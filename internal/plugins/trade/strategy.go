@@ -172,7 +172,9 @@ func (ps *Params) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
-// Strategy 同原型 Strategy。Mode 是 rules（规则）或 code（代码，不执行源码，只按 CodeKindOf 认成内置近似）。
+// Strategy 同原型 Strategy。Mode 是 rules（规则）、code（代码，不执行源码，只按 CodeKindOf 认成内置近似）
+// 或 builtin（内置策略，TRD-09：Builtin 是 builtin.go 注册表里的 id，信号由 Go 实现，Params 是它的参数）。
+// SymbolWeights 是按币种的资金权重（TRD-09）：回测分资金、部署算下单量都按它分，没写的标的按 1 算，空表示平均分。
 type Strategy struct {
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
@@ -187,10 +189,13 @@ type Strategy struct {
 	TakeProfit  float64   `json:"take_profit"`
 	PositionPct float64   `json:"position_pct"`
 	Code        string    `json:"code"`
+	Builtin     string    `json:"builtin"`
 	Params      Params    `json:"params"`
-	Tags        []string  `json:"tags"`
-	UpdatedAt   string    `json:"updated_at"`
-	CreatedAt   string    `json:"created_at"`
+	// 按币种的资金权重
+	SymbolWeights map[string]float64 `json:"symbol_weights"`
+	Tags          []string           `json:"tags"`
+	UpdatedAt     string             `json:"updated_at"`
+	CreatedAt     string             `json:"created_at"`
 }
 
 // Validate 检查枚举值和数值范围；标的认不认识交给回测时的标的表。
@@ -199,8 +204,31 @@ func (s Strategy) Validate() error {
 	if strings.TrimSpace(s.Name) == "" {
 		errs = append(errs, "名称不能为空")
 	}
-	if s.Mode != "rules" && s.Mode != "code" {
-		errs = append(errs, "模式只能是 rules 或 code")
+	if s.Mode != "rules" && s.Mode != "code" && s.Mode != "builtin" {
+		errs = append(errs, "模式只能是 rules、code 或 builtin")
+	}
+	if s.Mode == "builtin" {
+		if b, ok := builtinOf(s.Builtin); !ok {
+			errs = append(errs, "内置策略不认识："+s.Builtin)
+		} else {
+			if s.Interval != b.EntryInterval {
+				errs = append(errs, "内置策略「"+b.Name+"」的周期只能是 "+b.EntryInterval)
+			}
+			if s.Direction != b.Direction {
+				errs = append(errs, "内置策略「"+b.Name+"」只做多")
+			}
+			if err := b.check(s.Params); err != nil {
+				errs = append(errs, err.Error())
+			}
+		}
+	}
+	for sym, w := range s.SymbolWeights {
+		if !slices.Contains(s.Symbols, sym) {
+			errs = append(errs, "资金权重里的 "+sym+" 不在标的里")
+		}
+		if !finite(w) || w <= 0 || w > 1e6 {
+			errs = append(errs, "资金权重要大于 0、不超过 1000000："+sym)
+		}
 	}
 	if _, ok := Intervals[s.Interval]; !ok {
 		errs = append(errs, "周期不认识："+s.Interval)
@@ -213,10 +241,14 @@ func (s Strategy) Validate() error {
 			errs = append(errs, "标的格式不对："+sym)
 		}
 	}
-	for _, g := range []struct {
+	groups := []struct {
 		name string
 		g    RuleGroup
-	}{{"入场", s.Entry}, {"出场", s.Exit}} {
+	}{{"入场", s.Entry}, {"出场", s.Exit}}
+	if s.Mode == "builtin" {
+		groups = nil // 内置策略没有条件规则
+	}
+	for _, g := range groups {
 		if g.g.Logic != "all" && g.g.Logic != "any" {
 			errs = append(errs, g.name+"规则组的逻辑只能是 all 或 any")
 		}
@@ -260,6 +292,7 @@ func (o Operand) validate() error {
 
 // BacktestConfig 同原型：Bars 是回测最近多少根 K 线，FeeBp 万分之几，SlippageTicks 几跳；
 // Params 覆盖策略参数，stop_loss、take_profit、position_pct 三个保留键覆盖策略同名字段。
+// Start、End（TRD-09）是 UTC 日期 YYYY-MM-DD，左闭右开；给了 End 就回测到 End 之前最后一根，再给 Start 时 Bars 按区间算。
 type BacktestConfig struct {
 	StrategyID    string   `json:"strategy_id"`
 	Symbols       []string `json:"symbols"`
@@ -269,6 +302,8 @@ type BacktestConfig struct {
 	FeeBp         float64  `json:"fee_bp"`
 	SlippageTicks float64  `json:"slippage_ticks"`
 	Params        Params   `json:"params"`
+	Start         string   `json:"start,omitempty"`
+	End           string   `json:"end,omitempty"`
 }
 
 // BacktestTrade：PnL 只有减仓的成交才有。T 是毫秒时间戳。
@@ -302,17 +337,29 @@ type BacktestStats struct {
 }
 
 // BacktestResult 同原型，Note 是给人看的说明（近似方式、资金不足一手等），没有为空。
+// PerSymbol（TRD-09）是每个标的单独的统计，多标的或内置策略才有。
 type BacktestResult struct {
-	Equity []EquityPoint   `json:"equity"`
-	Trades []BacktestTrade `json:"trades"`
-	Stats  BacktestStats   `json:"stats"`
-	Note   string          `json:"note,omitempty"`
+	Equity    []EquityPoint   `json:"equity"`
+	Trades    []BacktestTrade `json:"trades"`
+	Stats     BacktestStats   `json:"stats"`
+	PerSymbol []SymbolStats   `json:"per_symbol,omitempty"`
+	Note      string          `json:"note,omitempty"`
 }
 
-// SweepPoint 是扫参的一个取值的结果。
+// SymbolStats 是一个标的按它分到的资金单独算的统计。
+type SymbolStats struct {
+	Symbol  string        `json:"symbol"`
+	Capital float64       `json:"capital"`
+	Stats   BacktestStats `json:"stats"`
+}
+
+// SweepPoint 是扫参的一个取值的结果。网格扫描（TRD-09）时 Params 是这一组的取值，Value 是第一个参数的取值。
 type SweepPoint struct {
 	Value       float64 `json:"value"`
+	Params      Params  `json:"params,omitempty"`
 	TotalReturn float64 `json:"total_return"`
 	MaxDD       float64 `json:"max_dd"`
 	Sharpe      float64 `json:"sharpe"`
+	WinRate     float64 `json:"win_rate"`
+	Trades      int     `json:"trades"`
 }

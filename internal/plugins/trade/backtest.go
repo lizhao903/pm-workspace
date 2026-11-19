@@ -7,6 +7,7 @@ import (
 	"math"
 	"math/big"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -458,6 +459,8 @@ type leg struct {
 	equity, bench []float64
 	t             []int64
 	trades        []BacktestTrade
+	symbol        string  // 单标的的腿才有（期现基差是两个标的合成一条）
+	capital       float64 // 这条腿分到的资金
 }
 
 func numOf(ps Params, k string, d float64) float64 {
@@ -885,11 +888,12 @@ func run(cfg BacktestConfig, st Strategy, data BacktestData, load func(string, i
 	}
 	ms := float64(iv.Milliseconds())
 	c := &btCtx{cfg: cfg, st: st, data: data, load: load}
-	share := cfg.Capital / float64(len(syms))
+	shares := capitalShares(cfg.Capital, syms, st.SymbolWeights)
 	each := func(c *btCtx, f func(*btCtx, string, float64, *notes) leg) []leg {
 		out := make([]leg, len(syms))
 		for i, s := range syms {
-			out[i] = f(c, s, share, ns)
+			out[i] = f(c, s, shares[i], ns)
+			out[i].symbol, out[i].capital = s, shares[i]
 		}
 		return out
 	}
@@ -935,6 +939,8 @@ func run(cfg BacktestConfig, st Strategy, data BacktestData, load func(string, i
 		default:
 			legs = fallback()
 		}
+	} else if st.Mode == "builtin" {
+		legs = each(c, (*btCtx).runBuiltinLeg)
 	} else {
 		if len(st.Entry.Rules) == 0 {
 			ns.add("入场规则为空，不会开仓")
@@ -965,11 +971,58 @@ func run(cfg BacktestConfig, st Strategy, data BacktestData, load func(string, i
 	}
 	sortTrades(trades)
 	res := BacktestResult{Equity: equity, Trades: trades, Stats: statsOf(vs, bs, trades, cfg.Capital, ms)}
+	if len(legs) > 1 || st.Mode == "builtin" {
+		// 每个标的单独的统计（TRD-09 批量多币种）：按这个标的分到的资金算
+		for _, l := range legs {
+			if l.symbol == "" {
+				continue
+			}
+			ps := statsOf(l.equity, l.bench, l.trades, l.capital, ms)
+			res.PerSymbol = append(res.PerSymbol, SymbolStats{Symbol: l.symbol, Capital: l.capital, Stats: ps})
+		}
+	}
 	if len(trades) == 0 {
 		ns.add("区间内没有触发入场条件，可以放宽阈值、换周期或拉长区间")
 	}
+	if len(res.Equity) > maxEquityPoints {
+		res.Equity = thinEquity(res.Equity, maxEquityPoints)
+		ns.add("资金曲线点太多，按间隔抽样到 " + numStr(float64(len(res.Equity))) + " 个点展示（统计按全部 K 线算）")
+	}
 	res.Note = strings.Join(ns.xs, "；")
 	return res
+}
+
+// maxEquityPoints 是结果里资金曲线最多存多少点（内置策略 3m 回测几个月有几万根）。
+const maxEquityPoints = 5000
+
+// thinEquity 等间隔抽样，保留第一点和最后一点。
+func thinEquity(eq []EquityPoint, n int) []EquityPoint {
+	stride := (len(eq) + n - 2) / (n - 1)
+	out := make([]EquityPoint, 0, n)
+	for i := 0; i < len(eq)-1; i += stride {
+		out = append(out, eq[i])
+	}
+	return append(out, eq[len(eq)-1])
+}
+
+// capitalShares 按币种权重分资金（TRD-09）：权重表里没写的标的按 1 算；没有权重表时平均分。
+func capitalShares(capital float64, syms []string, w map[string]float64) []float64 {
+	out := make([]float64, len(syms))
+	sum := 0.0
+	for _, s := range syms {
+		sum += weightOf(w, s)
+	}
+	for i, s := range syms {
+		out[i] = capital * weightOf(w, s) / sum
+	}
+	return out
+}
+
+func weightOf(w map[string]float64, s string) float64 {
+	if v, ok := w[s]; ok && v > 0 && finite(v) {
+		return v
+	}
+	return 1
 }
 
 // loader 给一次回测或扫参缓存 K 线：同一标的同样根数只取一次。
@@ -999,7 +1052,42 @@ func Sweep(cfg BacktestConfig, st Strategy, param string, values []float64, data
 		c := cfg
 		c.Params = cfg.Params.Set(param, v)
 		r := run(c, st, data, load)
-		out[i] = SweepPoint{Value: v, TotalReturn: r.Stats.TotalReturn, MaxDD: r.Stats.MaxDD, Sharpe: r.Stats.Sharpe}
+		out[i] = SweepPoint{Value: v, TotalReturn: r.Stats.TotalReturn, MaxDD: r.Stats.MaxDD, Sharpe: r.Stats.Sharpe, WinRate: r.Stats.WinRate, Trades: r.Stats.Trades}
+	}
+	return out
+}
+
+// GridAxis 是网格扫描的一个参数和它的取值。
+type GridAxis struct {
+	Param  string
+	Values []float64
+}
+
+// SweepGrid 是多参数网格扫描（TRD-09，对照 autotrader engine.py 的 sweep）：各参数取值的笛卡尔积各跑一次，K 线只取一次；
+// 顺序是第一个参数变得最慢。每个点的 Params 是这一组的取值，Value 是第一个参数的取值。
+func SweepGrid(cfg BacktestConfig, st Strategy, grid []GridAxis, data BacktestData) []SweepPoint {
+	load := loader(cfg, data)
+	combos := []Params{{}}
+	for _, ax := range grid {
+		var next []Params
+		for _, c := range combos {
+			for _, v := range ax.Values {
+				next = append(next, append(slices.Clone(c), Param{ax.Param, v}))
+			}
+		}
+		combos = next
+	}
+	out := make([]SweepPoint, 0, len(combos))
+	for _, combo := range combos {
+		c := cfg
+		c.Params = cfg.Params.Merge(combo)
+		r := run(c, st, data, load)
+		v := 0.0
+		if len(combo) > 0 {
+			v = combo[0].Value
+		}
+		out = append(out, SweepPoint{Value: v, Params: combo, TotalReturn: r.Stats.TotalReturn, MaxDD: r.Stats.MaxDD, Sharpe: r.Stats.Sharpe,
+			WinRate: r.Stats.WinRate, Trades: r.Stats.Trades})
 	}
 	return out
 }
