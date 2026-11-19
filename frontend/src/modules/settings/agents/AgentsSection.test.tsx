@@ -85,8 +85,9 @@ describe('Agent 列表（SPEC-settings-8）', () => {
     expect(within(card).getByText('手动 · 飞书群')).toBeInTheDocument()
     // 卡片上不放执行情况（手动对话不算执行记录，显示「还没运行过」会误导）
     expect(within(card).queryByText('还没运行过')).toBeNull()
-    expect(await within(card).findByText('新建 / 更新任务')).toHaveClass('confirm')
-    expect(within(screen.getByRole('button', { name: '周报' })).getByText('还没有说明')).toBeInTheDocument()
+    // 列表不放说明和能力标签，只写开了几个工具；说明在配置页
+    expect(within(card).queryByText('新建 / 更新任务')).toBeNull()
+    expect(within(screen.getByRole('button', { name: '周报' })).queryByText('还没有说明')).toBeNull()
 
     await userEvent.type(screen.getByRole('textbox', { name: '搜 Agent 名称和说明' }), '分诊 确认')
     expect(screen.getByText('命中 1 个')).toBeInTheDocument()

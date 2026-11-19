@@ -89,14 +89,9 @@ function AgentCard({ agent: a, model, grants, onOpen, onToggle }: {
             onCheckedChange={onToggle} />
         </span>
       </div>
-      <div className="ag-desc">{a.desc || '还没有说明'}</div>
-      {on.length > 0 && (
-        <div className="ag-abilities">
-          {on.slice(0, 5).map((x) => <span key={x.key} className={cls('ag-ability', grants?.[x.key] === 'confirm' && 'confirm')}>{x.label}</span>)}
-          {on.length > 5 && <span className="ag-ability">+{on.length - 5}</span>}
-        </div>
-      )}
+      {/* 列表只留识别用的信息（用户 11-19 提）：说明、能力标签都在配置页里看，卡片上只写开了几个工具 */}
       <div className="ag-card-foot">
+        {on.length > 0 && <span className="ag-sub">{on.length} 个工具</span>}
         <span className="ellipsis">{triggerSummary(a.triggers)}</span>
       </div>
     </div>
