@@ -1,6 +1,6 @@
 // powered by dsh - https://github.com/deepseek-ai/deepseek-harness
 
-import { useLayoutEffect, useRef, type TextareaHTMLAttributes } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type TextareaHTMLAttributes } from 'react'
 import { IM_CHANNELS, type Contact, type Group, type ImChannel } from './data'
 import { useEnum } from './enumdata'
 
@@ -25,6 +25,38 @@ export function GrowArea({ className, value, ...rest }: TextareaHTMLAttributes<H
     if (box && top !== undefined) box.scrollTop = top
   }, [value])
   return <textarea ref={ref} className={cls('grow-area', className)} value={value} {...rest} />
+}
+
+/**
+ * info 图标加提示气泡（任务详情精简，用户 2026-11-19 提，SPEC-tasks-4.88、6.41）：常驻的灰字说明收进一个 i 图标，
+ * 悬停或键盘聚焦时显示，移开、失焦、按 Esc 收起（Esc 只收气泡，不关抽屉）。气泡 fixed 定位、按视口夹住；说明一直在 DOM 里，aria-describedby 指向它。
+ * 正式前端是 core/ui 的 InfoTip
+ */
+export function InfoTip({ children, label = '说明', className }: { children: ReactNode; label?: string; className?: string }) {
+  const id = useId()
+  const btn = useRef<HTMLButtonElement>(null)
+  const [hover, setHover] = useState(false)
+  const [focus, setFocus] = useState(false)
+  const [dismissed, setDismissed] = useState(false)
+  const [pos, setPos] = useState<CSSProperties>({})
+  const open = (hover || focus) && !dismissed
+  useLayoutEffect(() => {
+    if (!open || !btn.current) return
+    const r = btn.current.getBoundingClientRect()
+    const vw = window.innerWidth || document.documentElement.clientWidth
+    const width = Math.min(300, vw - 16)
+    setPos({ top: r.bottom + 6, left: Math.max(8, Math.min(r.left + r.width / 2 - width / 2, vw - width - 8)), maxWidth: width })
+  }, [open])
+  return (
+    <span className={cls('info-tip', className)} onMouseEnter={() => setHover(true)} onMouseLeave={() => { setHover(false); setDismissed(false) }}>
+      <button ref={btn} type="button" className="info-tip-btn" aria-label={label} aria-describedby={id}
+        onFocus={() => setFocus(true)} onBlur={() => { setFocus(false); setDismissed(false) }} onClick={(e) => e.preventDefault()}
+        onKeyDown={(e) => { if (e.key === 'Escape' && open) { e.preventDefault(); e.stopPropagation(); e.nativeEvent.stopImmediatePropagation(); setDismissed(true) } }}>
+        <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" strokeWidth="1.3" /><path d="M8 7.2v4M8 4.9v.1" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+      </button>
+      <span id={id} role="tooltip" className={cls('info-tip-pop', open && 'on')} style={pos}>{children}</span>
+    </span>
+  )
 }
 
 export function ago(iso: string | null) {

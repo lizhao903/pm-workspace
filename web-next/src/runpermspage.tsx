@@ -42,7 +42,7 @@ export function RunPermsPage({ pending = [] }: { pending?: string[] }) {
         <textarea className={issue ? 'bad mono' : 'mono'} rows={6} value={text} spellCheck={false} placeholder={'Bash(git add:*)\nBash(git commit:*)'}
           onChange={(e) => { setText(e.target.value); setNote('') }} />
         {issue ? <span className="field-err">{issue}</span>
-          : <span className="list-sub">一行一条 Claude Code 权限规则，只在「自定义白名单」档生效。如 Bash(git commit:*)、Bash(make deploy:*)、mcp__slack、WebFetch</span>}
+          : <span className="list-sub">一行一条 Claude Code 权限规则，只在「自定义白名单」档生效。如 Bash(git commit:*)、Bash(make deploy:*)、mcp__slack、WebFetch、Read(//别处的目录/**)。只跟某个项目有关的脚本，录在项目档案的「执行白名单」里，只对那个项目的任务生效</span>}
       </label>
       <div className="act-row">
         <span className="spacer" />

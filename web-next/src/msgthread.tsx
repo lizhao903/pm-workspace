@@ -5,6 +5,8 @@ import type { Message } from './data'
 import { cls, timeAgo } from './ui'
 import { useEnumView } from './enumdata'
 import { isOpenMsg } from './msggroup'
+import type { SopRun } from './sopflow'
+import { TriageTag, TriageVerdictTag } from './triage'
 // MentionText 在 messages.tsx（两边互相引用只在渲染时用，没有初始化顺序问题）
 import { MentionText } from './messages'
 
@@ -12,14 +14,26 @@ type MsgAct = { kind: 'done' | 'ignore' | 'reopen' }
 type Action = 'done' | 'ignore'
 
 /**
+ * 消息列回复也走分诊（用户 2026-11-19 提，SPEC-messages-2.45、2.51）：SOP 插件在跑时才传。
+ * latest 是每条消息最近一次分诊；onOpenQueue 打开处理队列；onOpenAdvice 打开那条回复的抽屉并滚到「分诊建议」；onStart 给勾选的回复各发起一次分诊
+ */
+export type ThreadTriage = {
+  latest: Map<string, SopRun>
+  onOpenQueue: () => void
+  onOpenAdvice: (id: string) => void
+  onStart: (ids: string[]) => void
+}
+
+/**
  * 原消息抽屉里的「消息列回复 N」一节（SPEC-messages-2.45）：按时间列整个消息列，每条能单独处理，点姓名打开那一条。
  * 批量处理（SPEC-messages-2.51）：没勾选时标题行右边「全部标为已处理」「全部忽略」（先确认，只算还没处理的回复，不含原消息）；
  * 勾了以后换成「已选 N 条」「全选 M 条」「标为已处理」「忽略」「取消选择」（同列表批量条）；原消息也没处理时多一个「连原消息一起」。
  * 原型逐条改本地数据，没有部分跳过、失败和分批。
  */
-export function ThreadReplies({ parent, replies, onOpen, onActOther, onActParent }: {
+export function ThreadReplies({ parent, replies, onOpen, onActOther, onActParent, triage }: {
   parent: Message
   replies: Message[]
+  triage?: ThreadTriage
   onOpen?: (id: string) => void
   onActOther?: (id: string, a: MsgAct) => void
   onActParent: (a: MsgAct) => void
@@ -66,6 +80,11 @@ export function ThreadReplies({ parent, replies, onOpen, onActOther, onActParent
             {picked.length < open.length && <button className="act act-quiet" onClick={() => setSel(new Set(open.map((m) => m.id)))}>全选 {open.length} 条</button>}
             <span className="spacer" />
             {parentCheck}
+            {/* 批量分诊（2.51）：只带勾选的回复，「连原消息一起」对它不起作用。原型直接用默认的分诊流程发起（同抽屉里的「发起分诊」），不弹选流程 */}
+            {triage && (
+              <button className="act" title={`给勾选的 ${picked.length} 条回复各发起一次分诊流程（不带原消息）`}
+                onClick={() => { triage.onStart(picked.map((m) => m.id)); setNote(`分诊发起 ${picked.length} 条消息列回复`); setSel(new Set()) }}>批量分诊</button>
+            )}
             <button className="act act-primary" onClick={() => run('done', picked.map((m) => m.id))}>标为{doneLabel}</button>
             <button className="act" onClick={() => run('ignore', picked.map((m) => m.id))}>忽略</button>
             <button className="act act-quiet" onClick={() => setSel(new Set())}>取消选择</button>
@@ -84,20 +103,29 @@ export function ThreadReplies({ parent, replies, onOpen, onActOther, onActParent
         {replies.map((m) => {
           const o = isOpenMsg(m)
           return (
-            <div key={m.id} className={cls('thread-item', !o && 'msg-closed', o && sel.has(m.id) && 'thread-picked')}>
+            // 已处理、已忽略的回复：「重新打开」悬停或聚焦到这一条时才显示（SPEC-messages-1.69）
+            <div key={m.id} className={cls('thread-item', !o && 'msg-closed', !o && 'msg-acts-hover', o && sel.has(m.id) && 'thread-picked')}>
               <div className="thread-item-top">
                 {o ? <input type="checkbox" className="thread-check" aria-label={`选择 ${m.sender_name} 的回复`} checked={sel.has(m.id)} onChange={(e) => toggle(m.id, e.target.checked)} />
                   : <span className="thread-check" aria-hidden />}
                 <button className="thread-who" onClick={() => onOpen?.(m.id)} title="打开这一条">{m.sender_name}</button>
                 <span className="muted">{timeAgo(m.at)}</span>
                 {m.status !== 'pending' && <span className="state">{msgEnum.label(m.status)}</span>}
-                <span className="spacer" />
-                {o ? (
+                {triage && (
                   <>
-                    <button className="act" onClick={() => onActOther?.(m.id, { kind: 'done' })}>标为{doneLabel}</button>
-                    <button className="act act-quiet" onClick={() => onActOther?.(m.id, { kind: 'ignore' })}>忽略</button>
+                    <TriageTag run={triage.latest.get(m.id)} onClick={triage.onOpenQueue} onOpenAdvice={() => triage.onOpenAdvice(m.id)} />
+                    <TriageVerdictTag run={triage.latest.get(m.id)} onOpenAdvice={() => triage.onOpenAdvice(m.id)} />
                   </>
-                ) : <button className="act" onClick={() => onActOther?.(m.id, { kind: 'reopen' })}>重新打开</button>}
+                )}
+                <span className="spacer" />
+                <span className="thread-acts">
+                  {o ? (
+                    <>
+                      <button className="act" onClick={() => onActOther?.(m.id, { kind: 'done' })}>标为{doneLabel}</button>
+                      <button className="act act-quiet" onClick={() => onActOther?.(m.id, { kind: 'ignore' })}>忽略</button>
+                    </>
+                  ) : <button className="act" onClick={() => onActOther?.(m.id, { kind: 'reopen' })}>重新打开</button>}
+                </span>
               </div>
               <div className="thread-item-text"><MentionText text={m.text} /></div>
             </div>

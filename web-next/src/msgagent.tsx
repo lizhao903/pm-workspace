@@ -5,7 +5,7 @@
 import { useState, type ReactNode } from 'react'
 import type { Agent } from './agentdata'
 import type { Message } from './data'
-import { countLabel, isOpenMsg, sessionPrompt, type MsgRow, type SessionIntent } from './msggroup'
+import { countLabel, isOpenMsg, sessionPrompt, type MsgRow, type SessionIntent, type ThreadParentText } from './msggroup'
 import { MaterialSection, type MaterialHit } from './msgmaterial'
 import { SearchSelect } from './searchselect'
 import { Avatar, cls, timeAgo } from './ui'
@@ -14,7 +14,7 @@ const fmt = (iso: string) => new Date(iso).toLocaleString('zh-CN', { month: 'num
 const KIND_TITLE: Record<MsgRow['kind'], string> = { single: '消息', dm: '私聊', burst: '连发的消息', dup: '重复的消息' }
 
 /** 一组消息：按时间正序看整段，每条能处理、能打开详情；上面整组处理；下面交给 Agent */
-export function GroupDrawer({ row, who, statusLabel, links, onClose, onAct, onOpenMessage, onStart, onOpenSession, notes, onToMaterial, onOpenMaterial, contactId, onOpenContact, onSaveContact, triage }: {
+export function GroupDrawer({ row, who, statusLabel, links, onClose, onAct, onOpenMessage, onStart, onOpenSession, onOpenTask, notes, onToMaterial, onOpenMaterial, contactId, onOpenContact, onSaveContact, triage }: {
   /** 「分诊建议」一节（SPEC-messages-4.10），放在发信人下面 */
   triage?: ReactNode
   /** 维护联系人（SPEC-messages-4.9）：一组是同一个发信人；认上的给「查看联系人」，没认上的给「存为联系人」 */
@@ -24,7 +24,9 @@ export function GroupDrawer({ row, who, statusLabel, links, onClose, onAct, onOp
   row: MsgRow
   who: (m: Message) => string
   statusLabel: (k: string) => string
-  links: { sessions: string[]; tasks: number }
+  links: MsgLinks
+  /** 打开到了终态、折叠起来的任务（SPEC-messages-1.68） */
+  onOpenTask?: (id: string) => void
   onClose: () => void
   onAct: (id: string, kind: 'done' | 'ignore' | 'reopen') => void
   onOpenMessage: (id: string) => void
@@ -88,7 +90,7 @@ export function GroupDrawer({ row, who, statusLabel, links, onClose, onAct, onOp
             </div>
           ))}
         </div>
-        <AgentSection links={links} onOpenSession={onOpenSession} />
+        <AgentSection links={links} onOpenSession={onOpenSession} onOpenTask={onOpenTask} />
         <MaterialSection notes={notes} onOpen={onOpenMaterial} />
       </div>
       <div className="drawer-foot">
@@ -111,9 +113,12 @@ export function ReplyBarActions({ many, onStart, onToMaterial }: { many: boolean
   )
 }
 
-/** 抽屉里「交给 Agent」一节（SPEC-messages-2.36、4.4）：只列发起过的会话、拆出的任务，没有时不显示 */
-export function AgentSection({ links, onOpenSession }: {
-  links: { sessions: string[]; tasks: number }; onOpenSession: (id: string) => void
+/** 一组消息的关联：发起过的会话（新的在前）、拆出来还没到终态的任务数、到了终态的任务（SPEC-messages-1.58、1.68） */
+export type MsgLinks = { sessions: string[]; tasks: number; closed?: { id: string; ref: string; title: string }[] }
+
+/** 抽屉里「交给 Agent」一节（SPEC-messages-2.36、4.4）：只列发起过的会话、拆出的任务，没有时不显示；到了终态的任务折叠（1.68） */
+export function AgentSection({ links, onOpenSession, onOpenTask }: {
+  links: MsgLinks; onOpenSession: (id: string) => void; onOpenTask?: (id: string) => void
 }) {
   if (!links.sessions.length) return null
   return (
@@ -124,15 +129,31 @@ export function AgentSection({ links, onOpenSession }: {
           <span className="muted">已发起会话 {links.sessions.length} 个</span>
           <button className="link-btn" onClick={() => onOpenSession(links.sessions[0])}>打开最近的</button>
           {links.tasks > 0 && <span className="muted">已拆分 {links.tasks} 条任务</span>}
+          <ClosedTasks tasks={links.closed ?? []} onOpenTask={onOpenTask} />
         </div>
       )}
     </>
   )
 }
 
+/** 到了终态的关联任务：折叠成「另有 N 条已完成」，点开列出来、能打开（SPEC-messages-1.68）；没有时不显示 */
+export function ClosedTasks({ tasks, onOpenTask }: { tasks: { id: string; ref: string; title: string }[]; onOpenTask?: (id: string) => void }) {
+  const [open, setOpen] = useState(false)
+  if (!tasks.length) return null
+  return (
+    <>
+      <button className="act act-quiet msg-closed-tasks" aria-expanded={open} onClick={() => setOpen(!open)}
+        title={open ? '收起已完成的任务' : '这些任务已经完成或取消，展开看'}>{open ? '收起已完成' : `另有 ${tasks.length} 条已完成`}</button>
+      {open && tasks.map((t) => <button key={t.id} className="link-btn muted" title={t.title} onClick={() => onOpenTask?.(t.id)}>{t.ref || t.title}</button>)}
+    </>
+  )
+}
+
 /** 发起会话、拆分任务：选 Agent（默认上次用的、带 IM 触发的、像管任务的），看一眼第一句话（能改），确定后建会话并跳过去 */
-export function StartSessionDialog({ messages, intent: intent0, agents, who, chLabel, project, workdir, onCancel, onStart }: {
+export function StartSessionDialog({ messages, intent: intent0, agents, who, chLabel, project, workdir, threadParent, onCancel, onStart }: {
   messages: Message[]; intent: SessionIntent; agents: Agent[]; who: (m: Message) => string; chLabel: string
+  /** 消息列里的回复发起时它的原消息（threadParentText），第一句话里先写全文（SPEC-messages-5.6） */
+  threadParent?: ThreadParentText | null
   /** 消息归属的项目名、项目关联的本地目录 */
   project?: string; workdir?: string
   onCancel: () => void
@@ -147,7 +168,7 @@ export function StartSessionDialog({ messages, intent: intent0, agents, who, chL
   const [edited, setEdited] = useState<string | null>(null)
   const [dir, setDir] = useState(workdir ?? '')
   const agent = usable.find((a) => a.id === agentId)
-  const prompt = edited ?? sessionPrompt(messages, intent, { who, chLabel, project, grant: agent?.abilities.write_tasks })
+  const prompt = edited ?? sessionPrompt(messages, intent, { who, chLabel, project, grant: agent?.abilities.write_tasks, threadParent })
   return (
     <div className="qs-mask" onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel() }}>
       <div className="qs msg-start" role="dialog" aria-label={intent === 'split' ? '拆分任务' : '发起会话'}>

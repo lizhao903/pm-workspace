@@ -68,6 +68,8 @@ export interface SopIM {
   conversations: string[]
   relevance: SopIMRelevance[]
   relevance_mode: 'include' | 'exclude'
+  /** 相关消息列里的回复按 @我 算（SOP 0.23.0，SPEC-sop-9.35）：默认不勾，已有流程不变 */
+  thread_related?: boolean
   order: number
   stop: boolean
 }
@@ -76,7 +78,7 @@ export const emptyIM = (): SopIM => ({ conversations: [], relevance: [], relevan
 export function imFilterText(im: SopIM): string {
   const parts: string[] = []
   if (im.conversations.length) parts.push(im.conversations.join('、'))
-  if (im.relevance.length) parts.push(`${im.relevance_mode === 'exclude' ? '除了' : '只要'} ${im.relevance.map((r) => IM_REL_LABEL[r]).join('、')}`)
+  if (im.relevance.length) parts.push(`${im.relevance_mode === 'exclude' ? '除了' : '只要'} ${im.relevance.map((r) => IM_REL_LABEL[r]).join('、')}${im.thread_related ? '（相关消息列按 @我）' : ''}`)
   return parts.length ? parts.join(' · ') : '全部消息'
 }
 /** IM 流程按顺序排好（同序号按在表里的先后） */

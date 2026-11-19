@@ -27,7 +27,7 @@ import { TerminalPage, type TermTab } from './terminal'
 import { PageTitle } from './topbar'
 import './projects.css'
 import { ProjectProfileTab } from './projectprofile'
-import { cls, timeAgo } from './ui'
+import { GrowArea, cls, timeAgo } from './ui'
 import { newId } from './ids'
 
 // 项目：把一个产品相关的东西串起来——沟通（私聊、群聊）、干系人、任务、文档、SOP、Agent、支持材料、原型、目录
@@ -208,6 +208,18 @@ export function PathInput({ value, onChange, placeholder }: { value: string; onC
   )
 }
 
+/** 原型规则（TSK-0841 复盘，SPEC-projects-12.26 到 12.28）：说明、占位 */
+const RULES_HINT = '交给 Claude Code 时写进提示词、跟在这个原型后面；一行一条'
+const RULES_PLACEHOLDER = '在这个基线上拉 cloud-v<MMDD>-<nn> 分支改，不做独立 HTML\n以 UI-chat 设计为准\n改完在原型仓提交'
+
+/** 规则在列表上的简短提示：第一条非空行，超过 n 字截断；多于一条时后面写共几条（同正式产品 rulesPeek） */
+export function rulesPeek(rules: string, n = 40): string {
+  const lines = rules.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (!lines.length) return ''
+  const first = lines[0].length > n ? `${lines[0].slice(0, n)}…` : lines[0]
+  return lines.length > 1 ? `${first}（共 ${lines.length} 条）` : first
+}
+
 function ProtoCard({ p, project, projects, onStart, onStop, onChange, onRemove }: {
   p: Prototype; project: Project; projects: Project[]
   onStart: () => void; onStop: () => void; onChange: (x: Prototype) => void; onRemove: () => void
@@ -215,6 +227,9 @@ function ProtoCard({ p, project, projects, onStart, onStop, onChange, onRemove }
   const [edit, setEdit] = useState(false)
   const [d, setD] = useState(p)
   const [logs, setLogs] = useState(false)
+  // 规则表单：规则不影响进程，运行中、启停中也能改（SPEC-projects-12.27）
+  const [rulesOpen, setRulesOpen] = useState(false)
+  const [rules, setRules] = useState(p.rules ?? '')
   const busy = p.status === 'starting' || p.status === 'stopping'
   const live = p.status === 'running'
   const conflict = !live && !busy ? portConflict(p.port, p.id, projects) : null
@@ -239,16 +254,32 @@ function ProtoCard({ p, project, projects, onStart, onStop, onChange, onRemove }
         <span><span className="proto-k">命令</span><code>{p.command}</code></span>
         <span><span className="proto-k">端口</span><code>{p.port}</code></span>
         {live && p.started_at && <span><span className="proto-k">已运行</span>{timeAgo(p.started_at).replace('前', '')}</span>}
+        {p.rules?.trim() && <span className="proto-rules" title={p.rules}><span className="proto-k">规则</span>{rulesPeek(p.rules)}</span>}
       </div>
       {conflict && <div className="proto-warn">{conflict}，换一个端口再启动</div>}
       {p.status === 'error' && p.error && <div className="proto-warn">{p.error}</div>}
       <div className="act-row">
         <button className="act act-quiet" onClick={() => setLogs(!logs)} disabled={!p.logs.length}>{logs ? '收起日志' : '看日志'}</button>
         <button className="act act-quiet" disabled={live || busy} title={live ? '先停下来再改' : undefined} onClick={() => { setD(p); setEdit(!edit) }}>{edit ? '收起设置' : '修改'}</button>
+        <button className="act act-quiet" aria-expanded={rulesOpen} title="规则不影响进程，在跑时也能改"
+          onClick={() => { setRules(p.rules ?? ''); setRulesOpen(!rulesOpen) }}>{rulesOpen ? '收起规则' : p.rules?.trim() ? '改规则' : '加规则'}</button>
         <span className="spacer" />
         <button className="act act-quiet btn-danger-ghost" disabled={live || busy} onClick={onRemove}>移除</button>
       </div>
       {logs && <pre className="proto-logs">{p.logs.join('\n')}</pre>}
+      {rulesOpen && (
+        <div className="proto-edit form" role="group" aria-label="原型规则">
+          <label className="field"><span className="field-label">规则<span className="field-hint">{RULES_HINT}</span></span>
+            <GrowArea rows={3} value={rules} placeholder={RULES_PLACEHOLDER} onChange={(e) => setRules(e.target.value)} />
+          </label>
+          {rules.trim().length > 4000 && <div className="field-err" role="alert">没保存：规则最多 4000 字</div>}
+          <div className="act-row">
+            <button className="act act-primary" disabled={rules.trim().length > 4000}
+              onClick={() => { if (rules.trim() !== (p.rules ?? '').trim()) onChange({ ...p, rules: rules.trim() }); setRulesOpen(false) }}>保存</button>
+            <button className="act act-quiet" onClick={() => setRulesOpen(false)}>取消</button>
+          </div>
+        </div>
+      )}
       {edit && (
         <div className="proto-edit form">
           <div className="field-row">
@@ -365,7 +396,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
   const [editMat, setEditMat] = useState<string | null>(null)
   const [matTag, setMatTag] = useState('')
   const [newDoc, setNewDoc] = useState<{ title: string; kind: string; type: 'library' | 'file'; ref: string } | null>(null)
-  const [newProto, setNewProto] = useState<{ name: string; dir: string; command: string; port: number } | null>(null)
+  const [newProto, setNewProto] = useState<{ name: string; dir: string; command: string; port: number; rules?: string } | null>(null)
   const [confirmDel, setConfirmDel] = useState(false)
   // 名称必填：清空时只改输入框、不存，离开输入框时恢复成原来的名字
   const [nameDraft, setNameDraft] = useState<string | null>(null)
@@ -493,6 +524,7 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
               {protos.length ? protos.slice(0, PROTO_PEEK).map((x) => (
                 <div key={x.id} className="proj-proto-line">
                   <span className={cls('proto-light', `pl-${x.status}`)} /><span className="ellipsis">{x.name}</span><code>:{x.port}</code>
+                  {x.rules?.trim() && <span className="run-muted" title={x.rules}>有规则</span>}
                   <span className="spacer" />
                   {x.status === 'running' ? <><button className="act act-quiet" onClick={() => openUrl(`http://127.0.0.1:${x.port}`, x.name)}>打开</button><button className="act" onClick={() => onStop(x.id)}>停止</button></>
                     : (() => {
@@ -692,9 +724,10 @@ export function ProjectPage({ project, projects, agents, content, tab, onTab, on
               </div>
               <input className="mono" value={newProto.dir} placeholder="目录（相对项目目录），比如 prototype" onChange={(e) => setNewProto({ ...newProto, dir: e.target.value })} />
               <input className="mono" value={newProto.command} placeholder="启动命令" onChange={(e) => setNewProto({ ...newProto, command: e.target.value })} />
+              <GrowArea aria-label="规则" rows={2} value={newProto.rules ?? ''} placeholder={`规则（可空）：${RULES_HINT}`} onChange={(e) => setNewProto({ ...newProto, rules: e.target.value })} />
               {portConflict(newProto.port, '', projects) && <span className="field-err">{portConflict(newProto.port, '', projects)}</span>}
               <div className="act-row">
-                <button className="act act-primary" disabled={!newProto.name.trim() || !newProto.command.trim()} onClick={() => { set({ prototypes: [...p.prototypes, { ...newProto, id: newId('pt'), status: 'stopped', logs: [] }] }); setNewProto(null) }}>加上</button>
+                <button className="act act-primary" disabled={!newProto.name.trim() || !newProto.command.trim()} onClick={() => { const { rules, ...np } = newProto; set({ prototypes: [...p.prototypes, { ...np, ...(rules?.trim() ? { rules: rules.trim() } : {}), id: newId('pt'), status: 'stopped', logs: [] }] }); setNewProto(null) }}>加上</button>
                 <button className="act act-quiet" onClick={() => setNewProto(null)}>取消</button>
                 <span className="list-sub">端口默认给一个没被占用的</span>
               </div>

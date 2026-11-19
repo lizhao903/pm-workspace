@@ -10,7 +10,7 @@ import { PathInput } from './projects'
 import { EMPTY_PROFILE, PLATFORM_PRESETS, PROFILE_COMMAND_GROUPS, PROFILE_COMMANDS, type Project, type ProjectProfile, type ProfileCommandKey } from './projectdata'
 import { ProtoSyncSection } from './protosync'
 import { SearchSelect } from './searchselect'
-import { Avatar, cls } from './ui'
+import { Avatar, GrowArea, cls } from './ui'
 
 const DIRS = [
   { key: 'code_dir', label: '代码库目录', hint: '研发 pipeline 在这里改代码、跑命令；不填时沿用项目目录' },
@@ -25,12 +25,27 @@ const splitTags = (s: string) => {
 }
 const isPreset = (x: string) => PLATFORM_PRESETS.some((p) => p.toLowerCase() === x.toLowerCase())
 
+/** 执行白名单原文 → 规则数组：按行拆，去首尾空白、去空、去重（同正式产品 profileModel.runAllowOf） */
+const runAllowOf = (s: string) => {
+  const out: string[] = []
+  for (const raw of s.split('\n')) { const x = raw.trim(); if (x && !out.includes(x)) out.push(x) }
+  return out
+}
+/** 一眼就不行的规则：Bash、Bash(*) 这类等于放开任意命令的；有的话这一项先不存（SPEC-projects-15.8a） */
+const runAllowError = (s: string) => {
+  const bad = runAllowOf(s).find((r) => r === 'Bash' || /^Bash\(\s*([*:].*)?\)$/.test(r))
+  return bad ? `「${bad}」等于放开任意命令，不收；按命令前缀写，如 Bash(./scripts/check.sh:*)` : ''
+}
+
 export function ProjectProfileTab({ p, contacts, onChange }: { p: Project; contacts: Contact[]; onChange: (x: Partial<Project>) => void }) {
   const pf = p.profile ?? EMPTY_PROFILE
   const set = (x: Partial<ProjectProfile>) => onChange({ profile: { ...pf, ...x } })
   // 关键词、其他平台、超时边输边拆会吃掉正在输的逗号，输入框留原文
   const [kw, setKw] = useState(pf.keywords.join('，'))
   const [other, setOther] = useState(pf.platforms.filter((x) => !isPreset(x)).join('，'))
+  // 执行白名单输入框留原文，合规时才存成数组（TSK-0837）
+  const [allow, setAllow] = useState((pf.run_allow ?? []).join('\n'))
+  const allowErr = runAllowError(allow)
   const [timeouts, setTimeouts] = useState<Partial<Record<ProfileCommandKey, string>>>(
     Object.fromEntries(PROFILE_COMMANDS.map(({ key }) => [key, pf.commands[key]?.timeout_sec ? String(pf.commands[key]!.timeout_sec) : ''])))
   const presets = pf.platforms.filter(isPreset)
@@ -72,6 +87,15 @@ export function ProjectProfileTab({ p, contacts, onChange }: { p: Project; conta
           <div key={d.key} className="field">
             <span className="field-label">{d.label}<span className="field-hint">{d.key === 'code_dir' && p.root ? `不填时沿用项目目录 ${p.root}` : d.hint}</span></span>
             <PathInput value={pf[d.key]} placeholder={d.key === 'code_dir' && p.root ? '留空沿用项目目录' : '/Users/me/projects/xxx'} onChange={(v) => set({ [d.key]: v })} />
+            {/* 原型库规则（TSK-0841 复盘，SPEC-projects-15.5a）：目录没设时也能写，但提示词里只有设了目录的原型库才出现 */}
+            {d.key === 'proto_dir' && (
+              <label className="field proj-proto-rules-field"><span className="field-label">原型库规则<span className="field-hint">交给 Claude Code 时写进提示词、跟在原型库后面；一行一条</span></span>
+                <GrowArea rows={3} value={pf.proto_rules ?? ''} aria-label="原型库规则"
+                  placeholder={'新需求在这个基线上拉 cloud-v<MMDD>-<nn> 分支改，不做独立 HTML\n以 UI-chat 设计为准\n改完在原型仓提交'}
+                  onChange={(e) => set({ proto_rules: e.target.value })} />
+                {(pf.proto_rules ?? '').trim().length > 4000 && <span className="field-err" role="alert">没保存上：原型库规则最多 4000 字</span>}
+              </label>
+            )}
           </div>
         ))}
       </section>
@@ -116,6 +140,17 @@ export function ProjectProfileTab({ p, contacts, onChange }: { p: Project; conta
           })}
         </div>
         ))}
+      </section>
+
+      {/* 执行白名单（TSK-0837，SPEC-projects-15.8a）：合并口径见 SPEC-tasks-6.19a */}
+      <section className="hook-sec" aria-label="执行白名单">
+        <div className="field-group-title">执行白名单<span className="field-hint">这个项目的任务交给 Claude Code 后台执行时额外放行的规则，一行一条；写法同「设置 / 执行权限」的自定义白名单</span></div>
+        <label className="field"><span className="field-label">规则<span className="field-hint">允许改文件的档位全部放行；只读档位只放行 Read(…) 这类读规则，脚本和 MCP 工具不放行</span></span>
+          <GrowArea rows={3} className={cls('mono-area', allowErr && 'bad')} value={allow} aria-label="执行白名单" spellCheck={false} aria-invalid={!!allowErr}
+            placeholder={'Bash(./_shared/新建需求.sh:*)\nBash(python3 核格式.py:*)\nRead(//Volumes/project/other-repo/**)'}
+            onChange={(e) => { setAllow(e.target.value); if (!runAllowError(e.target.value)) set({ run_allow: runAllowOf(e.target.value) }) }} />
+          {allowErr && <span className="field-err" role="alert">{allowErr}，改好前这一项先不存</span>}
+        </label>
       </section>
 
       <section className="hook-sec">

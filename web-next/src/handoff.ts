@@ -21,19 +21,43 @@ export interface ProjectContext {
   workdir?: string
   docsDir?: string
   docsLabel?: string
-  prototypes: { name: string; dir: string }[]
+  /** rules 是在这个原型上改时要守的规则（多行，可空；SPEC-tasks-6.13） */
+  prototypes: { name: string; dir: string; rules?: string }[]
 }
 
-export function projectContext(p: Pick<Project, 'name' | 'root' | 'related' | 'prototypes'> & { ref?: string } | undefined): ProjectContext | undefined {
+/** 项目档案原型库在提示词里的名字（同正式产品 internal/plugins/projects/prototypes.go 的 protoLibName） */
+const PROTO_LIB_NAME = '原型库（项目档案）'
+
+/**
+ * 原型目录和规则（TSK-0841 复盘，SPEC-tasks-6.13）：档案的原型库设了目录时排第一；和某个登记原型同目录时合成一条，
+ * 叫「<原型名>（项目档案的原型库）」，规则先档案、后原型，两段相同只留一段
+ */
+export function projectContext(p: Pick<Project, 'name' | 'root' | 'related' | 'prototypes'> & { ref?: string; profile?: Project['profile'] } | undefined): ProjectContext | undefined {
   if (!p) return undefined
   const abs = (d: string) => (d.startsWith('/') ? d : `${p.root.replace(/\/+$/, '')}/${d}`.replace(/\/+$/, ''))
   const doc = p.related.find((r) => r.path.trim())
+  const reg = p.prototypes.map((x) => ({ name: x.name, dir: abs(x.dir), rules: (x.rules ?? '').trim() }))
+  const libDir = (p.profile?.proto_dir ?? '').trim()
+  let prototypes = reg
+  if (libDir) {
+    const key = libDir.replace(/\/+$/, '')
+    const lib = { name: PROTO_LIB_NAME, dir: libDir, rules: (p.profile?.proto_rules ?? '').trim() }
+    const same = reg.find((x) => x.dir.replace(/\/+$/, '') === key)
+    if (same) {
+      lib.name = `${same.name.trim()}（项目档案的原型库）`
+      if (same.rules && same.rules !== lib.rules) lib.rules = lib.rules ? `${lib.rules}\n${same.rules}` : same.rules
+    }
+    prototypes = [lib, ...reg.filter((x) => x !== same)]
+  }
   return {
     name: p.name, ref: p.ref, workdir: p.root || undefined,
     docsDir: doc?.path, docsLabel: doc?.label || undefined,
-    prototypes: p.prototypes.map((x) => ({ name: x.name, dir: abs(x.dir) })),
+    prototypes,
   }
 }
+
+/** 规则按行拆开、去掉首尾空行，给提示词逐行缩进用 */
+const ruleLines = (r?: string) => { const t = (r ?? '').trim(); return t ? t.split('\n').map((l) => l.trimEnd()) : [] }
 
 /** 预览时还没有执行 id，用这句占位 */
 export const RUN_ID_PENDING = '<发起时生成的执行 id>'
@@ -60,10 +84,25 @@ export function buildPrompt(o: {
       ? `文档在哪里操作：${p.docsDir}${p.docsLabel ? `（项目关联目录「${p.docsLabel}」）` : ''}`
       : '文档在哪里操作：这个项目没有关联文档目录，可在项目设置里补；需要写文档时先问用户放哪里。')
     if (p.prototypes.length) {
-      lines.push('原型在哪里操作：', ...p.prototypes.map((x) => `  - ${x.name ? `${x.name}：` : ''}${x.dir}`))
+      lines.push('原型在哪里操作：', ...p.prototypes.flatMap((x) => {
+        const rl = ruleLines(x.rules)
+        return [`  - ${x.name ? `${x.name}：` : ''}${x.dir}`, ...(rl.length ? ['    规则：', ...rl.map((l) => (l ? `      ${l}` : ''))] : [])]
+      }))
     } else {
       lines.push('原型在哪里操作：这个项目没有登记原型目录，可在项目设置里补；需要改原型时先问用户在哪里改。')
     }
+    lines.push('')
+  }
+  // 来源消息（同正式产品 prompt.go 的 Source 一节）：IM 转来的任务写原消息；消息列回复转的先写原消息全文再写回复（SPEC-tasks-4.89）
+  if (t.source.kind === 'im') {
+    const s = t.source
+    lines.push('## 来源消息')
+    if (s.thread_parent) {
+      lines.push(`这条任务来自消息列里的一条回复。消息列的原消息${s.thread_parent.sender ? `（${s.thread_parent.sender}）` : ''}${s.thread_parent.partial ? '（只有摘要，全文没取到）' : ''}：`,
+        s.thread_parent.text, '', '回复：')
+    }
+    lines.push(`这条任务来自 ${s.channel ? `${s.channel} ` : ''}${s.conversation ? `「${s.conversation}」里` : ''}${s.sender ? ` ${s.sender} ` : ''}的消息：`, s.text)
+    if (s.reply_on_done) lines.push('执行结束后，工作台会把这次执行的结论回复到这条消息里，结论请写成能直接发给对方看的话。')
     lines.push('')
   }
   if (o.preset?.content.trim()) {
@@ -86,6 +125,7 @@ export function buildPrompt(o: {
   lines.push('## 约束', p
     ? '- 所有产出只写在当前目录、以及上面「所属项目」里写明的文档目录和原型目录里，不要改动其他位置的文件。'
     : '- 所有产出只写在当前目录内，不要改动工作区之外的任何文件。',
+  ...(p?.prototypes.some((x) => ruleLines(x.rules).length) ? ['- 改原型必须遵守上面「原型在哪里操作」里各原型的规则；规则和本任务的要求冲突时，先停下来说明冲突，不要自己挑一个做。'] : []),
   '- 完成后用一段话说明你做了什么、改了哪些文件，以及还剩什么没做。')
   return lines.join('\n') + '\n'
 }

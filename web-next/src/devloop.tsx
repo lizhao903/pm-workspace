@@ -8,7 +8,8 @@ import {
 } from './taskdata'
 import { useEnumView } from './enumdata'
 import { useOpenUrl } from './openurl'
-import { GrowArea, cls, timeAgo } from './ui'
+import { GrowArea, InfoTip, cls, timeAgo } from './ui'
+import { appendQuickNote, useRunQuickNotes } from './runnotes'
 import { buildPrompt, type HandoffMode, type ProjectContext } from './handoff'
 import { useRunPresets, type RunPreset } from './runpresets'
 import { WRITE_PROFILE_OPTIONS, allowRulesOf, useRunPerms, writeProfileHint, type RunPermission, type RunWriteProfile } from './runperms'
@@ -299,8 +300,13 @@ export function ApproveConfirm({ task, onApprove, onOpen, onClose }: { task: Tas
 
 export interface DevDraft { acceptance?: string; workdir?: string; repo?: string }
 
-export function DevFields({ d, onChange, inheritDir, onRun, runningId, onShowRun }: {
+/** 开发任务标签「更多」里点了几次「记一条进展」「登记产出物」：变了就展开对应表单并滚过去（SPEC-tasks-4.87） */
+export type DevAdds = { progress: number; artifact: number }
+
+export function DevFields({ d, onChange, inheritDir, onRun, runningId, onShowRun, onAdd, projectName }: {
   d: DevDraft; onChange: (p: DevDraft) => void
+  /** 「更多」菜单：记一条进展、登记产出物（SPEC-tasks-4.87）；只有已存在的任务有 */
+  onAdd?: (k: keyof DevAdds) => void
   /** 所属项目的根目录，任务没设工作目录时继承 */
   inheritDir?: string
   /** 只有已存在的任务能交给 Claude Code */
@@ -308,6 +314,8 @@ export function DevFields({ d, onChange, inheritDir, onRun, runningId, onShowRun
   runningId?: string
   /** 「查看运行中」：执行记录在另一个标签里，由抽屉切过去并定位（SPEC-tasks-4.39） */
   onShowRun?: (runId: string) => void
+  /** 所属项目名，工作目录的 info 图标里用 */
+  projectName?: string
 }) {
   const filled = !!(d.acceptance || d.workdir || d.repo)
   const [open, setOpen] = useState(filled || !!onRun)
@@ -315,11 +323,12 @@ export function DevFields({ d, onChange, inheritDir, onRun, runningId, onShowRun
   return (
     <div className="field-group">
       <div className="mount-head">
-        <span className="field-group-title">开发</span>
+        <span className="field-group-title">开发{onRun && <InfoTip label="开发说明">填验收标准、工作目录、关联仓库后「交给执行」，交给 Claude Code、DeepSeek 或工作台 Agent 去做；过程在「执行记录」标签里，它回写的进展、产出物在下面</InfoTip>}</span>
         <span className="spacer" />
         {onRun && (runningId
           ? <button className="act" onClick={() => (onShowRun ? onShowRun(runningId) : document.getElementById(`run-${runningId}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }))}><span className="proto-light pl-running" />查看运行中</button>
           : <button className="act act-primary" onClick={onRun}>交给执行</button>)}
+        {onAdd && <DevMore onPick={onAdd} />}
       </div>
       <label className="field">
         <span className="field-label">验收标准</span>
@@ -327,15 +336,39 @@ export function DevFields({ d, onChange, inheritDir, onRun, runningId, onShowRun
       </label>
       <div className="field-row">
         <label className="field">
-          <span className="field-label">工作目录</span>
+          <span className="field-label">工作目录{inheritDir && <InfoTip label="工作目录说明">没设时用所属项目{projectName ? `「${projectName}」` : ''}的目录：{inheritDir}</InfoTip>}</span>
           <input className="mono-input" value={d.workdir ?? ''} placeholder={inheritDir ? `继承自项目：${inheritDir}` : '本机绝对路径'} onChange={(e) => onChange({ workdir: e.target.value || undefined })} />
-          {!d.workdir && inheritDir && <span className="list-sub">没设时用所属项目的目录</span>}
         </label>
         <label className="field">
           <span className="field-label">关联仓库</span>
           <input className="mono-input" value={d.repo ?? ''} placeholder="远端地址或本机路径，只放一个" onChange={(e) => onChange({ repo: e.target.value || undefined })} />
         </label>
       </div>
+    </div>
+  )
+}
+
+/** 「开发」组右上的「更多」（SPEC-tasks-4.87）：页面上只露「交给执行」，记进展、登记产出物收在这里；Esc 只收菜单，不关抽屉 */
+function DevMore({ onPick }: { onPick: (k: keyof DevAdds) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false) } }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey, true)
+    return () => { document.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey, true) }
+  }, [open])
+  return (
+    <div className="dev-more" ref={ref}>
+      <button className="act" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>更多</button>
+      {open && (
+        <div className="menu dev-more-menu" role="menu" aria-label="更多操作">
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onPick('progress') }}>记一条进展</button>
+          <button role="menuitem" className="menu-item" onClick={() => { setOpen(false); onPick('artifact') }}>登记产出物</button>
+        </div>
+      )}
     </div>
   )
 }
@@ -362,16 +395,22 @@ function SessionId({ sid }: { sid: string }) {
   )
 }
 
-export function ProgressBlock({ items, onAppend }: { items: TaskProgress[]; onAppend: (text: string) => void }) {
+/** addSignal：「更多」里点「记一条进展」的次数（SPEC-tasks-4.87）；给了就不常驻底部的输入框，每变一次展开并滚过去 */
+export function ProgressBlock({ items, onAppend, addSignal }: { items: TaskProgress[]; onAppend: (text: string) => void; addSignal?: number }) {
   const statusEnum = useEnumView('task_status')
   const [text, setText] = useState('')
+  const [adding, setAdding] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => { if (addSignal) setAdding(true) }, [addSignal])
+  useEffect(() => { if (adding && addSignal) box.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }) }, [adding, addSignal])
+  const showAppend = addSignal === undefined || adding
   const xs = [...items].sort((a, b) => a.at.localeCompare(b.at))
   const groups = groupBySession(xs)
   const send = () => { if (text.trim()) { onAppend(text.trim()); setText('') } }
   return (
     <section className="dev-sec">
       <div className="field-group-title">进展<span className="field-hint">按会话分组，标出是 Claude Code 哪次会话写的</span></div>
-      {!xs.length && <div className="mount-empty">还没有进展</div>}
+      {!xs.length && <div className="mount-empty">还没有进展。{addSignal === undefined ? '' : '也可以从「更多」手工记一条'}</div>}
       {groups.map((g, i) => (
         <div key={i} className={cls('dev-group', !g.sid && 'dev-group-ui')}>
           <div className="dev-group-head">
@@ -404,11 +443,14 @@ export function ProgressBlock({ items, onAppend }: { items: TaskProgress[]; onAp
           </div>
         </div>
       ))}
-      <div className="dev-append">
-        <textarea rows={2} value={text} placeholder="追加一条进展" onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send() } }} />
-        <button className="act" disabled={!text.trim()} onClick={send}>追加进展</button>
-      </div>
+      {showAppend && (
+        <div className="dev-append" ref={box}>
+          <textarea rows={2} value={text} autoFocus={!!addSignal} placeholder="追加一条进展" onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); send() } }} />
+          <button className="act" disabled={!text.trim()} onClick={send}>追加进展</button>
+          {addSignal !== undefined && <button className="act act-quiet" onClick={() => { setAdding(false); setText('') }}>收起</button>}
+        </div>
+      )}
     </section>
   )
 }
@@ -417,9 +459,16 @@ export function ProgressBlock({ items, onAppend }: { items: TaskProgress[]; onAp
 
 const SOURCE_LABEL: Record<TaskArtifact['source'], string> = { manual: '手动登记', agent: 'Agent', run: '执行扫描', mcp: 'MCP 回写' }
 
-export function ArtifactsBlock({ items, onAdd }: { items: TaskArtifact[]; onAdd: (a: Pick<TaskArtifact, 'note' | 'url' | 'path'>) => void }) {
+/** addSignal：「更多」里点「登记产出物」的次数（SPEC-tasks-4.87）；给了就不显示标题旁的「登记产出物」，每变一次展开登记表单并滚过来 */
+export function ArtifactsBlock({ items, onAdd, addSignal }: { items: TaskArtifact[]; onAdd: (a: Pick<TaskArtifact, 'note' | 'url' | 'path'>) => void; addSignal?: number }) {
   const openUrl = useOpenUrl()
   const [adding, setAdding] = useState(false)
+  const sec = useRef<HTMLElement>(null)
+  useEffect(() => {
+    if (!addSignal) return
+    setAdding(true)
+    sec.current?.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+  }, [addSignal])
   const [loc, setLoc] = useState('')
   const [note, setNote] = useState('')
   const [copied, setCopied] = useState('')
@@ -433,11 +482,11 @@ export function ArtifactsBlock({ items, onAdd }: { items: TaskArtifact[]; onAdd:
     setLoc(''); setNote(''); setAdding(false)
   }
   return (
-    <section className="dev-sec">
+    <section className="dev-sec" ref={sec}>
       <div className="mount-head">
-        <div className="field-group-title">产出物<span className="field-hint">提交、分支、PR、文件</span></div>
+        <div className="field-group-title">产出物<InfoTip label="产出物说明">提交、分支、PR、文件；执行器经工作台 MCP 登记，也可以手工登记</InfoTip></div>
         <span className="spacer" />
-        {!adding && <button className="act act-quiet" onClick={() => setAdding(true)}>登记产出物</button>}
+        {!adding && addSignal === undefined && <button className="act act-quiet" onClick={() => setAdding(true)}>登记产出物</button>}
       </div>
       {!items.length && !adding && <div className="mount-empty">还没有产出物</div>}
       {groups.map((g) => (
@@ -674,7 +723,33 @@ export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSes
 
 const TERMINAL_OFF = '终端插件没启用，到 设置 > 插件 里启用后可用'
 
-export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onClose, onManagePresets, onManagePerms, onManageRunners, agentRun, runners = DEMO_RUNNERS }: {
+/**
+ * 快捷说明（SPEC-tasks-6.40，用户 2026-11-19 提）：附加说明上面一排芯片，点一个把文字追加进附加说明（另起一行，已有的不重复加），加过的高亮。
+ * 列表在设置「快捷说明」里增删改（SPEC-settings-32）；正式产品 frontend/src/modules/tasks/QuickNotes.tsx
+ */
+function QuickNotes({ value, onChange, onManage }: { value: string; onChange: (v: string) => void; onManage?: () => void }) {
+  const list = useRunQuickNotes()
+  return (
+    <div className="field ho-quick" role="group" aria-label="快捷说明">
+      <div className="act-row">
+        <span className="field-label">快捷说明</span>
+        <InfoTip label="快捷说明的用法">点一个把它的文字追加进下面的附加说明（另起一行，已经有的不重复加），之后可以再改</InfoTip>
+        <span className="spacer" />
+        {onManage && <button className="link-btn" onClick={onManage}>管理快捷说明</button>}
+      </div>
+      {list.length ? (
+        <div className="ho-quick-chips">
+          {list.map((n) => {
+            const used = value.includes(n.text.trim())
+            return <button key={n.label} type="button" className={cls('chip', used && 'chip-on')} title={used ? `已加上：${n.text}` : n.text} onClick={() => onChange(appendQuickNote(value, n.text))}>{n.label}</button>
+          })}
+        </div>
+      ) : <span className="list-sub">还没有快捷说明，在设置里加</span>}
+    </div>
+  )
+}
+
+export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onClose, onManagePresets, onManagePerms, onManageNotes, onManageRunners, agentRun, runners = DEMO_RUNNERS }: {
   task: Task; inheritDir?: string
   /** 任务所属项目的上下文，提示词里的「所属项目」一节 */
   project?: ProjectContext
@@ -686,6 +761,8 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
   onManagePresets?: () => void
   /** 「管理执行权限」：去设置 > 执行权限（TSK-0499） */
   onManagePerms?: () => void
+  /** 「管理快捷说明」：去设置 > 快捷说明（SPEC-tasks-6.40） */
+  onManageNotes?: () => void
   /** 「设置 / 执行器」：看执行器缺什么、怎么修（TSK-0722） */
   onManageRunners?: () => void
   /** 交给工作台 Agent 要用的（SPEC-tasks-6.20）：没给时工作台 Agent 置灰 */
@@ -761,7 +838,8 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
     `\n## 怎么做\n- 先用 get_object 读这条任务（${task.ref}），关联的对象需要时也读一下。\n- 做完一个关键步骤用 append_progress 记一句进展；拆子任务用 create_object 并带 parent_ref=${task.ref}。\n- 任务真的做完了，用 update_object 改成完成。\n- 这次没有人在旁边回答问题：不能向用户提问，拿不准的写进结论。\n- 有些写操作要用户确认，提出后会停下等；被拒绝了就换办法或收尾。${dir.trim() ? `\n- write_file 写进 ${dir.trim()}，只用相对路径。` : ''}`,
     '\n## 结束时\n最后用一段话写结论：做了什么、改了哪些对象、产出在哪、还剩什么没做。这段会原样记成这条任务的进展。',
   ].filter(Boolean).join('\n')
-  const title = `交给 ${HARNESS_LABEL[harness]}`
+  // 弹窗标题不管交给谁都叫「交给 AI」（SPEC-tasks-6.41），交给谁看下面那一排；固定不变的说明收进 info 图标
+  const title = '交给 AI'
   const off = WHO_ORDER.map((w) => ({ w, p: blockOf(w) })).filter((x) => x.p)
   const warn = runners.find((r) => r.who === harness)?.problems.find((p) => !p.blocking)
   return (
@@ -774,7 +852,7 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
           <button className="icon-btn" onClick={onClose} title="关闭 (Esc)">{closeIcon}</button>
         </div>
         <div className="field">
-          <span className="field-label">交给谁</span>
+          <span className="field-label">交给谁<InfoTip label="交给谁说明">{WHO_HINT[harness]}</InfoTip></span>
           <div className="seg seg-full" role="radiogroup" aria-label="交给谁">
             {WHO_ORDER.map((w) => {
               const p = blockOf(w)
@@ -784,7 +862,6 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
               )
             })}
           </div>
-          <span className="list-sub">{WHO_HINT[harness]}</span>
           {off.map(({ w, p }) => (
             <span key={w} className="list-sub danger-text">{HARNESS_LABEL[w]} 不可用：{problemText(p!)}{onManageRunners && <>（<button className="link-btn" onClick={onManageRunners}>设置 / 执行器</button>）</>}</span>
           ))}
@@ -816,15 +893,14 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
         )}
         {dsh && <span className="list-sub">DeepSeek 只有后台执行：dsh 在工作台里跑，过程流式显示在任务的执行记录里；不接终端交互</span>}
         {!ag && !dsh && <div className="field">
-          <span className="field-label">执行方式</span>
+          <span className="field-label">执行方式<InfoTip label="执行方式说明">{term ? '在终端里新开一个标签，按设置里的「Claude Code 启动命令」开一个交互式会话；它经工作台 MCP 回写进展和结论'
+            : '在工作台里直接跑，实时输出显示在任务的执行记录里'}</InfoTip></span>
           <div className="seg seg-full" role="radiogroup" aria-label="执行方式">
             <button role="radio" aria-checked={!term} className={cls(!term && 'on')} onClick={() => setMode('stream')}>流式执行</button>
             <button role="radio" aria-checked={term} className={cls(term && 'on')} disabled={!terminalOn} title={terminalOn ? undefined : TERMINAL_OFF}
               onClick={() => { setMode('terminal'); setAsking(false) }}>切换到终端</button>
           </div>
-          <span className="list-sub">{!terminalOn ? TERMINAL_OFF
-            : term ? '在终端里新开一个标签，按设置里的「Claude Code 启动命令」开一个交互式会话；它经工作台 MCP 回写进展和结论'
-              : '在工作台里直接跑，实时输出显示在任务的执行记录里'}</span>
+          {!terminalOn && <span className="list-sub">切换到终端：{TERMINAL_OFF}</span>}
         </div>}
         <label className="field">
           <span className="field-label">{ag ? '产物目录（可选）' : '工作目录'}</span>
@@ -884,6 +960,8 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
               <div className="field">
                 <div className="act-row">
                   <label className="field-label" htmlFor="ho-profile">写入档位</label>
+                  <InfoTip label="写入档位说明">{dsh ? '工作台 MCP 照常接上（回写进展和结论）；dsh 没有命令白名单，命令都在它的沙箱里跑，所以没有「自定义白名单」'
+                    : '任何档位都放行工作台 MCP（回写进展和结论）和只读命令（git log、grep、sqlite3 -readonly -safe 等）'}</InfoTip>
                   <span className="spacer" />
                   {onManagePerms && <button className="link-btn" onClick={onManagePerms}>管理执行权限</button>}
                 </div>
@@ -894,8 +972,6 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
                   : writeProfileHint(writeProfile, perms.custom)}</span>
               </div>
             )}
-            <span className="list-sub">{dsh ? '工作台 MCP 照常接上（回写进展和结论）；dsh 没有命令白名单，命令都在它的沙箱里跑，所以没有「自定义白名单」'
-              : '任何档位都放行工作台 MCP（回写进展和结论）和只读命令（git log、grep、sqlite3 -readonly -safe 等）'}</span>
             {asking && (
               <div className="dev-perm-ask">
                 <span>{dsh ? `会以 dsh 的 workspace-write 沙箱运行：DeepSeek 可以不经确认直接改「${dir || '工作目录'}」里的文件，命令在沙箱里跑，写不出这个目录。不会开 danger-full-access。`
@@ -908,6 +984,7 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
             )}
           </div>
         )}
+        <QuickNotes value={extra} onChange={setExtra} onManage={onManageNotes} />
         <label className="field">
           <span className="field-label">附加说明</span>
           <textarea className="qs-input" rows={3} value={extra} placeholder={`可选：这次要特别注意的事，会接在任务内容后面发给 ${ag ? 'Agent' : HARNESS_LABEL[harness]}`} onChange={(e) => setExtra(e.target.value)} />
@@ -928,8 +1005,8 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
         </div>
         {agentErr && <span className="field-err">{agentErr}</span>}
         <div className="qs-foot">
-          <span className="list-sub">{ag ? '过程流式显示在执行记录里，同时建一个 Agent 会话；默认最多 30 步、10 分钟，等确认 10 分钟没人决定按拒绝'
-            : term ? '会跳到终端页，执行记录里记一条进行中的终端执行' : dsh ? '执行过程会流式显示在任务的执行记录里，结论经工作台 MCP 回写' : '执行过程会流式显示在任务的执行记录里'}</span>
+          <InfoTip label="执行过程去哪看">{ag ? '过程流式显示在执行记录里，同时建一个 Agent 会话；默认最多 30 步、10 分钟，等确认 10 分钟没人决定按拒绝'
+            : term ? '会跳到终端页，执行记录里记一条进行中的终端执行' : dsh ? '执行过程会流式显示在任务的执行记录里，结论经工作台 MCP 回写' : '执行过程会流式显示在任务的执行记录里'}</InfoTip>
           <span className="spacer" />
           <button className="btn btn-ghost" onClick={onClose}>取消</button>
           {ag ? (

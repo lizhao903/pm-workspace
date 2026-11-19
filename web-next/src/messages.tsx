@@ -12,14 +12,15 @@ import { SearchSelect, type SearchOption } from './searchselect'
 import type { Sop, SopRun } from './sopflow'
 import { TRIAGE_TOTAL_MAX, TriageBar, TriageTag, activeTriage, latestTriage } from './triage'
 import './msgbulk.css'
-import { AgentSection, ReplyBarActions } from './msgagent'
+import { AgentSection, ClosedTasks, ReplyBarActions, type MsgLinks } from './msgagent'
+import { isOpenTask, type TaskStatus } from './taskdata'
 import { MaterialSection, notesOf } from './msgmaterial'
-import { clusterMessages, countLabel, isOpenMsg, nestThreads, previewText, rowTime, threadHint, threadOf, toRows, type MsgRow, type SessionIntent } from './msggroup'
+import { clusterMessages, countLabel, isOpenMsg, messageURL, nestThreads, permalinkLabel, permalinkOf, previewText, rowTime, threadHint, threadOf, toRows, type MsgRow, type SessionIntent } from './msggroup'
 import { GroupAdminDrawer } from './groupadmin'
 import type { ContactOps } from './membercontacts'
 import { SendDialog, SentStrip, sentReplyOf, type Sent } from './msgsend'
 import { MentionBox, composeReply, quickReplyText, useReplyMention, type Member, type MentionPick } from './mention'
-import { ThreadReplies } from './msgthread'
+import { ThreadReplies, type ThreadTriage } from './msgthread'
 
 export type MsgAction =
   | { kind: 'done' | 'ignore' | 'reopen' | 'read' }
@@ -193,7 +194,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   selectedGroup: string | null; onOpenGroup: (key: string) => void
   /** 交给 Agent（SPEC-messages-1.57）：带上这些消息发起会话、拆分任务；linksOf 是一组消息发起过的会话（新的在前）和拆出来的任务数 */
   onStartSession: (ids: string[], intent: SessionIntent) => void
-  linksOf: (ids: string[]) => { sessions: string[]; tasks: number }
+  linksOf: (ids: string[]) => MsgLinks
   onOpenSession: (id: string) => void
   /** 批量分诊、处理队列（SPEC-messages-1.51~1.53）：分诊用的流程和执行；onBatchTriage 回发起、跳过各几条 */
   sops: Sop[]; runs: SopRun[]; onBatchTriage: (sopId: string, messageIds: string[], rerun: boolean, batchId: string) => { started: number; skipped: number }; onOpenQueue: () => void
@@ -351,11 +352,19 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
   const viewRows = useMemo(() => nestThreads(toRows(rows, clusters, merge), messages), [rows, clusters, merge, messages])
   const byId = useMemo(() => new Map(messages.map((m) => [m.id, m])), [messages])
   const shown = viewRows.slice(0, limit)
-  // 勾选和常驻全选（SPEC-messages-1.40、1.41，TSK-0492）：还没处理的（待处理含稍后、已过期）能勾；
-  // 已选按列表上看得到的消息算（不含收起的消息列回复），全选只选已加载（已渲染出来的行）里能勾的
+  // 勾选和常驻全选（SPEC-messages-1.40、1.41，TSK-0492）：还没处理的（待处理含稍后、已过期）能勾；全选只选已加载（已渲染出来的行）里能勾的。
+  // 2026-11-19 起消息列回复也走分诊（1.41、1.51、1.63）：收起的消息列回复（归到已加载这一行的、筛得出来、还没处理的）也算，排在这一行后面；
+  // 不勾时批量分诊的范围里，收起的回复只算还没处理的；提示里写「含 K 条消息列回复」
   const [sel, setSel] = useState<ReadonlySet<string>>(() => new Set())
-  const picked = viewRows.flatMap((r) => r.items).filter((m) => sel.has(m.id) && isOpenMsg(m))
-  const loaded = shown.flatMap((r) => r.items.filter(isOpenMsg))
+  const isReply = (m: Message) => !!m.thread?.parent_id && byId.has(m.thread.parent_id)
+  const rowPicks = (r: MsgRow) => [...r.items, ...(r.threads ?? []).flatMap((b) => b.replies)]
+  const picked = viewRows.flatMap(rowPicks).filter((m) => sel.has(m.id) && isOpenMsg(m))
+  const loaded = shown.flatMap((r) => rowPicks(r).filter(isOpenMsg))
+  const repliesNote = (n: number) => (n ? `（含 ${n} 条消息列回复）` : '')
+  const pickedReplies = picked.filter(isReply).length
+  const loadedReplies = loaded.filter(isReply).length
+  const filterTargets = rows.filter((m) => !isReply(m) || isOpenMsg(m))
+  const filterReplies = filterTargets.filter(isReply).length
   const allState = loaded.length && loaded.every((m) => sel.has(m.id)) ? 'all' : picked.length ? 'some' : 'none'
   const unloaded = viewRows.length > limit
   const toggleAll = () => setSel((x) => (allState === 'all' ? new Set<string>() : new Set([...x, ...loaded.map((m) => m.id)])))
@@ -473,7 +482,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
     const unread = r.items.filter((x) => !x.read).length
     const label = countLabel(r)
     return (
-      <div role="button" tabIndex={0} className={cls('msg msg-group', selectedGroup === r.key && 'sel', unread > 0 && 'unread', !open.length && 'msg-closed')}
+      <div role="button" tabIndex={0} className={cls('msg msg-group', selectedGroup === r.key && 'sel', unread > 0 && 'unread', !open.length && 'msg-closed', !open.length && 'msg-acts-hover')}
         onClick={() => onOpenGroup(r.key)} onKeyDown={(e) => e.key === 'Enter' && onOpenGroup(r.key)}>
         <span className="msg-unread" />
         {pickBox(r.items, `选中 ${who?.name ?? m.sender_name} 这一组`)}
@@ -592,13 +601,13 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
             ref={(el) => { if (el) el.indeterminate = allState === 'some' }} onChange={toggleAll} />
           全选
         </label>
-        {picked.length > 0 && <b>已选 {picked.length} 条</b>}
-        <span className="list-sub">{picked.length > 0 ? '/ ' : ''}已加载 {loaded.length} 条</span>
+        {picked.length > 0 && <b>已选 {picked.length} 条{repliesNote(pickedReplies)}</b>}
+        <span className="list-sub">{picked.length > 0 ? '/ ' : ''}已加载 {loaded.length} 条{picked.length ? '' : repliesNote(loadedReplies)}</span>
         {unloaded && loaded.length > 0 && <span className="list-sub msg-bulk-hint">还有未加载的，加载更多后再全选可包含更多</span>}
-        {!picked.length && <span className="list-sub msg-bulk-hint">不勾时批量分诊对当前筛选结果 {rows.length} 条</span>}
+        {!picked.length && <span className="list-sub msg-bulk-hint">不勾时批量分诊对当前筛选结果 {filterTargets.length} 条{repliesNote(filterReplies)}</span>}
         <span className="spacer" />
-        <button className="btn btn-outline" onClick={() => setTriaging(true)} disabled={!picked.length && !rows.length}
-          title={picked.length ? `给勾选的 ${picked.length} 条消息各发起一次分诊流程` : `给当前筛选结果全部的消息各发起一次分诊流程（最多 ${TRIAGE_TOTAL_MAX} 条，超过 200 条自动分批）`}>批量分诊</button>
+        <button className="btn btn-outline" onClick={() => setTriaging(true)} disabled={!picked.length && !filterTargets.length}
+          title={picked.length ? `给勾选的 ${picked.length} 条消息${repliesNote(pickedReplies)}各发起一次分诊流程` : `给当前筛选结果全部 ${filterTargets.length} 条消息${repliesNote(filterReplies)}各发起一次分诊流程（最多 ${TRIAGE_TOTAL_MAX} 条，超过 200 条自动分批）`}>批量分诊</button>
         {picked.length > 0 && (
           <>
             <button className="btn btn-primary" onClick={() => bulk('done')}>标为{msgEnum.label('done')}</button>
@@ -609,8 +618,8 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
         {picked.length > 0 && <button className="btn btn-ghost" onClick={() => setSel(new Set())}>取消选择</button>}
       </div>
       {triaging && (
-        <TriageBar sops={sops} runs={runs} targets={picked.length ? picked : rows}
-          scope={picked.length ? `勾选的 ${picked.length} 条` : `当前筛选结果全部 ${rows.length} 条`}
+        <TriageBar sops={sops} runs={runs} targets={picked.length ? picked : filterTargets}
+          scope={picked.length ? `勾选的 ${picked.length} 条消息${repliesNote(pickedReplies)}` : `当前筛选结果全部 ${filterTargets.length} 条消息${repliesNote(filterReplies)}`}
           onCancel={() => setTriaging(false)}
           onBatch={(sopId, ids, rerun, batchId) => onBatchTriage(sopId, ids, rerun, batchId)} onStopRuns={onStopRuns}
           onDone={(r) => {
@@ -672,7 +681,7 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
             return (
               <Fragment key={m.id}>
               {dayHead}
-              <div role="button" tabIndex={0} className={cls('msg', selected === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'msg-closed', r.faded && 'msg-faded')}
+              <div role="button" tabIndex={0} className={cls('msg', selected === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'msg-closed', (m.status === 'done' || m.status === 'ignored') && 'msg-acts-hover', r.faded && 'msg-faded')}
                 title={r.faded ? '原消息不在当前筛选里，消息列有新回复才显示' : undefined}
                 onClick={() => onOpen(m.id)} onKeyDown={(e) => e.key === 'Enter' && onOpen(m.id)}>
                 <span className="msg-unread" />
@@ -765,7 +774,33 @@ export function MessagesPage({ messages, contacts, connectors, selected, onOpen,
 
 /* ---------- 抽屉：会话 + 处理 + 反馈 ---------- */
 
-export function MessageDrawer({ msg, contact, connector, members = [], onClose, onAct, onOpenContact, onSaveContact, task, onToTask, deal, onToDeal, onFixConnector, projects, msgProjects, onFetchAttachment, onAddAttachment, onSetProject , links, onStartSession, onOpenSession, onToMaterial, onOpenMaterial, triage, thread = [], threadParent, onOpenMessage, onActOther }: {
+/**
+ * 正文气泡下面一行链接（im 0.32.0，SPEC-messages-2.57）：「复制链接」复制这条消息在工作台里的链接（打开就回到这条消息），
+ * 按钮字变「已复制」1.5 秒，复制不了写「没复制成功」；原平台拼得出链接时多一个「在 <渠道名> 打开」，新窗口打开
+ */
+function MessageLinks({ msg, chLabel, parent }: { msg: Message; chLabel: string; parent?: Message }) {
+  const [copied, setCopied] = useState<'' | 'ok' | 'fail'>('')
+  useEffect(() => {
+    if (!copied) return
+    const t = window.setTimeout(() => setCopied(''), 1500)
+    return () => window.clearTimeout(t)
+  }, [copied])
+  const copy = () => {
+    if (!navigator.clipboard) { setCopied('fail'); return }
+    navigator.clipboard.writeText(messageURL(msg.id, window.location.origin)).then(() => setCopied('ok'), () => setCopied('fail'))
+  }
+  const permalink = permalinkOf(msg, parent ? [parent] : [])
+  return (
+    <div className="act-row msg-links">
+      <button className="act act-quiet" onClick={copy} title="复制这条消息在工作台里的链接，打开就回到这条消息">
+        {copied === 'ok' ? '已复制' : copied === 'fail' ? '没复制成功' : '复制链接'}
+      </button>
+      {permalink && <a className="act act-quiet" href={permalink} target="_blank" rel="noreferrer" title={`在 ${chLabel} 里打开原消息`}>{permalinkLabel(chLabel)}</a>}
+    </div>
+  )
+}
+
+export function MessageDrawer({ msg, contact, connector, members = [], onClose, onAct, onOpenContact, onSaveContact, task, onToTask, onOpenTask, deal, onToDeal, onFixConnector, projects, msgProjects, onFetchAttachment, onAddAttachment, onSetProject , links, onStartSession, onOpenSession, onToMaterial, onOpenMaterial, triage, thread = [], threadParent, onOpenMessage, onActOther, threadTriage }: {
   /** 「分诊建议」一节（SPEC-messages-2.41），放在正文下面 */
   triage?: ReactNode
   /** 转项目资料（SPEC-messages-2.38）：打开弹窗；转过的去项目资料页 */
@@ -781,14 +816,16 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
   members?: Member[]
   onClose: () => void; onAct: (a: MsgAction) => void
   onOpenContact: (id: string) => void; onSaveContact: () => void
-  /** 这条消息转出来的任务；onToTask 没转过就新建，转过就打开 */
-  task?: { ref: string; title: string }; onToTask: () => void
+  /** 这条消息转出来的任务；onToTask 没转过就新建，转过就打开；到了终态时折叠（SPEC-messages-1.68），onOpenTask 打开它 */
+  task?: { id: string; ref: string; title: string; status: TaskStatus }; onToTask: () => void; onOpenTask?: (id: string) => void
   /** 品牌询价转商单（视频模块开着才有，VID-08p）：没转过就新建，转过就打开 */
   deal?: { title: string; brand: string }; onToDeal?: () => void
   /** 交给 Agent（SPEC-messages-2.36）：发起过的会话、拆出来的任务数；发起会话、拆分任务 */
-  links: { sessions: string[]; tasks: number }; onStartSession: (intent: SessionIntent) => void; onOpenSession: (id: string) => void
+  links: MsgLinks; onStartSession: (intent: SessionIntent) => void; onOpenSession: (id: string) => void
   /** 消息列回复（SPEC-messages-2.45）：这条作为原消息时整个消息列（按时间）；这条是消息列回复时它的原消息；打开另一条；处理消息列里的某一条 */
   thread?: Message[]; threadParent?: Message; onOpenMessage?: (id: string) => void; onActOther?: (id: string, a: MsgAction) => void
+  /** 「消息列回复」一节的分诊（SPEC-messages-2.45、2.51）：SOP 插件在跑时才有 */
+  threadTriage?: ThreadTriage
 }) {
   const msgEnum = useEnumView('msg_status')
   const ch = channelOf(msg.channel)
@@ -897,9 +934,10 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
             </div>
           ))}
         </div>
+        <MessageLinks msg={msg} chLabel={ch.label} parent={threadParent} />
 
         {thread.length > 0 && (
-          <ThreadReplies key={msg.id} parent={msg} replies={thread} onOpen={onOpenMessage} onActOther={onActOther} onActParent={onAct} />
+          <ThreadReplies key={msg.id} parent={msg} replies={thread} onOpen={onOpenMessage} onActOther={onActOther} onActParent={onAct} triage={threadTriage} />
         )}
 
         {triage}
@@ -918,13 +956,16 @@ export function MessageDrawer({ msg, contact, connector, members = [], onClose, 
         </div>
 
         <div className="section-label">转任务</div>
-        {task ? (
+        {/* 转成的任务到了终态（SPEC-messages-1.68）：写「转成的任务已经结束」，折叠成「另有 1 条已完成」，不给「转为任务」 */}
+        {task && !isOpenTask(task.status) ? (
+          <div className="act-row"><span className="muted">转成的任务已经结束</span><ClosedTasks tasks={[task]} onOpenTask={onOpenTask} /></div>
+        ) : task ? (
           <div className="act-row"><span className="muted">已转为任务 {task.ref} {task.title}</span><button className="act" onClick={onToTask}>打开任务</button></div>
         ) : (
           <div className="act-row"><button className="act" onClick={onToTask}>转为任务</button><span className="muted">原消息会记在任务里，方便回看</span></div>
         )}
 
-        <AgentSection links={links} onOpenSession={onOpenSession} />
+        <AgentSection links={links} onOpenSession={onOpenSession} onOpenTask={onOpenTask} />
         <MaterialSection notes={notesOf(projects, [msg.id])} onOpen={onOpenMaterial} />
 
         {onToDeal && (

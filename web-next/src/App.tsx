@@ -11,7 +11,7 @@ import { IM_CHANNELS, IM_EXPIRE_DAYS_DEFAULT, seedConnectors, seedContacts, seed
 import { mentionMembers } from './mention'
 import { MessageDrawer, MessagesPage, contactFor, fetchBlocker, gear, withGroupProjects, type MsgAction } from './messages'
 import { applyMutes, bindMuteEnv } from './mutes'
-import { GroupTriageAdvice, QueueDrawer, TriageAdvice, triageRunsOf, triageSops } from './triage'
+import { GroupTriageAdvice, QueueDrawer, TriageAdvice, latestTriage, triageRunsOf, triageSops } from './triage'
 import { SECTIONS, SettingsNav, type Section } from './settings'
 import { CommandPalette, type PaletteItem } from './palette'
 import { GOVERNANCE_DEFAULT, MODEL_CONCURRENCY_DEFAULT, SOPS, newSopFolder, act as actOnRun, gateRuns, governRuns, isHeld, type Governance, rerunRuns, seedRuns, sopById, stopRuns, tick, runShow, runStatus, startRun, upsertSop, type Json, type RunAction, type Sop, type SopIMRelevance } from './sopflow'
@@ -51,6 +51,7 @@ import { AppearancePage, type ThemePref } from './appearance'
 import { UpdatePage } from './update'
 import { RunPresetsPage } from './runpresetspage'
 import { RunPermsPage } from './runpermspage'
+import { RunNotesPage } from './runnotespage'
 import { cls } from './ui'
 import { PLATFORMS, PLATFORM_TOOL, STAGES, checkPublish, coverRatioOf, dealReport, seedArtifacts, seedDeals, seedPublishes, seedSeries, seedTexts, seedVideos, videoState, type Deal, type PlatformKey, type Publish, type Video } from './videodata'
 import { CalendarPage } from './videocalendar'
@@ -76,7 +77,7 @@ import { runBacktest } from './backtest'
 import { QuickSession } from './quicksession'
 import { GroupDrawer, StartSessionDialog } from './msgagent'
 import { IM_MATERIAL_TAG, ToMaterialDialog, notesOf } from './msgmaterial'
-import { clusterMessages, threadForMany, threadForTask, threadOf, type SessionIntent } from './msggroup'
+import { clusterMessages, threadForMany, threadForTask, threadOf, threadParentText, type SessionIntent } from './msggroup'
 import { StrategyRunsPage } from './strategyruns'
 import type { Backtest, BacktestConfig, Strategy } from './tradedata'
 import { ATTACH_DIR, SYNC_POOL, type MsgAttachment } from './data'
@@ -509,12 +510,28 @@ export default function App() {
     setMessages((xs) => xs.map((x) => (x.id === id || (x.thread?.parent_id === id && !x.read) ? { ...x, read: true } : x)))
     setDrawer({ kind: 'message', id })
   }
+  // 消息链接（SPEC-messages-2.57）：打开 <地址>/messages?m=<消息 id> 就是 IM 消息页并打开这条消息的抽屉；原型没有路由，进来时读一次地址再改回根路径
+  useEffect(() => {
+    const u = new URL(window.location.href)
+    const id = u.pathname.replace(/\/+$/, '') === '/messages' ? u.searchParams.get('m') : null
+    if (!id) return
+    window.history.replaceState(null, '', '/')
+    setPage('messages')
+    openMessage(id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   // 一组消息发起过的会话（新的在前）、拆出来的任务数（SPEC-messages-1.58）：会话来源里有这组的消息就算；任务按来源消息算，不含转任务那条
+  // 关联任务只显示没完成的（SPEC-messages-1.68）：tasks 只数没到终态的，到了终态的放 closed（抽屉里折叠成「另有 N 条已完成」）
   const imLinksOf = (ids: string[]) => {
     const ss = sessions.filter((x) => x.source?.message_ids.some((id) => ids.includes(id))).sort((a, b) => b.created_at.localeCompare(a.created_at))
-    const tasksN = tasks.filter((t) => t.source.kind === 'im' && t.source.session_id && ids.includes(t.source.message_id)).length
-    return { sessions: ss.map((x) => x.id), tasks: tasksN }
+    const split = tasks.filter((t) => t.source.kind === 'im' && t.source.session_id && ids.includes(t.source.message_id))
+    return {
+      sessions: ss.map((x) => x.id), tasks: split.filter((t) => isOpenTask(t.status)).length,
+      closed: split.filter((t) => !isOpenTask(t.status)).map((t) => ({ id: t.id, ref: t.ref, title: t.title })),
+    }
   }
+  // 这条消息转成的任务（同 openTaskFromMessage 的口径）
+  const imTaskOf = (id: string) => tasks.find((t) => t.source.kind === 'im' && t.source.message_id === id)
   // 转项目资料（SPEC-messages-6）：去项目的支持材料，高亮那一条
   const openMaterial = (projectId: string, materialId: string) => {
     setPage('projects'); setProjectId(projectId); setProjectTab('materials'); setMatFocus(materialId); setDrawer(null); setImToMat(null)
@@ -1556,7 +1573,7 @@ export default function App() {
       drawerEl = (
         <GroupDrawer key={c.key} row={{ ...c, head: items[0], items }} who={(m) => contactFor(m, contacts)?.name ?? m.sender_name}
           statusLabel={(k) => ({ done: '已处理', ignored: '已忽略', expired: '已过期', pending: '待处理' } as Record<string, string>)[k] ?? k}
-          links={imLinksOf(c.all.map((m) => m.id))} onClose={() => setDrawer(null)}
+          links={imLinksOf(c.all.map((m) => m.id))} onClose={() => setDrawer(null)} onOpenTask={(id) => setDrawer({ kind: 'task', id })}
           onAct={(id, kind) => actOnMessage(id, { kind })} onOpenMessage={openMessage}
           onStart={(intent) => setImStart({ ids: c.all.map((m) => m.id), intent })} onOpenSession={openSessionById}
           notes={notesOf(projects, c.all.map((m) => m.id))} onToMaterial={() => setImToMat(c.all.map((m) => m.id))} onOpenMaterial={openMaterial}
@@ -1573,7 +1590,7 @@ export default function App() {
         onClose={() => setDrawer(null)} onAct={(a) => actOnMessage(m.id, a)}
         onOpenContact={(id) => setDrawer({ kind: 'contact', id })}
         onSaveContact={() => setDrawer({ kind: 'new-contact', initial: { name: m.sender_name, im: { [m.channel]: m.sender_id }, group: '其他' } })}
-        task={tasks.find((t) => t.source.kind === 'im' && t.source.message_id === m.id)} onToTask={() => openTaskFromMessage(m.id)}
+        task={imTaskOf(m.id)} onToTask={() => openTaskFromMessage(m.id)} onOpenTask={(id) => setDrawer({ kind: 'task', id })}
         deal={deals.find((d) => d.source_message_id === m.id)} onToDeal={has('videos') ? () => openDealFromMessage(m.id) : undefined}
         onFixConnector={() => { const cid = m.connector_id; go('settings'); setSection('connectors'); setDrawer({ kind: 'connector', id: cid }) }}
         projects={projects} msgProjects={projects.filter((pj) => projectMessages(pj, [m], contacts).length > 0).map((pj) => pj.id)}
@@ -1583,7 +1600,22 @@ export default function App() {
         onToMaterial={() => setImToMat([m.id])} onOpenMaterial={openMaterial}
         triage={has('sop') ? <TriageAdvice runs={triageRunsOf(runs, m.id)} focus={drawer.focus === 'triage'} onOpenRun={openTriageRun} onStart={() => startTriage([m.id])} /> : undefined}
         thread={threadOf(m, messages)} threadParent={m.thread?.parent_id ? messages.find((x) => x.id === m.thread!.parent_id) : undefined}
-        onOpenMessage={openMessage} onActOther={actOnMessage} />
+        onOpenMessage={openMessage} onActOther={actOnMessage}
+        threadTriage={has('sop') ? { latest: latestTriage(runs), onOpenQueue: () => setDrawer({ kind: 'im-queue' }), onStart: startTriage,
+          onOpenAdvice: (id) => { openMessage(id); setDrawer({ kind: 'message', id, focus: 'triage' }) } } : undefined} />
+    )
+    // 消息链接打开的消息取不到（SPEC-messages-2.57）
+    else drawerEl = (
+      <aside className="drawer">
+        <div className="drawer-head">
+          <span className="drawer-kicker">IM 消息</span>
+          <div className="spacer" />
+          <button className="icon-btn" onClick={() => setDrawer(null)} title="关闭 (Esc)">
+            <svg viewBox="0 0 16 16" width="14" height="14"><path d="m4 4 8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+          </button>
+        </div>
+        <div className="drawer-body"><div className="empty"><div className="empty-title">这条消息已不存在</div><div className="list-sub">可能已经被清理，或链接不完整</div></div></div>
+      </aside>
     )
   } else if (drawer?.kind === 'connector' || drawer?.kind === 'new-connector') {
     // 一个工具只接一个账号：对已经接过的工具发起接入，就打开它现有的那个
@@ -1620,8 +1652,12 @@ export default function App() {
     if (drawer.kind === 'new-task' || task) drawerEl = (
       <TaskDrawer key={task?.id ?? `new-${msg?.id ?? ''}`} projects={projects} task={task} initial={drawer.kind === 'new-task' ? drawer.initial : undefined} fromMessage={msg}
         fromThread={msg ? threadForTask(msg, messages) : undefined} threadWho={(x) => contactFor(x, contacts)?.name ?? x.sender_name}
+        fromThreadParent={msg ? threadParentText(msg, messages, (x) => contactFor(x, contacts)?.name ?? x.sender_name) : undefined}
         tab={drawer.kind === 'task' ? drawer.tab : undefined} focusRun={drawer.kind === 'task' ? drawer.run : undefined} focusSopRun={drawer.kind === 'task' ? drawer.sopRun : undefined}
         hooks={hooks} deliveries={deliveries} assignees={assignees} onClose={() => setDrawer(null)}
+        onInline={task ? (patch) => patchTask(task.id, patch) : undefined}
+        sourceMessages={task && task.source.kind === 'im' ? messages.filter((x) => task.source.kind === 'im' && x.id === task.source.message_id) : []}
+        sourceWho={(x) => contactFor(x, contacts)?.name ?? x.sender_name}
         onOpenMessage={(id) => { setPage('messages'); openMessage(id) }}
         onOpenHook={(id) => { setPage('tasks'); setTaskView(`hook:${id}`); setDrawer(null) }}
         onOpenSchedule={(id) => { setPage('tasks'); setTaskView('schedules'); setDrawer({ kind: 'schedule', id }) }}
@@ -1643,6 +1679,7 @@ export default function App() {
           },
           onManagePresets: () => { setDrawer(null); go('settings'); setSection('run-prompts') },
           onManagePerms: () => { setDrawer(null); go('settings'); setSection('run-permissions') },
+          onManageNotes: () => { setDrawer(null); go('settings'); setSection('run-notes') },
           onManageRunners: () => { setDrawer(null); go('settings'); setSection('runners') },
           onAllowRules: (rules) => { setPermsPending(rules); setDrawer(null); go('settings'); setSection('run-permissions') },
           // 交给工作台 Agent（SPEC-tasks-6.20）：Agent 默认取场景「执行任务」的；会话是全局的，来源标这次执行（SPEC-sessions-1.44）
@@ -1674,7 +1711,12 @@ export default function App() {
           const ct = msg ? contactFor(msg, contacts) : undefined
           const requester = msg ? (ct ? { contact_id: ct.id, name: ct.name, channel: msg.channel, sender_id: msg.sender_id }
             : { name: msg.sender_name || msg.sender_id, channel: msg.channel, sender_id: msg.sender_id, sender_name: msg.sender_name }) : undefined
-          const t = newTask(tasks, { ...d, ...(msg ? { stage: 'received', requester } : {}), source: msg ? { kind: 'im', message_id: msg.id, channel: msg.channel, sender: msg.sender_name, text: msg.text, reply_on_done: replyOnDone } : { kind: 'manual' } })
+          // 消息列回复转的任务记下原消息全文（SPEC-messages-2.15、SPEC-tasks-4.89），提示词「来源消息」一节先写它
+          const tp = msg ? threadParentText(msg, messages, (x) => contactFor(x, contacts)?.name ?? x.sender_name) : null
+          const t = newTask(tasks, { ...d, ...(msg ? { stage: 'received', requester } : {}), source: msg ? {
+            kind: 'im', message_id: msg.id, channel: msg.channel, sender: msg.sender_name, text: msg.text, reply_on_done: replyOnDone, conversation: msg.conversation,
+            ...(tp ? { thread_parent: { sender: tp.sender, text: tp.text, partial: tp.partial } } : {}),
+          } : { kind: 'manual' } })
           setTasks((xs) => [t, ...xs])
           if (msg && markDone && msg.status === 'pending') patchMsg(msg.id, { status: 'done', snooze_until: null, read: true })
           setDrawer({ kind: 'task', id: t.id })
@@ -1944,7 +1986,7 @@ export default function App() {
               }}
               onSync={syncMessages} syncing={syncing} syncResult={syncResult}
               onOpen={openMessage} onAct={actOnMessage} onGoConnectors={openImConnectors} onToTask={openTaskFromMessage}
-              taskOf={(id) => tasks.find((t) => t.source.kind === 'im' && t.source.message_id === id)?.ref}
+              taskOf={(id) => { const t = imTaskOf(id); return t && isOpenTask(t.status) ? t.ref : undefined }}
               projects={projects} groupProjects={groupProjects}
               onSetGroupProject={(k, pid) => setGroupProjects((x) => { const n = { ...x }; if (pid) n[k] = pid; else delete n[k]; return n })}
               sops={sops} runs={runs} onOpenQueue={() => setDrawer({ kind: 'im-queue' })}
@@ -2301,6 +2343,7 @@ export default function App() {
           )}
           {page === 'settings' && section === 'run-prompts' && <RunPresetsPage />}
           {page === 'settings' && section === 'run-permissions' && <RunPermsPage key={permsPending.join('\n')} pending={permsPending} />}
+          {page === 'settings' && section === 'run-notes' && <RunNotesPage />}
           {page === 'settings' && section === 'enums' && (
             <EnumsPage groups={enums} usage={enumUsage} onMigrate={migrateEnum}
               onSave={(g) => setEnums((xs) => (xs.some((x) => x.key === g.key) ? xs.map((x) => (x.key === g.key ? g : x)) : [...xs, g]))}
@@ -2359,6 +2402,7 @@ export default function App() {
         return (
           <StartSessionDialog messages={ms} intent={imStart.intent} agents={agents} who={who} chLabel={IM_CHANNELS.find((c) => c.key === last.channel)?.label ?? last.channel}
             project={pj?.name} workdir={pj?.root} onCancel={() => setImStart(null)}
+            threadParent={(() => { const r = ms.find((m) => m.thread); return r && !ms.some((m) => m.id === r.thread!.parent_id) ? threadParentText(r, messages, who) : null })()}
             onStart={(agentId, intent, prompt) => {
               setImStart(null)
               const gist = `${who(last)}「${last.text.slice(0, 16)}」`

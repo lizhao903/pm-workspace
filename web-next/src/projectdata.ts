@@ -48,6 +48,8 @@ export interface Prototype {
   error?: string
   started_at?: string
   logs: string[]
+  /** 原型规则（TSK-0841 复盘，项目插件 0.20.0，SPEC-projects-12.26）：多行，交给 Claude Code 时跟在提示词里这个原型后面；空或没有是没写 */
+  rules?: string
 }
 
 export interface RelatedDir { path: string; label: string }
@@ -85,13 +87,17 @@ export interface ProjectProfile {
   platforms: string[]
   code_dir: string
   proto_dir: string
+  /** 原型库规则（SPEC-projects-15.5a）：多行，空串是没有 */
+  proto_rules?: string
   prd_dir: string
   commands: Partial<Record<ProfileCommandKey, ProfileCommand>>
+  /** 执行白名单（TSK-0837，SPEC-projects-15.8a）：这个项目的任务交给 Claude Code 后台执行时额外放行的规则，没录为 [] */
+  run_allow?: string[]
   /** 联系人 id */
   owner_ids: string[]
   acceptor_ids: string[]
 }
-export const EMPTY_PROFILE: ProjectProfile = { intro: '', keywords: [], platforms: [], code_dir: '', proto_dir: '', prd_dir: '', commands: {}, owner_ids: [], acceptor_ids: [] }
+export const EMPTY_PROFILE: ProjectProfile = { intro: '', keywords: [], platforms: [], code_dir: '', proto_dir: '', proto_rules: '', prd_dir: '', commands: {}, run_allow: [], owner_ids: [], acceptor_ids: [] }
 
 /** 项目的沟通渠道：群聊按「渠道 + 群名」认，私聊按联系人认 */
 export type ProjectChat =
@@ -220,6 +226,8 @@ export const seedProjects: Project[] = [
       intro: '个人产品管理工具：需求、任务、项目、文档、IM 消息和原型统一管，Claude Code 按任务开发',
       keywords: ['工作台', 'pmw', '需求管理', '原型'], platforms: ['web', '桌面'],
       code_dir: '', proto_dir: '/Volumes/project/example/pm-workspace/web-next', prd_dir: '/Volumes/project/example/pm-workspace/docs',
+      proto_rules: '只改 web-next/src，不另做独立 HTML\n改完对照 docs/spec 里的规格，同步一条改一条的标记',
+      run_allow: ['Bash(./scripts/check-spec.sh:*)', 'Read(//Volumes/project/example/pm-workspace/frontend/**)'],
       commands: { build: { command: 'make build', dir: '', timeout_sec: 900 }, test: { command: 'go test ./... && npm --prefix frontend test', dir: '', timeout_sec: 1200 },
         test_env: { command: './pmw --addr :$PORT --data $TEST_REPORT_DIR/data', dir: '', timeout_sec: 60, ready: '/api/health' }, smoke: { command: 'curl -fsS http://127.0.0.1:$PORT/api/health', dir: '', timeout_sec: 0 },
         version: { command: './scripts/next-version.sh > $RELEASE_DIR/version.txt && git log --oneline main.. > $RELEASE_DIR/changelog.md', dir: '', timeout_sec: 0 },
@@ -263,7 +271,7 @@ export const seedProjects: Project[] = [
     ],
     prototypes: [
       { id: 'pt1', name: '新版前端原型', dir: 'web-next', command: 'npm run dev', port: 7778, status: 'running', started_at: minsAgo(60 * 5), logs: bootLogs({ dir: 'web-next', command: 'npm run dev', port: 7778 }) },
-      { id: 'pt2', name: '状态看板', dir: 'docs', command: 'python3 -m http.server 7790', port: 7790, status: 'stopped', logs: [] },
+      { id: 'pt2', name: '状态看板', dir: 'docs', command: 'python3 -m http.server 7790', port: 7790, status: 'stopped', logs: [], rules: '看板数据从 docs/dev-tasks.json 生成，不手改 dev-tasks.md\n只加静态文件，不引入构建步骤' },
     ],
     created_at: minsAgo(60 * 24 * 10),
   },

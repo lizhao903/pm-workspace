@@ -29,7 +29,8 @@ export type TaskSource =
   | { kind: 'manual' }
   /** session_id：从消息发起的会话里 Agent 拆出来的任务（SPEC-messages-5.6），转任务建的没有 */
   /** reply_on_done：转任务时勾了「执行完成后在原消息里回复」（SPEC-tasks-4.42），正式产品由 SOP「IM 任务回执」回复 */
-  | { kind: 'im'; message_id: string; channel: string; sender: string; text: string; session_id?: string; reply_on_done?: boolean }
+  /** thread_parent：从消息列回复转的任务记下原消息全文（SPEC-messages-2.15、SPEC-tasks-4.89，正式产品 props.source_ref.thread_parent） */
+  | { kind: 'im'; message_id: string; channel: string; sender: string; text: string; session_id?: string; reply_on_done?: boolean; conversation?: string; thread_parent?: { sender: string; text: string; partial: boolean } }
   | { kind: 'webhook'; hook_id: string; delivery_id: string }
   | { kind: 'schedule'; schedule_id: string; name: string }
   | { kind: 'incident'; incident_id: string; title: string }

@@ -56,7 +56,7 @@ export function TriageTag({ run, onClick, onOpenAdvice }: { run: SopRun | undefi
 /* ---------- 分诊建议（SPEC-messages-1.53、2.41~2.44、4.10） ---------- */
 
 /**
- * 一次分诊的结论（SPEC-messages-2.44）。正式产品从执行详情取（分流套分诊时再取子执行，见 frontend/src/plugins/im/triageSummary.ts，待同步），原型的执行就带着每步输出。
+ * 一次分诊的结论（SPEC-messages-2.44）。正式产品从执行详情取（分流套分诊时再取子执行，见 frontend/src/plugins/im/triageSummary.ts，判定档次与依据写法已对齐），原型的执行就带着每步输出。
  * 原则：结论由流程里的「判断」决定，建议只是附带内容，不能单独决定结论。不认步骤 key，按节点类型和输出字段认，从上往下第一档成立的就是结论：
  *   1. 跑没跑完：失败、等确认、执行中、终止。
  *   2. 路由步骤：判断范围里做完的分类器、条件分支，从后往前第一个「选的那一路读得出要处理还是忽略」的（读那一路的名字：
@@ -124,10 +124,10 @@ export function triageSummary(r: SopRun): TriageSummary {
     return { ...(v === 'handle' ? base : quiet), verdict: v, label: LABEL[v], basis: said(hit) }
   }
   // 3. 建了任务
-  if (taskSteps.length) return { ...base, verdict: 'handle', label: '要处理', basis: `「${name(taskSteps[taskSteps.length - 1])}」建了任务 ${tasks.join('、')}` }
+  if (taskSteps.length) return { ...base, verdict: 'handle', label: '要处理', basis: `「${name(taskSteps[taskSteps.length - 1])}」建了任务${tasks.length ? ` ${tasks.join('、')}` : ''}` }
   // 4. 输出字段
   const need = txt(last('need')).toLowerCase()
-  const needAt = (k: string) => { const x = done.find((y) => txt(y.s.output?.need).toLowerCase() === k); return x ? `「${name(x)}」` : '' }
+  const needAt = (k: string) => { const x = done.find((y) => txt(y.s.output?.need ?? objOf(objOf(y.s.output?.subflow)?.output)?.need).toLowerCase() === k); return x ? `「${name(x)}」` : '' }
   if (need === 'yes') return { ...base, verdict: 'handle', label: '要处理', basis: `${needAt('yes')}输出 need = yes` }
   if (need === 'no') return { ...quiet, verdict: 'ignore', label: '可忽略', basis: `${needAt('no')}输出 need = no` }
   // 输出逐步累积，第一个带着的就是标的那一步
@@ -144,6 +144,18 @@ export function triageSummary(r: SopRun): TriageSummary {
 export function triageBrief(s: TriageSummary, max = 80) {
   const body = (s.advice || s.basis || s.step).replace(/\s+/g, ' ').trim()
   return body ? `${s.label}：${body.length > max ? `${body.slice(0, max)}…` : body}` : s.label
+}
+
+/**
+ * 结论小标（SPEC-messages-2.45）：原消息抽屉「消息列回复」一节里已分诊的回复，在分诊小标后面再跟一个结论（要处理、可忽略……），
+ * 颜色同「分诊建议」的结论；悬停「<结论>：<建议前 80 字>」，点了打开那条回复的抽屉并滚到「分诊建议」。没分诊完的不显示
+ */
+export function TriageVerdictTag({ run, onOpenAdvice }: { run: SopRun | undefined; onOpenAdvice: () => void }) {
+  if (!run || runStatus(run) !== 'done') return null
+  const s = triageSummary(run)
+  return (
+    <button className={cls('msg-tri', `msg-tri-${TONE[s.verdict]}`)} title={triageBrief(s)} onClick={(e) => { e.stopPropagation(); onOpenAdvice() }}>{s.label}</button>
+  )
 }
 
 const TONE: Record<TriageSummary['verdict'], string> = { handle: 'ok', running: 'run', waiting: 'wait', failed: 'bad', ignore: 'mute', skipped: 'mute', other: 'mute', none: 'mute', stopped: 'mute' }

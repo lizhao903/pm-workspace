@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import { Subnav, type SubnavItem } from './subnav'
 
 // 设置分项从这里加：Section 加一个 key，SECTIONS 加一行，App 里按 key 渲染内容
-export type Section = 'workspace' | 'plugins' | 'connectors' | 'providers' | 'executors' | 'agents' | 'run-prompts' | 'run-permissions' | 'runners'
+export type Section = 'workspace' | 'plugins' | 'connectors' | 'providers' | 'executors' | 'agents' | 'run-prompts' | 'run-notes' | 'run-permissions' | 'runners'
   | 'kbs' | 'skills' | 'enums' | 'localfs' | 'incidents' | 'appearance' | 'update'
   | 'domains' | 'sop' | 'terminal' | 'worktrees' | 'jobs' | 'recording'
 
@@ -20,6 +20,8 @@ export const SECTIONS: { key: Section; label: string; desc: string; group?: stri
   { key: 'agents', label: 'Agent', desc: '工作助手' },
   // SPEC-settings-24：交给 Claude Code 时可选的执行要求
   { key: 'run-prompts', label: '角色', desc: '交给 Claude Code 的角色：执行要求、权限、输出要求' },
+  // SPEC-settings-32（用户 2026-11-19 提）：「交给执行」弹窗附加说明上面的快捷选项
+  { key: 'run-notes', label: '快捷说明', desc: '「交给执行」弹窗里点一下填进附加说明的常用说明' },
   // SPEC-settings-26（TSK-0499）：后台执行放行什么
   { key: 'run-permissions', label: '执行权限', desc: '交给 Claude Code 后台执行时放行的工具和命令' },
   // SPEC-settings-27（TSK-0722）：交给执行能选的执行器装没装、缺什么，DeepSeek 的集成检查。

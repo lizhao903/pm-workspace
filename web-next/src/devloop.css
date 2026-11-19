@@ -115,3 +115,29 @@
 .task-sop-run.lit { background: color-mix(in srgb, var(--accent) 10%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
 /* 高度随内容撑开的多行输入（GrowArea） */
 textarea.grow-area { resize: none; overflow-y: hidden; }
+
+/* 任务详情精简（用户 2026-11-19 提，SPEC-tasks-4.85 到 4.88、6.40） */
+.field-row.tk-pick-row { grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 560px) { .field-row.tk-pick-row { grid-template-columns: minmax(0, 1fr); } }
+.tk-pick { position: relative; display: block; }
+.tk-pick .select { width: 100%; padding-left: 24px; }
+.tk-pick-dot { position: absolute; left: 10px; top: 50%; width: 8px; height: 8px; margin-top: -4px; border-radius: 99px; pointer-events: none; }
+.tk-pick-row .select { width: 100%; }
+.dev-more { position: relative; }
+.dev-more-menu { right: 0; left: auto; }
+.ho-quick-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+/* 任务详情「来源消息」（SPEC-tasks-4.84） */
+.imsrc { display: flex; flex-direction: column; gap: 6px; padding-top: 12px; border-top: 1px solid var(--line); }
+.imsrc-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.imsrc-row { display: flex; align-items: flex-start; gap: 8px; padding: 6px 10px; border: 1px solid var(--line); border-radius: var(--r); }
+.imsrc-row:hover { background: var(--hover); }
+.imsrc-open { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left; background: none; color: inherit; padding: 0; border: 0; cursor: pointer; }
+.imsrc-meta { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+.imsrc-meta b { color: var(--text); font-size: 13px; font-weight: 500; }
+.imsrc-text { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.imsrc-link { flex: none; font-size: 12px; color: var(--accent); text-decoration: none; align-self: center; }
+.imsrc-link:hover { text-decoration: underline; }
+/* 设置「快捷说明」（SPEC-settings-32） */
+.rn-card { display: flex; flex-direction: column; gap: 8px; }
+.rn-row { display: flex; align-items: flex-end; gap: 6px; flex-wrap: wrap; }
+.rn-label { flex: 1 1 220px; max-width: 320px; }

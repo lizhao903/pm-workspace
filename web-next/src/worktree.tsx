@@ -4,7 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from 'react'
 import type { Project } from './projectdata'
 import { TaskReleaseBlock } from './release'
 import type { Task } from './taskdata'
-import { cls, timeAgo } from './ui'
+import { InfoTip, cls, timeAgo } from './ui'
 import './worktree.css'
 
 // 需求工作区（AUTO-07，SPEC-tasks-4.50 到 4.58、SPEC-settings-25）：每个进研发的任务在项目代码库建一个独立 git worktree 和分支 auto/<任务编号>，
@@ -337,7 +337,7 @@ function TaskTestBlock({ task, active, commands, hasLast }: { task: Task; active
 
 type ProjectLike = Pick<Project, 'id' | 'root'> & Partial<Pick<Project, 'profile'>>
 
-/** 任务抽屉基础信息末尾的「工作区」（SPEC-tasks-4.50 起）。没有工作区又没挂项目时整块不显示 */
+/** 任务抽屉「开发任务」标签里的「工作区」（SPEC-tasks-4.50 起；2026-11-19 起从基础信息末尾挪到开发任务，SPEC-tasks-4.86）。没有工作区又没挂项目时整块不显示 */
 export function TaskWorktreeBlock({ task, projects }: { task: Task; projects: ProjectLike[] }) {
   const { list } = useWorktrees()
   const mine = list.filter((w) => w.task_id === task.id)
@@ -383,8 +383,7 @@ export function TaskWorktreeBlock({ task, projects }: { task: Task; projects: Pr
   return (
     <section className="dev-sec wt" aria-label="工作区">
       <div className="mount-head">
-        <span className="field-group-title">工作区</span>
-        <span className="field-hint">这条任务专用的 git worktree 和分支，Claude Code 在里面改代码</span>
+        <span className="field-group-title">工作区<InfoTip label="工作区说明">这条任务专用的 git worktree 和分支，Claude Code 在里面改代码</InfoTip></span>
       </div>
       {last && st && (
         <div className={cls('wt-card', !on && 'off')}>
@@ -403,7 +402,7 @@ export function TaskWorktreeBlock({ task, projects }: { task: Task; projects: Pr
               {last.last_error
                 ? <button className="btn btn-danger btn-sm" onClick={() => setConfirm('force')}>强制清理</button>
                 : <button className="btn btn-outline btn-sm" onClick={() => setConfirm('normal')}>清理工作区</button>}
-              <span className="list-sub">任务完成、取消或上线后会自动清理</span>
+              <InfoTip label="清理说明">任务完成、取消或上线后会自动清理</InfoTip>
             </div>
           )}
           {on && confirm && (

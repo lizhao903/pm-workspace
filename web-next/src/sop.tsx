@@ -511,8 +511,6 @@ function SopLibraryPage({ sops, runs, onOpen, onNew, onChange }: { sops: Sop[]; 
   const [f, setF] = useState<LibFilter>('')
   // 文件夹筛选：'' 全部，'none' 未分类，其余是文件夹 id
   const [folder, setFolder] = useState('')
-  // 导出到剪贴板的结果（f1b87395）
-  const [message, setMessage] = useState('')
   const [, setTick] = useState(0)
   const changed = () => { setTick((n) => n + 1); onChange?.() }
   const last = useMemo(() => lastRunAt(runs), [runs])
@@ -558,7 +556,6 @@ function SopLibraryPage({ sops, runs, onOpen, onNew, onChange }: { sops: Sop[]; 
           <input placeholder="搜索流程名、说明、触发方式、文件夹" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
       </div>
-      {message && <div className="sop-lib-msg" role="status">{message}</div>}
       <FolderBar sops={sops} current={key} searching={!!kw} onPick={setFolder} onChange={changed} />
       {!rows.length ? (
         <div className="empty">
@@ -605,8 +602,6 @@ function SopLibraryPage({ sops, runs, onOpen, onNew, onChange }: { sops: Sop[]; 
               </div>
               <SchedLine sop={s} className="sop-lib-sched" />
               <IMLine sop={s} className="sop-lib-sched" />
-              <button className="act act-quiet sop-lib-export" title="把这个流程的 JSON 复制到剪贴板，新建 SOP 时能导入"
-                onClick={() => { void navigator.clipboard?.writeText(sopJson(s)).then(() => setMessage(`已导出「${s.name}」到剪贴板`), () => setMessage('无法写入剪贴板，请检查浏览器权限')) }}>导出</button>
               </div>
             )
           })}
@@ -701,6 +696,13 @@ export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, de
 }) {
   const [confirmDel, setConfirmDel] = useState(false)
   const [allRuns, setAllRuns] = useState(false)
+  // 导出（SPEC-sop-2.25，用户 11-19 提：从列表卡片挪到详情页）：按钮文字短暂换成结果，约 2.5 秒后恢复
+  const [exported, setExported] = useState('')
+  const doExport = () => {
+    const done = (t: string) => { setExported(t); window.setTimeout(() => setExported(''), 2500) }
+    if (!navigator.clipboard) { done('无法写入剪贴板，请检查浏览器权限'); return }
+    void navigator.clipboard.writeText(sopJson(sop)).then(() => done('已导出到剪贴板'), () => done('无法写入剪贴板，请检查浏览器权限'))
+  }
   const mine = runs.filter((r) => r.sop_id === sop.id).sort((a, b) => b.started_at - a.started_at)
   const reviews = sop.steps.filter((s) => s.kind === 'review' || isManualDecide(s)).length
   const decides = sop.steps.filter((s) => isBranching(s.kind)).length
@@ -717,6 +719,8 @@ export function SopDetailPage({ sop, runs, onStart, onOpen, onEdit, onDelete, de
         {onDelete && !isBuiltinSop(sop) && (confirmDel ? (
           <span className="sop-del-top"><span className="danger-text">{delText}</span>{delActs}</span>
         ) : <button className="btn btn-ghost btn-danger-ghost" onClick={() => setConfirmDel(true)}>删除</button>)}
+        {/* 正式产品在「复制」后面；原型没做「复制」（SPEC-sop-5.16），摆在「编辑」左边。内置流程也能导出 */}
+        <button className="btn btn-ghost" title="把这个流程的 JSON 复制到剪贴板" onClick={doExport}>{exported || '导出'}</button>
         {/* 内置流程只读（f1b87395）：没有删除，「编辑」换成「详情」，打开只读的编排页 */}
         <button className="btn btn-outline" onClick={onEdit}>{isBuiltinSop(sop) ? '详情' : '编辑'}</button>
         <button className="btn btn-primary" onClick={onStart}>

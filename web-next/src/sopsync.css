@@ -7,8 +7,6 @@
 .sop-library-section { margin-top: 18px; }
 .sop-library-section + .sop-library-section { padding-top: 18px; border-top: 1px solid var(--line); }
 .sop-library-section > h2 { margin: 0 0 12px; font-size: 15px; font-weight: 600; }
-.sop-lib-export { align-self: flex-end; }
-.sop-lib-msg { margin: 8px 0; color: var(--muted); font-size: 12px; }
 .sop-check { margin: 0 0 12px; padding: 10px 12px; border-radius: 8px; font-size: 13px; display: grid; gap: 4px; }
 .sop-check.err { background: var(--danger-soft); }
 .sop-check.warn { background: var(--warn-soft); }

@@ -88,7 +88,7 @@ export const isOpenMsg = (m: Message) => m.status === 'pending' || m.status === 
 export type SessionIntent = 'chat' | 'split'
 
 /** 第一句话：消息原文、发信人、群、时间、归属项目、附件名，加上意图（同正式产品 sessionModel.sessionPrompt） */
-export function sessionPrompt(xs: readonly Message[], intent: SessionIntent, opts: { who: (m: Message) => string; chLabel: string; project?: string; grant?: string }): string {
+export function sessionPrompt(xs: readonly Message[], intent: SessionIntent, opts: { who: (m: Message) => string; chLabel: string; project?: string; grant?: string; threadParent?: ThreadParentText | null }): string {
   const all = [...xs].sort((a, b) => a.at.localeCompare(b.at))
   const last = all[all.length - 1]
   const fmt = (iso: string) => new Date(iso).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })
@@ -100,6 +100,10 @@ export function sessionPrompt(xs: readonly Message[], intent: SessionIntent, opt
     `时间：${all.length > 1 ? `${fmt(all[0].at)} 到 ${fmt(last.at)}` : fmt(last.at)}`,
     `归属项目：${opts.project || '未归项目'}`,
     ...(atts.length ? [`附件：${atts.join('、')}`] : []), '',
+    // 消息列里的回复（im 0.32.0，SPEC-messages-5.6）：先写原消息全文；原消息就在这组消息里时调用方不传
+    ...(opts.threadParent
+      ? [`这些是消息列里的回复。消息列的原消息（${opts.threadParent.sender || '原消息'}）：`, `${opts.threadParent.text}${opts.threadParent.partial ? '（摘要）' : ''}`, '']
+      : []),
     '消息原文：',
     ...all.slice(-40).map((m) => `[${fmt(m.at)}] ${opts.who(m)}：${m.text.trim() || '（没有正文）'}`), '',
   ]
@@ -176,6 +180,20 @@ export function threadForTask(m: Message, all: readonly Message[]): Message[] {
   return parent ? [parent, ...replies] : replies
 }
 
+/**
+ * 消息列回复的原消息（SPEC-messages-2.15、5.6，TSK-0837）：sender、text 是原消息发信人和全文；found 是原消息在库里（列表里有）；
+ * 原消息没收到（是我发的、或太早没收进来）时用到达时的快照，快照到 80 字时算只有摘要（partial）。
+ * 正式产品向后端取（GET /api/im/messages/{id}/thread-parent：库里的、我自己发的、问 Slack），原型只有快照。不是回复、没有快照时为 null
+ */
+export type ThreadParentText = { sender: string; text: string; partial: boolean; found: boolean }
+export function threadParentText(m: Message, all: readonly Message[], who: (m: Message) => string = (x) => x.sender_name): ThreadParentText | null {
+  if (!m.thread) return null
+  const p = m.thread.parent_id ? all.find((x) => x.id === m.thread!.parent_id) : undefined
+  if (p) return { sender: who(p), text: p.text.trim(), partial: false, found: true }
+  const text = m.thread.parent_text.trim()
+  return text ? { sender: m.thread.parent_sender, text, partial: [...text].length >= 80, found: false } : null
+}
+
 /** 一组消息各自所在消息列里、不在这组里的消息，去重，按时间正序（转项目资料带上消息列用） */
 export function threadForMany(ms: readonly Message[], all: readonly Message[]): Message[] {
   const have = new Set(ms.map((m) => m.id))
@@ -192,13 +210,20 @@ const threadTime = (iso: string) => new Date(iso).toLocaleString('zh-CN', { mont
 
 /**
  * 附上的消息列拼成任务正文（Markdown）：「## 消息列（N 条）」，一条一行「- **发信人**（原消息） 时间：正文」，多行正文缩进两格；
- * 太长时后面的不附，末尾写「还有 K 条没附上，在原消息里看」
+ * 太长时后面的不附，末尾写「还有 K 条没附上，在原消息里看」。
+ * parent 是列表里没有的原消息（threadParentText 的 found 为 false）：固定放第一条「- **发信人**（原消息）：全文」，只有摘要时末尾标「（摘要）」（2.15）
  */
-export function threadTaskBody(xs: readonly Message[], who: (m: Message) => string = (m) => m.sender_name, time: (iso: string) => string = threadTime): string {
-  if (!xs.length) return ''
+export function threadTaskBody(xs: readonly Message[], who: (m: Message) => string = (m) => m.sender_name, time: (iso: string) => string = threadTime, parent?: ThreadParentText | null): string {
+  const head = parent && !parent.found && !xs.some((x) => !x.thread) ? parent : null
+  if (!xs.length && !head) return ''
   const lines: string[] = []
   let len = 0
   let cut = 0
+  if (head) {
+    const line = `- **${head.sender || '原消息'}**（原消息）：${head.text.split(/\r?\n/).map((l, j) => (j ? `  ${l}` : l)).join('\n')}${head.partial ? '（摘要）' : ''}`
+    lines.push(line)
+    len += line.length + 1
+  }
   for (const [i, x] of xs.entries()) {
     const text = (x.text.trim() || '（没有正文）').split(/\r?\n/).map((l, j) => (j ? `  ${l}` : l)).join('\n')
     const line = `- **${who(x)}**${x.thread ? '' : '（原消息）'} ${time(x.at)}：${text}`
@@ -207,5 +232,34 @@ export function threadTaskBody(xs: readonly Message[], who: (m: Message) => stri
     len += line.length + 1
   }
   const tail = cut ? `\n\n还有 ${cut} 条没附上，在原消息里看` : ''
-  return `## 消息列（${xs.length} 条）\n\n${lines.join('\n')}${tail}`
+  return `## 消息列（${xs.length + (head ? 1 : 0)} 条）\n\n${lines.join('\n')}${tail}`
+}
+
+// ---- 消息链接（im 0.32.0，SPEC-messages-2.57、SPEC-tasks-4.84；正式产品见 frontend/src/plugins/im/linkModel.ts） ----
+
+/** 消息页里打开这条消息的地址（同正式产品今日、命令面板打开消息的 ?m=） */
+export const messagePath = (id: string) => `/messages?m=${encodeURIComponent(id)}`
+
+/** 复制用的完整链接：origin 是浏览器当前访问的地址 */
+export const messageURL = (id: string, origin: string) => origin.replace(/\/+$/, '') + messagePath(id)
+
+/** 「在 Slack 打开」：label 是渠道名 */
+export const permalinkLabel = (label: string) => `在 ${label} 打开`
+
+/**
+ * 原平台的链接：正式产品由后端算好放在 permalink 里，拼不出（Telegram 私聊、普通群，Slack 实例还没拉过一轮）为空不显示。
+ * 原型只给 Slack 拼一个演示地址（工作区域名是假的），消息列回复带上原消息的 thread_ts
+ */
+export function permalinkOf(m: Pick<Message, 'channel' | 'conversation' | 'sender_id' | 'at' | 'thread'>, all: readonly Message[] = []): string {
+  if (m.channel !== 'slack') return ''
+  const ts = (iso: string) => `${Math.floor(Date.parse(iso) / 1000)}.000100`
+  const room = m.conversation ? m.conversation.replace(/^#/, '') : `D-${m.sender_id}`
+  const parent = m.thread?.parent_id ? all.find((x) => x.id === m.thread!.parent_id) : undefined
+  return `https://example-team.slack.com/archives/${encodeURIComponent(room)}/p${ts(m.at).replace('.', '')}${parent ? `?thread_ts=${ts(parent.at)}` : ''}`
+}
+
+/** 正文摘要：空白合并成一个空格，超过 n 字截断加省略号 */
+export function digest(text: string, n = 120): string {
+  const t = text.replace(/\s+/g, ' ').trim()
+  return [...t].length > n ? [...t].slice(0, n).join('') + '…' : t
 }

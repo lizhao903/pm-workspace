@@ -218,12 +218,9 @@ export function AgentsPage({ agents, models, onOpen, onNew, onToggle, scenarios,
                   <span className="switch" />
                 </label>
               </div>
-              <div className="agent-desc">{a.desc || '还没有说明'}</div>
-              <div className="agent-abilities">
-                {on.slice(0, 5).map((x) => <span key={x.key} className={cls('ability-tag', a.abilities[x.key] === 'confirm' && 'confirm')}>{x.label}</span>)}
-                {on.length > 5 && <span className="ability-tag">+{on.length - 5}</span>}
-              </div>
+              {/* 列表只留识别用的信息（用户 11-19 提，SPEC-settings-8.7、8.8）：说明、能力标签都在配置页里看，卡片底部只写开了几个工具 */}
               <div className="agent-foot">
+                {on.length > 0 && <span className="agent-tools">{on.length} 个工具</span>}
                 <span>{a.triggers.map((t) => (t.kind === 'manual' ? '手动' : t.detail || TRIGGER_KIND[t.kind])).join(' · ')}</span>
               </div>
             </div>

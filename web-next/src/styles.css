@@ -1420,11 +1420,10 @@ button.run-row:hover { background: var(--panel-2); }
 .agent-card-title { display: flex; flex-direction: column; flex: 1; min-width: 0; line-height: 1.35; }
 .agent-name { font-weight: 600; font-size: 14.5px; }
 .agent-model { font-size: 11.5px; color: var(--faint); }
-.agent-desc { color: var(--muted); font-size: 12.5px; line-height: 1.6; min-height: 40px; }
-.agent-abilities { display: flex; flex-wrap: wrap; gap: 5px; }
 .ability-tag { font-size: 11px; padding: 1px 7px; border-radius: 4px; background: var(--hover); color: var(--muted); }
 .ability-tag.confirm { background: var(--warn-soft); color: var(--warn); }
 .agent-foot { display: flex; align-items: center; gap: 8px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--faint); }
+.agent-tools { flex: none; color: var(--muted); }
 
 .agent-editor { display: grid; grid-template-columns: minmax(0, 1fr) 400px; height: 100%; min-height: 0; }
 .agent-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -1859,6 +1858,7 @@ input.mono { font-family: var(--mono); }
 .proto-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12.5px; color: var(--muted); }
 .proto-meta code { font: 12px var(--mono); color: var(--text); }
 .proto-k { color: var(--faint); margin-right: 6px; }
+.proto-rules { white-space: pre-line; } /* 原型规则提示（SPEC-projects-12.26） */
 .proto-warn { font-size: 12.5px; color: var(--danger); }
 .proto-logs { margin: 0; padding: 10px 12px; border-radius: var(--r-sm); background: #1b1b19; color: #d6d4cc; font: 12px/1.6 var(--mono); max-height: 220px; overflow: auto; white-space: pre-wrap; }
 .proto-edit { padding-top: 10px; border-top: 1px solid var(--line); }
@@ -2957,3 +2957,11 @@ button.thread-tag:hover { color: var(--text); border-color: var(--text); }
 .mute-member { display: flex; align-items: center; gap: 8px; }
 .mute-ct { margin-top: 8px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
 .mute-ct-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* info 图标加提示气泡（InfoTip，SPEC-tasks-4.88、6.41） */
+.info-tip { display: inline-flex; align-items: center; vertical-align: middle; margin-left: 4px; }
+.info-tip-btn { display: inline-grid; place-items: center; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 99px; background: none; color: var(--faint); cursor: help; }
+.info-tip-btn:hover, .info-tip-btn:focus-visible { color: var(--accent); }
+.info-tip-btn:focus-visible { outline: 0; box-shadow: 0 0 0 2px var(--accent-soft); }
+.info-tip-pop { position: fixed; z-index: 500; display: none; width: max-content; padding: 8px 10px; background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: var(--shadow); font-size: 12px; font-weight: 400; line-height: 1.55; white-space: normal; text-align: left; pointer-events: none; }
+.info-tip-pop.on { display: block; }
