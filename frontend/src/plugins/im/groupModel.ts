@@ -7,6 +7,7 @@
 // 消息列回复（0010，Slack 在消息列里回复的）不参与上面三种合并，免得两种分组叠加：它们归到原消息那一行（nestThreads），列表上不显示，只在原消息行上标「消息列 N 条未读回复」，
 // 原消息还没收到的按普通行显示、标「消息列回复」。
 import type { ImMessage } from '../../core/data'
+import type { ImThreadParent } from '../../core/data/im'
 import { canPick, convKey, isGroup, isOpen, shortTime, whoName } from './model'
 
 /** 群里同一人连发：相邻两条间隔不超过这么久才算一段 */
@@ -174,9 +175,11 @@ export function toggleRow(sel: ReadonlySet<string>, r: Pick<Row, 'items'>): Set<
 
 /**
  * 常驻「全选」（TSK-0492）：已加载（列表上已经渲染出来的行，「加载更多」之前的不算）里能勾的消息。
- * 一组按组里筛得出来、还没处理的算（同 toggleRow）；变淡的原消息行、收起的消息列回复不算
+ * 一组按组里筛得出来、还没处理的算（同 toggleRow）；变淡的原消息行不算。
+ * 收起的消息列回复（归到已加载这一行的、筛得出来、还没处理的）也算（2026-11-19 起，SPEC-messages-1.41、1.63），排在这一行自己的后面
  */
-export const loadedPicks = (shown: readonly Pick<Row, 'items'>[]) => shown.flatMap((r) => r.items.filter(canPick))
+export const loadedPicks = (shown: readonly Pick<Row, 'items' | 'threads'>[]) =>
+  shown.flatMap((r) => [...r.items.filter(canPick), ...(r.threads ?? []).flatMap((b) => b.replies.filter(canPick))])
 
 /** 全选框的状态：已加载的能勾的都勾上了是 all，勾了一些（含没加载的）是 some，一条没勾是 none */
 export function selectAllState(loaded: readonly Pick<ImMessage, 'id'>[], sel: ReadonlySet<string>, picked: number): 'all' | 'some' | 'none' {
@@ -187,10 +190,14 @@ export function selectAllState(loaded: readonly Pick<ImMessage, 'id'>[], sel: Re
 /** 行上的人名：私聊是对方，群里是发信人（同一组同一个人） */
 export const rowWho = (r: Row) => whoName(r.head)
 
-/** 一组消息发起过的会话（按时间新的在前，去重）和拆出来的任务（去重） */
-export function rowLinks(xs: readonly ImMessage[]) {
+/**
+ * 一组消息发起过的会话（按时间新的在前，去重）和拆出来的任务（去重）。
+ * 任务按 isTerminal 分开（SPEC-messages-1.68）：tasks 是没到终态的（显示），closedTasks 是到了终态的（列表上不显示，抽屉里折叠）；
+ * 不给 isTerminal 时都算没到终态
+ */
+export function rowLinks(xs: readonly ImMessage[], isTerminal: (status: string | undefined) => boolean = () => false) {
   const sessions = new Map<string, { session_id: string; intent: string; at: string }>()
-  const tasks = new Map<string, { id: string; ref: string; title: string }>()
+  const tasks = new Map<string, { id: string; ref: string; title: string; status?: string }>()
   for (const m of xs) {
     for (const s of m.sessions) {
       const cur = sessions.get(s.session_id)
@@ -198,7 +205,8 @@ export function rowLinks(xs: readonly ImMessage[]) {
     }
     for (const t of m.split_tasks) tasks.set(t.id, t)
   }
-  return { sessions: [...sessions.values()].sort((a, b) => b.at.localeCompare(a.at)), tasks: [...tasks.values()] }
+  const all = [...tasks.values()]
+  return { sessions: [...sessions.values()].sort((a, b) => b.at.localeCompare(a.at)), tasks: all.filter((t) => !isTerminal(t.status)), closedTasks: all.filter((t) => isTerminal(t.status)) }
 }
 
 /** 消息列回复的原消息（库里收到了的）；原消息还没收到时为 undefined */
@@ -323,13 +331,23 @@ export const THREAD_TASK_MAX = 12000
 
 /**
  * 附上的消息列拼成任务正文（Markdown）：标题「消息列（N 条）」，一条一行「**发信人** 时间：正文」，原消息标「（原消息）」，
- * 多行正文缩进接在下面；太长时后面的不附，末尾写「还有 K 条没附上，在原消息里看」
+ * 多行正文缩进接在下面；太长时后面的不附，末尾写「还有 K 条没附上，在原消息里看」。
+ * parent 是串的父消息（后端 GET /api/im/messages/{id}/thread-parent，0.32.0）：xs 里没有原消息（父消息是我发的、不在库里）时
+ * 固定放在第一条，「**发信人**（原消息）：全文」，只取到摘要时末尾标「（摘要）」（SPEC-messages-2.15、TSK-0837）
  */
-export function threadTaskBody(xs: readonly ImMessage[], time: (iso: string) => string = shortTime): string {
-  if (!xs.length) return ''
+export function threadTaskBody(xs: readonly ImMessage[], time: (iso: string) => string = shortTime, parent?: ImThreadParent | null): string {
+  const head = parent && !xs.some((x) => !x.thread) && parent.text.trim() ? parent : null
+  if (!xs.length && !head) return ''
   const lines: string[] = []
   let len = 0
   let cut = 0
+  if (head) {
+    const text = head.text.trim().split(/\r?\n/).map((l, j) => (j ? `  ${l}` : l)).join('\n')
+    const line = `- **${head.sender || '原消息'}**（原消息）：${text}${head.partial ? '（摘要）' : ''}`
+    lines.push(line)
+    len += line.length + 1
+  }
+  const total = xs.length + (head ? 1 : 0)
   for (const [i, x] of xs.entries()) {
     const text = (x.text.trim() || '（没有正文）').split(/\r?\n/).map((l, j) => (j ? `  ${l}` : l)).join('\n')
     const line = `- **${whoName(x)}**${x.thread ? '' : '（原消息）'} ${time(x.at)}：${text}`
@@ -338,5 +356,5 @@ export function threadTaskBody(xs: readonly ImMessage[], time: (iso: string) => 
     len += line.length + 1
   }
   const tail = cut ? `\n\n还有 ${cut} 条没附上，在原消息里看` : ''
-  return `## 消息列（${xs.length} 条）\n\n${lines.join('\n')}${tail}`
+  return `## 消息列（${total} 条）\n\n${lines.join('\n')}${tail}`
 }

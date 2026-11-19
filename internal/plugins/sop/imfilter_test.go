@@ -42,7 +42,7 @@ func TestIMTriggerSave(t *testing.T) {
 	}
 	f := out["data"].(map[string]any)
 	im := f["im"].(map[string]any)
-	if b, _ := json.Marshal(im); string(b) != `{"conversations":["cv_octok"],"order":1,"relevance":["me"],"relevance_mode":"exclude","stop":true}` {
+	if b, _ := json.Marshal(im); string(b) != `{"conversations":["cv_octok"],"order":1,"relevance":["me"],"relevance_mode":"exclude","stop":true,"thread_related":false}` {
 		t.Fatalf("im = %s", b)
 	}
 	id := f["id"].(string)
@@ -53,7 +53,7 @@ func TestIMTriggerSave(t *testing.T) {
 		t.Fatalf("修改：%d %s", code, errMsg(out))
 	}
 	im = out["data"].(map[string]any)["im"].(map[string]any)
-	if b, _ := json.Marshal(im); string(b) != `{"conversations":["cv_octok"],"order":1,"relevance":["me","dm","none"],"relevance_mode":"exclude","stop":true}` {
+	if b, _ := json.Marshal(im); string(b) != `{"conversations":["cv_octok"],"order":1,"relevance":["me","dm","none"],"relevance_mode":"exclude","stop":true,"thread_related":false}` {
 		t.Fatalf("只改 relevance 后 im = %s", b)
 	}
 	// 渠道:编号
@@ -84,7 +84,7 @@ func TestIMTriggerSave(t *testing.T) {
 	if code != 201 {
 		t.Fatal(errMsg(out))
 	}
-	if b, _ := json.Marshal(out["data"].(map[string]any)["im"]); string(b) != `{"conversations":[],"order":0,"relevance":[],"relevance_mode":"include","stop":false}` {
+	if b, _ := json.Marshal(out["data"].(map[string]any)["im"]); string(b) != `{"conversations":[],"order":0,"relevance":[],"relevance_mode":"include","stop":false,"thread_related":false}` {
 		t.Fatalf("手动流程的 im = %s", b)
 	}
 }

@@ -67,9 +67,11 @@ type Message struct {
 	ReceivedAt             string          `json:"received_at"`
 	// 以下 IM-02a：adapter 是收这条消息的适配器 key；task_id、task_ref 是转成的任务，任务删了（含软删）为 null 和空串；
 	// replies 按时间正序，含发送失败的；reply_error 是最近一次发送失败的原因，发成功后清空
-	Adapter    string  `json:"adapter"`
-	TaskID     *string `json:"task_id"`
-	TaskRef    string  `json:"task_ref"`
+	Adapter string  `json:"adapter"`
+	TaskID  *string `json:"task_id"`
+	TaskRef string  `json:"task_ref"`
+	// TaskStatus 是 task_id 那条任务现在的状态 key（0.32.0），没有任务、任务不在为空串；前端按任务类型的状态集判断终态
+	TaskStatus string  `json:"task_status"`
 	Replies    []Reply `json:"replies"`
 	ReplyError string  `json:"reply_error"`
 	// ExpiredAt 是被标成已过期的时间（IM-07），不是已过期为 null

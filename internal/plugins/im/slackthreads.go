@@ -382,3 +382,41 @@ func (s *Slack) received(ctx context.Context, c plugin.Core, ext string) (bool, 
 	}
 	return err == nil, err
 }
+
+// FetchThreadParent 取一个串的父消息全文（0.32.0，threadparent.go）：conversations.replies 只取第一条（就是父消息）。
+// 编号是「会话:ts」；不像的回空串。发信人按用户名表认，认不出为空串（调用方用快照里的名字）。
+func (s *Slack) FetchThreadParent(ctx context.Context, connectorID, parentExternalID string) (string, string, error) {
+	c := s.core()
+	if c == nil {
+		return "", "", errors.New("IM 插件还没启用")
+	}
+	ch, ts, ok := strings.Cut(parentExternalID, ":")
+	if !ok || ch == "" || !slackTSOK(ts) {
+		return "", "", nil
+	}
+	var sender, text string
+	err := c.Connectors().With(ctx, connectorID, func(cfg plugin.ConnectorConfig) error {
+		hc, err := s.client()
+		if err != nil {
+			return err
+		}
+		var out struct {
+			Messages []slackMsg `json:"messages"`
+		}
+		q := url.Values{"channel": {ch}, "ts": {ts}, "limit": {"1"}, "inclusive": {"true"}}
+		if err := s.call(ctx, hc, cfg.Secret("bot_token"), "conversations.replies", q, &out); err != nil {
+			return err
+		}
+		for _, m := range out.Messages {
+			if m.TS != ts {
+				continue
+			}
+			text = s.plainText(m.body())
+			if sender = s.userName(m.User); sender == "" {
+				sender = m.botName()
+			}
+		}
+		return nil
+	})
+	return sender, text, err
+}

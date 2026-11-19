@@ -115,6 +115,11 @@ export type SopIMTrigger = {
   conversations: string[]
   relevance: SopIMRelevance[]
   relevance_mode: 'include' | 'exclude'
+  /**
+   * 相关串里的回复按 @我 算（SOP 0.23.0，契约「IM 触发」）：设了 relevance 时，消息列回复只要串和我相关（我发起的、原消息 @我 或私信、
+   * 原消息转过任务、原消息被这条流程跑过），关系是无关或 @所有人时按 @我 判断；不设关系时不起作用。旧后端没有这一项，按 false
+   */
+  thread_related?: boolean
   order: number
   stop: boolean
 }
@@ -461,7 +466,7 @@ export const SOP_RUNS_MAX = 500
 // 后端的空数组可能是 null，这里一次补齐
 const normIM = (x?: Partial<SopIMTrigger> | null): SopIMTrigger => ({
   conversations: x?.conversations ?? [], relevance: x?.relevance ?? [], relevance_mode: x?.relevance_mode === 'exclude' ? 'exclude' : 'include',
-  order: x?.order ?? 0, stop: !!x?.stop,
+  thread_related: !!x?.thread_related, order: x?.order ?? 0, stop: !!x?.stop,
 })
 const normFlow = (f: SopFlow): SopFlow => ({
   ...f, desc: f.desc ?? '', trigger: f.trigger ?? '', fields: f.fields ?? [], steps: f.steps ?? [], schedule: f.schedule ?? null, im: normIM(f.im),

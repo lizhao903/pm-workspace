@@ -1,6 +1,7 @@
 // powered by dsh - https://github.com/deepseek-ai/deepseek-harness
 
 // 开始节点的「IM 消息」（TSK-0481，SPEC-sop-9.27 到 9.31）：只接哪些会话、与我的关系（只要 / 除了）、在 IM 流程里第几个判断、命中后拦截后面的流程。
+// 「相关消息列里的回复按 @我 算」（SOP 0.23.0，SPEC-sop-9.35）：设了关系时才可勾。
 // 会话从内核会话列表里多选，搜名字，也能搜渠道里的编号（Slack 的 C0…）；不符合条件的消息不发起执行、不留记录。
 // 顺序：下拉列出现在的 IM 流程，选第几个就插到那里，其余顺延；不动下拉就不改（新的、刚改成 IM 的排最后）。
 import { SOP_IM_RELEVANCES, useConversations, type SopIMDraft } from '../../core/data'
@@ -49,6 +50,12 @@ export function StartIM({ im, flowId, imFlows, onChange }: {
           ))}
         </div>
         <span className="sop-muted">{im.relevance.length ? '' : '都不勾是不限。'}不符合会话和关系的消息不会发起这个流程，也不留执行记录</span>
+        <Checkbox checked={!!im.thread_related} disabled={!im.relevance.length} onCheckedChange={(c) => patch({ thread_related: c })}>相关消息列里的回复按 @我 算</Checkbox>
+        <span className="sop-muted">
+          {im.relevance.length
+            ? '勾上后，消息列里别人的回复只要这个消息列和我相关（我发起的、原消息 @我 或是私信、原消息转过任务、原消息被这个流程跑过），就按 @我 判断，不管回复本身有没有 @我'
+            : '先勾与我的关系才用得上'}
+        </span>
       </div>
       <label className="field">
         <span className="field-label">执行顺序</span>

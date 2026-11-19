@@ -112,7 +112,7 @@ func (in *inbox) toTaskNode(ctx context.Context, c plugin.Core, n plugin.SOPNode
 	}
 	task, err := c.ObjectWriter().CreateAs(ctx, plugin.NewObject{
 		TypeID: "task", Title: clip(title, 200), Body: body,
-		Props: map[string]any{domain.PropSourceRef: sourceRefOf(m), domain.PropRequester: requesterOf(m).Map(), domain.PropStage: "received"},
+		Props: map[string]any{domain.PropSourceRef: in.withThreadParent(ctx, m, sourceRefOf(m)), domain.PropRequester: requesterOf(m).Map(), domain.PropStage: "received"},
 	}, writeMeta(n))
 	if err != nil {
 		return nil, fmt.Errorf("建任务失败：%w", err)

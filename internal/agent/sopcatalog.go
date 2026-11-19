@@ -41,7 +41,7 @@ var sopTriggers = []string{"manual", "im", "schedule"}
 
 // sopTriggerKeys 是 create_sop / update_sop 的 trigger 对象里认的键：type、rule（定时规则），
 // 以及 IM 触发的过滤、执行顺序、拦截（TSK-0481），映射成保存请求的 im。别的键不报错也不存，结果里写明「没存上」，让模型如实告诉用户。
-var sopTriggerKeys = []string{"type", "rule", "conversations", "relevance", "relevance_mode", "order", "stop"}
+var sopTriggerKeys = []string{"type", "rule", "conversations", "relevance", "relevance_mode", "thread_related", "order", "stop"}
 
 // sopConvAliases 是模型常写的「会话」别名，都当 conversations。
 var sopConvAliases = []string{"conversation", "conversation_id", "conversation_ids"}
@@ -201,6 +201,7 @@ const sopIMHint = "trigger.type=im 时流程输入有 message_id、channel、con
 	`conversations 是会话数组，可以直接写渠道里的会话编号（如 Slack 的 "C0BNCBRL5C0"）、会话名或 cv_ id；` +
 	`relevance 是与我的关系数组（me / all / dm / none，none=无关），relevance_mode 是 include（只要这几种，默认）或 exclude（除了这几种），` +
 	`比如「除了 @我 的」写 "relevance":["me"],"relevance_mode":"exclude"。` +
+	"thread_related=true 表示消息列（串）里的回复只要所在的串和我相关（我发起的、原消息 @我 或私信、原消息转过任务、原消息被这条流程跑过），关系是无关或 @所有人时按 me 判断。" +
 	"order 是在所有 IM 流程里排第几（1 最先执行）；stop=true 表示这条流程命中并发起后，排在它后面的 IM 流程不再处理这条消息（「先于其他流程」「处理完别的流程不要再管」就用 order=1 加 stop=true）。" +
 	"把消息标为忽略用 IM 插件的标记消息节点（im_mark_message，state=ignore）。"
 
@@ -218,6 +219,7 @@ func sopParams(update bool) props {
 				"relevance": map[string]any{"type": "array", "items": map[string]any{"type": "string", "enum": []string{"me", "all", "dm", "none"}},
 					"description": "只有 type=im 时用：与我的关系，me=@我、all=@所有人、dm=私聊、none=无关；空数组表示不限"},
 				"relevance_mode": map[string]any{"type": "string", "enum": []string{"include", "exclude"}, "description": "include 只要 relevance 里的几种（默认），exclude 除了这几种"},
+				"thread_related": map[string]any{"type": "boolean", "description": "只有 type=im 且给了 relevance 时用：true 表示所在消息列和我相关的回复按 me（@我）判断，不管回复本身有没有 @我"},
 				"order":          map[string]any{"type": "integer", "description": "只有 type=im 时用：在所有 IM 流程里排第几执行，1 最先；不给时新流程排最后"},
 				"stop":           map[string]any{"type": "boolean", "description": "只有 type=im 时用：true 表示这条流程命中并发起后，排在后面的 IM 流程不再处理这条消息"},
 			}},
@@ -550,7 +552,7 @@ func stepWarnings(raw json.RawMessage) []string {
 type sopTrig struct {
 	Type string
 	Rule map[string]any
-	// IM 是保存请求里的 im：conversations、relevance、relevance_mode、order、stop，没给的不带（TSK-0481）
+	// IM 是保存请求里的 im：conversations、relevance、relevance_mode、thread_related、order、stop，没给的不带（TSK-0481）
 	IM map[string]any
 }
 
@@ -608,7 +610,7 @@ func sopTrigger(v any) (*sopTrig, []string, error) {
 			t.IM[k] = v
 		}
 	}
-	for _, k := range []string{"relevance_mode", "order", "stop"} {
+	for _, k := range []string{"relevance_mode", "thread_related", "order", "stop"} {
 		if v, ok := m[k]; ok && v != nil {
 			t.IM[k] = v
 		}

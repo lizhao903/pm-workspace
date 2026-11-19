@@ -2,8 +2,11 @@
 
 // 消息和 Agent 会话互相追溯（0008）：列表行上的「已发起会话」「已拆分 N 条任务」小标，抽屉里的「交给 Agent」一节（只列发起过的）。
 // 拆分任务、发起会话、转项目资料三个动作放在抽屉底部发送按钮那一行（ReplyBarActions）。
+// 关联任务只显示没到终态的（SPEC-messages-1.68）：行上小标只数没到终态的；抽屉里到了终态的折叠成「另有 N 条已完成」（ClosedTasks）。
+import { useState } from 'react'
 import type { ImMessage, ImSessionIntent } from '../../core/data'
 import { rowLinks } from './groupModel'
+import { useTaskTerminal } from './taskModel'
 
 /** 行上的小标：发起过会话的跳到最近一个；拆出过任务的，一条时打开那条任务，多条时去会话里看 */
 export function LinkTags({ msgs, onOpenSession, onOpenTask }: {
@@ -11,7 +14,7 @@ export function LinkTags({ msgs, onOpenSession, onOpenTask }: {
   onOpenSession: (id: string) => void
   onOpenTask: (id: string) => void
 }) {
-  const { sessions, tasks } = rowLinks(msgs)
+  const { sessions, tasks } = rowLinks(msgs, useTaskTerminal())
   if (!sessions.length && !tasks.length) return null
   const stop = { onKeyDown: (e: { stopPropagation: () => void }) => e.stopPropagation() }
   return (
@@ -49,14 +52,14 @@ export function ReplyBarActions({ many, onStart, onToMaterial }: {
   )
 }
 
-/** 抽屉里「交给 Agent」一节：发起过的会话、拆出来的任务；都没有时不显示（动作在发送按钮那一行） */
+/** 抽屉里「交给 Agent」一节：发起过的会话、拆出来的任务（到了终态的折叠）；都没有时不显示（动作在发送按钮那一行） */
 export function AgentSection({ msgs, onOpenSession, onOpenTask }: {
   msgs: readonly ImMessage[]
   onOpenSession: (id: string) => void
   onOpenTask: (id: string) => void
 }) {
-  const { sessions, tasks } = rowLinks(msgs)
-  if (!sessions.length && !tasks.length) return null
+  const { sessions, tasks, closedTasks } = rowLinks(msgs, useTaskTerminal())
+  if (!sessions.length && !tasks.length && !closedTasks.length) return null
   return (
     <>
       <div className="im-section">交给 Agent</div>
@@ -70,12 +73,31 @@ export function AgentSection({ msgs, onOpenSession, onOpenTask }: {
           ))}
         </div>
       )}
-      {tasks.length > 0 && (
+      {(tasks.length > 0 || closedTasks.length > 0) && (
         <div className="im-act-row im-links">
-          <span className="im-muted">已拆分 {tasks.length} 条任务</span>
+          {tasks.length > 0 && <span className="im-muted">已拆分 {tasks.length} 条任务</span>}
           {tasks.map((t) => <button key={t.id} type="button" className="link-btn" title={t.title} onClick={() => onOpenTask(t.id)}>{t.ref || t.title}</button>)}
+          <ClosedTasks tasks={closedTasks} onOpenTask={onOpenTask} />
         </div>
       )}
+    </>
+  )
+}
+
+/** 到了终态的关联任务：折叠成「另有 N 条已完成」，点开列出来（SPEC-messages-1.68）；没有时不显示 */
+export function ClosedTasks({ tasks, onOpenTask }: {
+  tasks: readonly { id: string; ref: string; title: string }[]
+  onOpenTask: (id: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  if (!tasks.length) return null
+  return (
+    <>
+      <button type="button" className="im-act im-act-quiet im-closed-tasks" aria-expanded={open} onClick={() => setOpen(!open)}
+        title={open ? '收起已完成的任务' : '这些任务已经完成或取消，展开看'}>
+        {open ? '收起已完成' : `另有 ${tasks.length} 条已完成`}
+      </button>
+      {open && tasks.map((t) => <button key={t.id} type="button" className="link-btn im-muted" title={t.title} onClick={() => onOpenTask(t.id)}>{t.ref || t.title}</button>)}
     </>
   )
 }

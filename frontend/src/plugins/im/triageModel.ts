@@ -3,6 +3,7 @@
 // 批量分诊和处理队列的纯函数：消息的分诊状态、队列分段、当前步骤的说法、要分诊的消息。
 // 分诊的执行按输入里的 message_id 关联消息（GET /api/sop/runs?input_key=message_id）。
 import type { ImMessage, SopBatchResult, SopInputRun } from '../../core/data'
+import { isOpen } from './model'
 
 /** 处理队列里「最近完成」一段显示几条 */
 export const QUEUE_RECENT = 20
@@ -75,13 +76,20 @@ export function messageBrief(m: Pick<ImMessage, 'contact_name' | 'sender_name' |
 }
 
 /**
- * 要分诊的消息：勾了的就是勾了的，没勾就是当前筛选结果全部；超过 max 时 over 为真，不发起，让人先缩小范围
+ * 要分诊的消息：勾了的就是勾了的，没勾就是当前筛选结果全部；超过 max 时 over 为真，不发起，让人先缩小范围。
+ * isReply 认收起的消息列回复（原消息在列表里的）：没勾时它们只算还没处理的（SPEC-messages-1.51、1.63）；replies 是其中消息列回复的条数，提示里写
  */
-export function triageTargets(picked: readonly ImMessage[], rows: readonly ImMessage[], max: number) {
+export function triageTargets(picked: readonly ImMessage[], rows: readonly ImMessage[], max: number, isReply: (m: ImMessage) => boolean = () => false) {
   const from = picked.length ? 'picked' as const : 'filter' as const
-  const list = picked.length ? picked : rows
-  return { from, list, over: list.length > max }
+  const list = picked.length ? picked : filterTargets(rows, isReply)
+  return { from, list, over: list.length > max, replies: list.filter(isReply).length }
 }
+
+/** 没勾时批量分诊的范围：当前筛选结果，其中收起的消息列回复只留还没处理的（待处理含稍后、已过期） */
+export const filterTargets = (rows: readonly ImMessage[], isReply: (m: ImMessage) => boolean) => rows.filter((m) => !isReply(m) || isOpen(m))
+
+/** 「含 N 条消息列回复」，没有为空串 */
+export const repliesNote = (n: number) => (n > 0 ? `（含 ${n} 条消息列回复）` : '')
 
 /** 这些消息里已经被这条流程跑过的条数（任意状态） */
 export function alreadyRun(runs: readonly SopInputRun[], flowId: string, ids: readonly string[]) {

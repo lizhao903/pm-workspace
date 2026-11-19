@@ -8,10 +8,10 @@ export const IM = 'im'
 
 export const REL_LABEL: Record<SopIMRelevance, string> = { me: '@我', all: '@所有人', dm: '私聊', none: '无关' }
 
-export const emptyIM = (): SopIMDraft => ({ conversations: [], relevance: [], relevance_mode: 'include', order: null, stop: false })
+export const emptyIM = (): SopIMDraft => ({ conversations: [], relevance: [], relevance_mode: 'include', thread_related: false, order: null, stop: false })
 
 /** 流程的 IM 触发设置，没有时按不过滤、不拦截 */
-export const imOf = (f: Pick<SopFlow, 'im'>): SopIMTrigger => f.im ?? { conversations: [], relevance: [], relevance_mode: 'include', order: 0, stop: false }
+export const imOf = (f: Pick<SopFlow, 'im'>): SopIMTrigger => f.im ?? { conversations: [], relevance: [], relevance_mode: 'include', thread_related: false, order: 0, stop: false }
 
 /** 编排页的初值：顺序不放进草稿（不改就不提交），显示时取流程现在的 order */
 export const imDraftOf = (f: Pick<SopFlow, 'im'>): SopIMDraft => {
@@ -34,11 +34,11 @@ export function convName(id: string, convs: readonly Conversation[]): string {
 export const convOptions = (convs: readonly Conversation[]) =>
   convs.map((c) => ({ value: c.id, label: c.name || c.external_id, hint: `${c.channel} · ${c.external_id}`, group: c.channel }))
 
-/** 过滤条件写成一句（不含顺序和拦截）：「#ai-octok-platform · 除了 @我」；没有过滤为「全部消息」 */
-export function filterText(im: Pick<SopIMTrigger, 'conversations' | 'relevance' | 'relevance_mode'>, convs: readonly Conversation[]): string {
+/** 过滤条件写成一句（不含顺序和拦截）：「#ai-octok-platform · 除了 @我」，勾了相关串时关系后面加「（相关消息列按 @我）」；没有过滤为「全部消息」 */
+export function filterText(im: Pick<SopIMTrigger, 'conversations' | 'relevance' | 'relevance_mode' | 'thread_related'>, convs: readonly Conversation[]): string {
   const parts: string[] = []
   if (im.conversations.length) parts.push(im.conversations.map((id) => convName(id, convs)).join('、'))
-  if (im.relevance.length) parts.push(`${im.relevance_mode === 'exclude' ? '除了' : '只要'} ${im.relevance.map((r) => REL_LABEL[r] ?? r).join('、')}`)
+  if (im.relevance.length) parts.push(`${im.relevance_mode === 'exclude' ? '除了' : '只要'} ${im.relevance.map((r) => REL_LABEL[r] ?? r).join('、')}${im.thread_related ? '（相关消息列按 @我）' : ''}`)
   return parts.length ? parts.join(' · ') : '全部消息'
 }
 

@@ -43,6 +43,16 @@ describe('从消息发起会话', () => {
     expect(sessionPrompt([m({})], 'chat', { chLabel: 'Slack' })).toContain('未归项目')
     expect(sessionTitle(xs, 'split')).toMatch(/^拆分任务：林原「/)
   })
+
+  it('消息列回复发起时第一句话带上原消息全文（0.32.0），摘要时标出；原消息就在这组里不重复', () => {
+    const r = m({ id: 'r1', text: '我先记到表上吧' })
+    const parent = { external_id: 'C:1', message_id: null, sender: 'Broleez Li', text: '外发文件有个问题', source: 'self', partial: false, link: '', permalink: '' }
+    const s = sessionPrompt([r], 'split', { chLabel: 'Slack', parent })
+    expect(s).toContain('消息列的原消息（Broleez Li）：\n外发文件有个问题\n\n消息原文：')
+    expect(sessionPrompt([r], 'split', { chLabel: 'Slack', parent: { ...parent, partial: true } })).toContain('（Broleez Li）（摘要）：')
+    expect(sessionPrompt([r], 'split', { chLabel: 'Slack', parent: { ...parent, message_id: 'r1' } })).not.toContain('消息列的原消息')
+    expect(sessionPrompt([r], 'split', { chLabel: 'Slack' })).not.toContain('消息列的原消息')
+  })
 })
 
 describe('relatedDir：项目没设本地目录时用第一个关联目录', () => {

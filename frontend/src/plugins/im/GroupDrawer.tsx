@@ -13,6 +13,7 @@ import { errorText, useImAction, useImMembers, type Connector, type ImAction, ty
 import { Avatar, Button, Checkbox, Drawer, cls } from '../../core/ui'
 import { AgentSection, ReplyBarActions } from './AgentLinks'
 import { countLabel, type Row } from './groupModel'
+import { liveTask, useTaskTerminal } from './taskModel'
 import { MaterialSection } from './MaterialLinks'
 import { isOpen, isSnoozed, replyBlocker, shortTime, timeAgo, whoName, type Channel, type StatusView } from './model'
 import { AttachmentChips, ChannelMark, MentionText } from './parts'
@@ -54,6 +55,7 @@ export function GroupDrawer({ row, ch, connectors, sv, photo, note, batchBusy, t
   const reply = useImAction()
   const [text, setText] = useState('')
   const [alsoDone, setAlsoDone] = useState(true)
+  const isTerminal = useTaskTerminal()
   const newest = row?.all[row.all.length - 1]
   const members = useImMembers(newest?.conversation_id)
   const ment = useMentions(newest ? defaultMention(newest) : null)
@@ -144,7 +146,7 @@ export function GroupDrawer({ row, ch, connectors, sv, photo, note, batchBusy, t
                 {m.status !== 'pending' && <span className="im-state" style={{ color: sv.color(m.status) }}>{sv.label(m.status)}</span>}
                 {snoozed && <span className="im-state im-state-snooze">{shortTime(m.snooze_until!)} 提醒</span>}
                 {!m.read && <span className="im-state">未读</span>}
-                {m.task_id && <span className="im-state">已转任务 {m.task_ref}</span>}
+                {liveTask(m, isTerminal) && <span className="im-state">已转任务 {m.task_ref}</span>}
                 <span className="spacer" />
                 {isOpen(m) ? (
                   <>

@@ -108,7 +108,11 @@ func (in *inbox) getMessageNode(ctx context.Context, _ plugin.Core, n plugin.SOP
 		sender = m.SenderName
 	}
 	kind := map[string]string{"direct": "私聊", "group": "群聊"}[m.ConversationKind]
-	return with(n.Input, "message", map[string]any{
+	tr, err := in.threadRelFor(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{
 		"id": m.ID, "text": m.Text, "sender": sender, "sender_name": m.SenderName, "contact_id": deref(m.StakeholderID),
 		"channel": m.Channel, "conversation": m.Conversation, "conversation_kind": kind,
 		"relevance": relevanceLabel(m.Relevance), "status": m.Status, "at": m.At,
@@ -119,7 +123,18 @@ func (in *inbox) getMessageNode(ctx context.Context, _ plugin.Core, n plugin.SOP
 		"muted": mutedOut(m.Muted), "sender_muted": in.senderMuted(ctx, m),
 		// 链接（0.32.0，links.go）：工作台里的深链、原平台的链接（拼不出为空串），流程可以写进任务正文
 		"link": m.Link, "permalink": m.Permalink,
-	}), nil
+	}
+	// 串相关（0.32.0，threadrel.go）：同 im.message_received 带的，SOP 调试按它判「相关串里的回复按 @我 算」
+	for k, v := range tr.out() {
+		out[k] = v
+	}
+	// 串的父消息（0.32.0，threadparent.go）：正文模板能写 {{message.thread_parent.text}}；库里没有全文时问渠道
+	tp, err := in.threadParentOf(ctx, m, true)
+	if err != nil {
+		return nil, err
+	}
+	out["thread_parent"] = tp.out()
+	return with(n.Input, "message", out), nil
 }
 
 // mutedOut 是消息入库时被自动忽略的那条（TSK-0495），没有为 nil。

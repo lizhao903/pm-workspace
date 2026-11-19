@@ -184,7 +184,12 @@ func validSkipReason(s string) bool {
 
 // imInfo 是 IM 来源的记录里都带的：消息的归类。
 func imInfo(m imReceived) map[string]any {
-	return map[string]any{"channel": m.Channel, "conversation_id": deref(m.ConversationID), "relevance": m.Relevance, "at": m.At}
+	out := map[string]any{"channel": m.Channel, "conversation_id": deref(m.ConversationID), "relevance": m.Relevance, "at": m.At}
+	if m.ThreadParentMessageID != nil || m.ThreadRelated {
+		// 消息列回复（IM 0.32.0）：带上串相关，「最近未发起」看得出是不是相关消息列里的
+		out["thread_related"], out["thread_reason"] = m.ThreadRelated, m.ThreadReason
+	}
+	return out
 }
 
 // filterMiss 是过滤条件哪一条不符，一句给人看的话和结构化的明细；符合回空串。
@@ -197,11 +202,8 @@ func (t IMTrigger) filterMiss(m imReceived) (string, map[string]any) {
 		return fmt.Sprintf("会话 %s 不在过滤条件的 %d 个会话里", got, len(t.Conversations)),
 			map[string]any{"check": "conversation", "want": t.Conversations, "got": deref(m.ConversationID)}
 	}
-	if len(t.Relevance) > 0 && !t.matches(imReceived{ConversationID: m.ConversationID, Relevance: m.Relevance}) {
-		rel := m.Relevance
-		if rel == "" {
-			rel = imRelNone
-		}
+	if !t.relevanceOK(m) {
+		rel := t.effRel(m)
 		labels := make([]string, len(t.Relevance))
 		for i, r := range t.Relevance {
 			labels[i] = imRelLabel(r)
@@ -210,8 +212,8 @@ func (t IMTrigger) filterMiss(m imReceived) (string, map[string]any) {
 		if t.RelevanceMode == imModeExclude {
 			verb = "排除"
 		}
-		return fmt.Sprintf("与我的关系是「%s」，过滤条件%s %s", imRelLabel(rel), verb, strings.Join(labels, "、")),
-			map[string]any{"check": "relevance", "want": t.Relevance, "mode": t.RelevanceMode, "got": rel}
+		return fmt.Sprintf("与我的关系是「%s」，过滤条件%s %s", imRelLabel(rel), verb, strings.Join(labels, "、")) + threadNote(t, m),
+			map[string]any{"check": "relevance", "want": t.Relevance, "mode": t.RelevanceMode, "got": rel, "thread_related": t.ThreadRelated}
 	}
 	return "", nil
 }
@@ -283,4 +285,19 @@ func imFlows(ctx context.Context, c plugin.Core) ([]Flow, error) {
 		list = append(list, f)
 	}
 	return list, rows.Err()
+}
+
+// threadNote 是流程勾了「相关串里的回复按 @我 算」时补的一句：按 @我 算了的写原因，没算的写为什么。
+func threadNote(t IMTrigger, m imReceived) string {
+	switch {
+	case !t.ThreadRelated:
+		return ""
+	case m.ThreadRelated && (m.Relevance == "" || m.Relevance == "all"):
+		return "（相关消息列里的回复按 @我 算：" + imThreadLabel(m.ThreadReason) + "）"
+	case m.ThreadRelated:
+		return ""
+	case m.ThreadParentMessageID == nil && m.ThreadReason == "":
+		return "（不是相关消息列里的回复）"
+	}
+	return "（所在消息列和我不相关）"
 }

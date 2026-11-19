@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { ImMessage, SopInputRun } from '../../core/data'
-import { alreadyRun, focusText, latestByMessage, messageBrief, queueSplit, QUEUE_RECENT, retryStep, triageNote, triageTag, triageTargets, waitFor } from './triageModel'
+import { alreadyRun, focusText, latestByMessage, messageBrief, queueSplit, QUEUE_RECENT, repliesNote, retryStep, triageNote, triageTag, triageTargets, waitFor } from './triageModel'
 
 let seq = 0
 function run(p: Partial<SopInputRun> = {}): SopInputRun {
@@ -52,11 +52,31 @@ describe('分诊状态和处理队列', () => {
 
   it('要分诊的：有勾选用勾选，否则当前筛选结果；超上限不发起；已跑过的条数', () => {
     const rows = [msg({ id: 'a' }), msg({ id: 'b' }), msg({ id: 'c' })]
-    expect(triageTargets([rows[0]], rows, 2)).toEqual({ from: 'picked', list: [rows[0]], over: false })
-    expect(triageTargets([], rows, 2)).toEqual({ from: 'filter', list: rows, over: true })
+    expect(triageTargets([rows[0]], rows, 2)).toEqual({ from: 'picked', list: [rows[0]], over: false, replies: 0 })
+    expect(triageTargets([], rows, 2)).toEqual({ from: 'filter', list: rows, over: true, replies: 0 })
     expect(alreadyRun([run({ input_value: 'a' }), run({ input_value: 'b', flow_id: 'sop_b' })], 'sop_a', ['a', 'b', 'c'])).toBe(1)
     expect(messageBrief(msg({ text: ' 一  二\n三 ', conversation: '#p' }))).toEqual({ who: 'Lin', where: '#p', text: '一 二 三' })
     expect(triageNote({ started: [{ index: 0, key: 'a' }], skipped: [{ index: 1, key: 'b' }], failed: [] }))
       .toEqual({ text: '分诊发起 1 条，跳过 1 条已跑过的', bad: false })
+  })
+})
+
+// 消息列回复也走分诊（SPEC-messages-1.51、1.63）：不勾时收起的消息列回复只算还没处理的；勾了的照勾的；条数提示写含几条回复
+describe('批量分诊带上消息列回复', () => {
+  const p = msg({ id: 'p', status: 'done' })
+  const r1 = msg({ id: 'r1', status: 'pending' })
+  const r2 = msg({ id: 'r2', status: 'ignored' })
+  const r3 = msg({ id: 'r3', status: 'expired' })
+  const isReply = (m: ImMessage) => m.id.startsWith('r')
+  it('不勾时：非回复照旧（处理过的也在），回复只留还没处理的', () => {
+    const t = triageTargets([], [p, r1, r2, r3], 10, isReply)
+    expect(t.list.map((m) => m.id)).toEqual(['p', 'r1', 'r3'])
+    expect(t.replies).toBe(2)
+  })
+  it('勾了时用勾的，数出其中的回复', () => {
+    const t = triageTargets([r1, p], [p, r1, r2, r3], 10, isReply)
+    expect(t).toMatchObject({ from: 'picked', replies: 1 })
+    expect(repliesNote(t.replies)).toBe('（含 1 条消息列回复）')
+    expect(repliesNote(0)).toBe('')
   })
 })

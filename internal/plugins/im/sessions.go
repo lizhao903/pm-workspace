@@ -34,13 +34,15 @@ type MessageSession struct {
 }
 
 // SplitTask 是会话里拆出来、来源指向这条消息的任务（不含转任务那条 task_id），软删的不列。
+// Status 是任务现在的状态 key（0.32.0），前端按任务类型的状态集判断是不是终态，终态的不在消息上显示。
 type SplitTask struct {
-	ID    string `json:"id"`
-	Ref   string `json:"ref"`
-	Title string `json:"title"`
+	ID     string `json:"id"`
+	Ref    string `json:"ref"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
 }
 
-// fillSessions 补 sessions、split_tasks；没有为空数组。
+// fillSessions 补 sessions、split_tasks（没有为空数组）和转成的任务现在的状态 task_status。
 func (in *inbox) fillSessions(ctx context.Context, ms []Message) error {
 	if len(ms) == 0 {
 		return nil
@@ -109,7 +111,21 @@ func (in *inbox) fillSessions(ctx context.Context, ms []Message) error {
 		if o == nil || o.Deleted {
 			continue
 		}
-		ms[i].SplitTasks = append(ms[i].SplitTasks, SplitTask{ID: o.ID, Ref: o.Ref, Title: o.Title})
+		ms[i].SplitTasks = append(ms[i].SplitTasks, SplitTask{ID: o.ID, Ref: o.Ref, Title: o.Title, Status: o.Status})
+	}
+	// 转成的任务现在的状态（0.32.0）：前端只显示没到终态的任务；任务不在、删了为空串
+	for i := range ms {
+		if ms[i].TaskID == nil {
+			continue
+		}
+		tid := *ms[i].TaskID
+		o, err := cached(seen, tid, func() (plugin.ObjectInfo, error) { return in.c.Objects().Get(ctx, tid) })
+		if err != nil {
+			return err
+		}
+		if o != nil && !o.Deleted {
+			ms[i].TaskStatus = o.Status
+		}
 	}
 	return nil
 }

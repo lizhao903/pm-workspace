@@ -58,6 +58,8 @@ export type ImMessage = {
   adapter: string
   task_id: string | null
   task_ref: string
+  /** task_id 那条任务现在的状态 key（0.32.0）；没有任务、旧后端为空串。是不是终态按任务类型的状态集判断（SPEC-messages-1.68） */
+  task_status?: string
   replies: ImReply[]
   /** 最近一次发送失败的原因，再发成功后清空 */
   reply_error: string
@@ -101,7 +103,8 @@ export type ImMessageThread = {
 /** 发起会话时的意图：chat 发起会话，split 拆分任务 */
 export type ImSessionIntent = 'chat' | 'split'
 export type ImMessageSession = { session_id: string; intent: ImSessionIntent | (string & {}); at: string }
-export type ImSplitTask = { id: string; ref: string; title: string }
+/** status 是任务现在的状态 key（0.32.0，旧后端没有） */
+export type ImSplitTask = { id: string; ref: string; title: string; status?: string }
 /** 资料的来源种类：messages 消息正文拼成的笔记，attachment 消息附件 */
 export type ImMaterialKind = 'messages' | 'attachment'
 /** 消息上的「已转资料」：那条资料在哪个项目、登记时的标题、一共来自几条消息（判断是不是同一组） */
@@ -212,7 +215,7 @@ export const IM_PAGE_MAX = 200
 // 后端的空数组可能是 null，这里一次补齐
 export const normMessage = (m: ImMessage): ImMessage => ({
   ...m, attachments: m.attachments ?? [], replies: m.replies ?? [], conversation: m.conversation ?? '', contact_name: m.contact_name ?? '',
-  reply_error: m.reply_error ?? '', task_ref: m.task_ref ?? '', relevance: m.relevance ?? '', expired_at: m.expired_at ?? null,
+  reply_error: m.reply_error ?? '', task_ref: m.task_ref ?? '', task_status: m.task_status ?? '', relevance: m.relevance ?? '', expired_at: m.expired_at ?? null,
   project_id: m.project_id ?? null, project_name: m.project_name ?? '', project_source: m.project_source ?? '',
   sessions: m.sessions ?? [], split_tasks: m.split_tasks ?? [], materials: m.materials ?? [],
   thread: m.thread ?? null, reply_count: m.reply_count ?? 0, replied_sent: m.replied_sent ?? null, muted: m.muted ?? null,
@@ -345,6 +348,39 @@ export function useImTaskMessages(taskId: string) {
     queryFn: ({ signal }) => imApi.byTask(taskId, signal),
     enabled: !!taskId,
     retry: noRetry404,
+  })
+}
+
+/**
+ * 串的父消息（0.32.0，契约「串的父消息」）：消息列回复转任务、拆任务时把父消息全文放在消息列第一条。
+ * source 是全文从哪来：message 库里的父消息、self 我自己发的、fetched 问渠道取的、snapshot 只有 80 字快照（partial 为真）
+ */
+export type ImThreadParent = {
+  external_id: string
+  message_id: string | null
+  sender: string
+  text: string
+  source: 'message' | 'self' | 'fetched' | 'snapshot' | (string & {})
+  partial: boolean
+  link: string
+  permalink: string
+}
+
+/** 取一条消息所在串的父消息；不是消息列回复为 null。旧后端没有这个接口（404）时为 null，不重试 */
+export function useImThreadParent(id: string | null) {
+  return useQuery({
+    queryKey: [...dataKeys.im.detail(id ?? ''), 'thread-parent'] as const,
+    queryFn: async ({ signal }) => {
+      try {
+        return await request<ImThreadParent | null>('GET', `${path(id!)}/thread-parent`, { signal })
+      } catch (e) {
+        if (isApiError(e, 'not_found')) return null
+        throw e
+      }
+    },
+    enabled: !!id,
+    retry: noRetry404,
+    staleTime: 60_000,
   })
 }
 

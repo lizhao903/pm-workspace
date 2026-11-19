@@ -54,6 +54,16 @@ type Source struct {
 	Sender       string
 	Text         string
 	Reply        bool
+	// ThreadParent 是这条消息是消息列（串）里的回复时，串的父消息（IM 0.32.0 转任务时写进 source_ref.thread_parent）；
+	// 不是回复为 nil。提示词把它写在回复前面，执行方才知道原始诉求
+	ThreadParent *SourceParent
+}
+
+// SourceParent 是串的父消息：Partial 为真时 Text 只是 80 字摘要。
+type SourceParent struct {
+	Sender  string
+	Text    string
+	Partial bool
 }
 
 // Project 是所属项目的上下文。DocsDir 取项目设置里的文档目录（DocsSetting 为 true，TSK-0718），
@@ -167,7 +177,11 @@ const promptTemplate = `你正在协助处理一个来自「产品工作台」�
 {{end}}{{end}}{{end}}{{else}}原型在哪里操作：这个项目没有登记原型目录，可在项目设置里补；需要改原型时先问用户在哪里改。
 {{end}}
 {{end}}{{with .Source}}## 来源消息
-这条任务来自 {{if .Channel}}{{.Channel}} {{end}}{{if .Conversation}}「{{.Conversation}}」里{{end}}{{if .Sender}} {{.Sender}} {{end}}的消息：
+{{with .ThreadParent}}这条任务来自消息列里的一条回复。消息列的原消息{{if .Sender}}（{{.Sender}}）{{end}}{{if .Partial}}（只有摘要，全文没取到）{{end}}：
+{{.Text}}
+
+回复：
+{{end}}这条任务来自 {{if .Channel}}{{.Channel}} {{end}}{{if .Conversation}}「{{.Conversation}}」里{{end}}{{if .Sender}} {{.Sender}} {{end}}的消息：
 {{.Text}}
 {{if .Reply}}执行结束后，工作台会把这次执行的结论回复到这条消息里，结论请写成能直接发给对方看的话。
 {{end}}
@@ -224,6 +238,11 @@ func BuildPrompt(t Task) string {
 	}
 	if t.Source != nil {
 		t.Source.Text = strings.TrimSpace(t.Source.Text)
+		if p := t.Source.ThreadParent; p != nil {
+			if p.Text = strings.TrimSpace(p.Text); p.Text == "" {
+				t.Source.ThreadParent = nil
+			}
+		}
 		if t.Source.Text == "" {
 			t.Source.Text = "（消息没有正文）"
 		}

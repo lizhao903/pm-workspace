@@ -9,6 +9,7 @@ import { useMemo, useState } from 'react'
 import {
   errorText, useAgentGrants, useAgents, useImStartSession, useProjects, type AgentGrantMode, type ImMessage, type ImSessionIntent,
 } from '../../core/data'
+import { useImThreadParent } from '../../core/data/im'
 import { ConfirmDialog, Field, Input, SearchSelect, Textarea, cls } from '../../core/ui'
 import { AgentAvatar } from '../../core/ui/AgentAvatar'
 import { LAST_AGENT_KEY, pickAgent, projectOf, relatedDir, sessionPrompt, sessionTitle, sourceRef } from './sessionModel'
@@ -50,7 +51,10 @@ export function StartSessionDialog({ messages, intent: intent0, chLabel, onCance
   const [workdir, setWorkdir] = useState<string | null>(null)
   const dir = (workdir ?? projectDir).trim()
   // 第一句话按意图和授权现拼；用户改过就用他改的
-  const auto = sessionPrompt(messages, intent, { chLabel, grant })
+  // 消息列回复（0.32.0）：一条回复发起时带上串的父消息全文，Agent 才知道原始诉求
+  const reply = messages.length === 1 && messages[0].thread ? messages[0] : null
+  const parent = useImThreadParent(reply?.id ?? null).data ?? null
+  const auto = sessionPrompt(messages, intent, { chLabel, grant, parent })
   const [edited, setEdited] = useState<string | null>(null)
   const prompt = edited ?? auto
 

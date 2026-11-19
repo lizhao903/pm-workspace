@@ -101,6 +101,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/im/connectors/{id}/backfill-emails", emails.handle)
 		// 处理动作（IM-02a，actions.go）
 		m.HandleFunc("GET /api/im/messages/{id}", in.getOne)
+		// 串的父消息全文（0.32.0，threadparent.go）
+		m.HandleFunc("GET /api/im/messages/{id}/thread-parent", in.getThreadParent)
 		for _, k := range []string{"done", "ignore", "reopen", "read"} {
 			m.HandleFunc("POST /api/im/messages/{id}/"+k, in.setState(k))
 		}

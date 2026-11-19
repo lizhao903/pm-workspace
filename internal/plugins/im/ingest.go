@@ -36,6 +36,12 @@ type Received struct {
 	StakeholderID  *string `json:"stakeholder_id"`
 	Relevance      string  `json:"relevance"`
 	At             string  `json:"at"`
+	// 以下 0.32.0（threadrel.go）：串里回复的父消息和我相关（我发起的串、父消息 @我、私信、转过任务）时 thread_related 为真，
+	// thread_reason 是 mine / mention / dm / task 之一，不相关为空串；thread_parent_message_id 是父消息在库里的 id，
+	// 不是串里回复、父消息不在库里为 null。relevance 不因此改变
+	ThreadRelated         bool    `json:"thread_related"`
+	ThreadReason          string  `json:"thread_reason"`
+	ThreadParentMessageID *string `json:"thread_parent_message_id"`
 }
 
 // Muted 是 im.message_muted 的 payload（0.28.0，TSK-0491）：发信人被自动忽略、入库即已忽略的消息，同 Received 加命中的自动忽略。
@@ -169,17 +175,24 @@ func (in *inbox) ingestAs(ctx context.Context, a Adapter, msgs []Incoming, stric
 			}
 			continue
 		}
+		// 串相关（0.32.0，threadrel.go）：只在要发事件时查
+		tr, err := in.threadRelOf(ctx, r.channel, r.connectorID, r.threadParent, r.threadMine)
+		if err != nil {
+			return res, err
+		}
 		if r.mutedBy != "" {
 			// 不发 im.message_received；另发 im.message_muted（0.28.0，TSK-0491），SOP 记「发信人被自动忽略、没发起」
 			mev := Muted{Received: Received{MessageID: r.id, Channel: r.channel, ConnectorID: r.connectorID, ConversationID: r.convID,
-				IdentityID: r.identityID, StakeholderID: r.stakeholderID, Relevance: r.relevance, At: r.sentAt}, MuteID: r.mutedBy, MuteName: r.mutedName}
+				IdentityID: r.identityID, StakeholderID: r.stakeholderID, Relevance: r.relevance, At: r.sentAt,
+				ThreadRelated: tr.reason != "", ThreadReason: tr.reason, ThreadParentMessageID: strOrNil(tr.parentID)}, MuteID: r.mutedBy, MuteName: r.mutedName}
 			if err := in.c.Events().Publish(ctx, EventMuted, mev); err != nil {
 				in.c.Log().Warn("publish im event failed", "message", r.id, "err", err)
 			}
 			continue
 		}
 		ev := Received{MessageID: r.id, Channel: r.channel, ConnectorID: r.connectorID, ConversationID: r.convID,
-			IdentityID: r.identityID, StakeholderID: r.stakeholderID, Relevance: r.relevance, At: r.sentAt}
+			IdentityID: r.identityID, StakeholderID: r.stakeholderID, Relevance: r.relevance, At: r.sentAt,
+			ThreadRelated: tr.reason != "", ThreadReason: tr.reason, ThreadParentMessageID: strOrNil(tr.parentID)}
 		if err := in.c.Events().Publish(ctx, EventReceived, ev); err != nil {
 			in.c.Log().Warn("publish im event failed", "message", r.id, "err", err)
 		}
@@ -275,6 +288,8 @@ type row struct {
 	adapter                              string
 	// 串里的回复（0010）：父消息的 external_id 和到达时的父消息快照
 	threadParent, threadSender, threadText string
+	// threadMine 是已知父消息是我发的（我发起的串，0.32.0 串相关用，免得再查一遍）
+	threadMine bool
 	// 命中的自动忽略（TSK-0495）：非空时落库为已忽略、已读，不发 im.message_received
 	mutedBy, mutedName string
 	// 补全历史（TSK-0724）：落库即已读；expiredAt 非空时落成已过期（发送超过 historyFreshFor）
@@ -367,6 +382,7 @@ func (in *inbox) prepare(ctx context.Context, ch string, self []string, m Incomi
 			}
 			if mine {
 				r.relevance = "me"
+				r.threadMine = true
 			}
 		}
 	}

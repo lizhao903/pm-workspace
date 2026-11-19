@@ -51,6 +51,8 @@ function fakeBackend(rows: ImMessage[], opts: {
   members?: Record<string, ImMember[]>
   /** 转任务时回执没发起的原因（SPEC-messages-2.50）；不给时回执照常发起 */
   replyNote?: string
+  /** 串的父消息（0.32.0），按消息 id；没给的回 null */
+  parents?: Record<string, unknown>
 } = {}) {
   const calls: Call[] = []
   let batchN = 0
@@ -219,6 +221,14 @@ function fakeBackend(rows: ImMessage[], opts: {
         if (body.kind === 'stop') Object.assign(r, { status: 'stopped', stopped: true, ended_at: new Date().toISOString() })
         return json({ ...r, flow: sop.flows[0], input: {}, steps: [] })
       }
+    }
+    const tp = u.pathname.match(/^\/api\/im\/messages\/([^/]+)\/thread-parent$/)
+    if (tp) return json(opts.parents?.[tp[1]] ?? null)
+    // 任务类型的状态集（SPEC-messages-1.68）：done、cancelled 是终态
+    if (u.pathname === '/api/object-types') {
+      return json([{ id: 'task', name: '任务', plural: '任务', ref_prefix: 'T', icon: '', color: '', builtin: true, sort_order: 1, created_at: '', updated_at: '',
+        statuses: [{ key: 'todo', label: '待办', color: '', terminal: false }, { key: 'doing', label: '进行中', color: '', terminal: false },
+          { key: 'done', label: '已完成', color: '', terminal: true }, { key: 'cancelled', label: '已取消', color: '', terminal: true }] }])
     }
     if (u.pathname === '/api/connectors') return json(opts.connectors ?? [])
     if (u.pathname === '/api/connectors/defs' || u.pathname.startsWith('/api/dictionaries')) return json([])
@@ -1168,6 +1178,24 @@ describe('消息列回复（0010）', () => {
     expect(body).toContain('：回复二\n  第二行')
   })
 
+  it('回复转任务、原消息是我发的不在列表里：取父消息全文放在消息列第一条（TSK-0837）', async () => {
+    const th = { parent_external_id: 'C:mine', parent_message_id: null, parent_sender_name: 'Broleez Li', parent_text: '外发文件有个问题' }
+    const r1 = msg({ text: '这个华哥看一下吧', sender_id: 'U2', sender_name: '赵振华', at: ago(40), thread: th })
+    const r2 = msg({ text: '我先记到表上吧', sender_id: 'U3', sender_name: '王闯', at: ago(30), thread: th })
+    const full = 'Grant Agent 外发文件有个问题，会把私桶的链接发出去，外部用户无法访问，需要能直接外发文件'
+    const calls = fakeBackend([r1, r2], { parents: { [r2.id]: { external_id: 'C:mine', message_id: null, sender: 'Broleez Li', text: full, source: 'self', partial: false, link: '', permalink: '' } } })
+    renderPage()
+    const row = await screen.findByRole('listitem', { name: /王闯：我先记到表上吧/ })
+    await userEvent.click(within(row).getByRole('button', { name: '转任务' }))
+    const dlg = await screen.findByRole('alertdialog')
+    await within(dlg).findByRole('checkbox', { name: /附上消息列（2 条）/ })
+    expect(within(dlg).getByText(full)).toBeInTheDocument()
+    await userEvent.click(within(dlg).getByRole('button', { name: '创建任务' }))
+    await waitFor(() => expect(calls.find((c) => c.path.endsWith('/task'))).toBeTruthy())
+    const body = String(calls.find((c) => c.path.endsWith('/task'))?.body?.body ?? '')
+    expect(body.startsWith(`## 消息列（2 条）\n\n- **Broleez Li**（原消息）：${full}\n- **赵振华** `)).toBe(true)
+  })
+
   it('转项目资料带上消息列：默认勾上，回复并进对话记录、出处也算上；只把选中的标为已处理；取消勾选只剩这一条', async () => {
     const p = msg({ text: '灰度方案看下', at: ago(60), project_id: 'obj_p1', project_name: 'Acme' })
     const th = { parent_external_id: p.external_id, parent_message_id: p.id, parent_sender_name: 'Lin Yuan', parent_text: '灰度方案看下' }
@@ -1219,3 +1247,56 @@ describe('消息列回复（0010）', () => {
   })
 })
 
+
+// 2026-11-19：消息列回复也走分诊（1.41、1.63）、关联任务只显示没完成的（1.68）、已处理的行悬停才有操作（1.69）
+describe('消息列回复进全选、关联任务和已处理行的操作', () => {
+  it('常驻全选勾上收起的消息列回复（还没处理的），提示写含几条，批量带上它们', async () => {
+    const p = msg({ text: '原消息在这' })
+    const th = { parent_external_id: p.external_id, parent_message_id: p.id, parent_sender_name: 'Lin Yuan', parent_text: '原消息在这' }
+    const r1 = msg({ text: '回复一', thread: th }), r2 = msg({ text: '回复二', thread: th, status: 'done' })
+    const calls = fakeBackend([p, r1, r2])
+    renderPage()
+    await screen.findByRole('listitem', { name: /原消息在这/ })
+    const bar = screen.getByRole('toolbar', { name: '批量处理' })
+    expect(within(bar).getByText('已加载 2 条（含 1 条消息列回复）')).toBeInTheDocument()
+    await userEvent.click(within(bar).getByRole('checkbox', { name: '全选已加载的消息' }))
+    expect(within(bar).getByText('已选 2 条（含 1 条消息列回复）')).toBeInTheDocument()
+    await userEvent.click(within(bar).getByRole('button', { name: '忽略' }))
+    await waitFor(() => expect(calls.find((c) => c.path === '/api/im/messages/batch')?.body).toEqual({ action: 'ignore', ids: [p.id, r1.id] }))
+  })
+
+  it('到了终态的关联任务列表行上不显示，抽屉里折叠成「另有 N 条已完成」', async () => {
+    const live = msg({ text: '还在做', task_id: 'obj_a', task_ref: 'T-1', task_status: 'doing' })
+    const closed = msg({ text: '做完了', task_id: 'obj_b', task_ref: 'T-2', task_status: 'done',
+      split_tasks: [{ id: 'obj_c', ref: 'T-3', title: '拆一', status: 'cancelled' }, { id: 'obj_d', ref: 'T-4', title: '拆二', status: 'todo' }] })
+    fakeBackend([live, closed])
+    renderPage()
+    const liveRow = await screen.findByRole('listitem', { name: /还在做/ })
+    await waitFor(() => expect(within(screen.getByRole('listitem', { name: /做完了/ })).queryByText(/已转任务/)).toBeNull())
+    expect(within(liveRow).getByText('已转任务 T-1')).toBeInTheDocument()
+    expect(within(screen.getByRole('listitem', { name: /做完了/ })).getByText('已拆分 1 条任务')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('listitem', { name: /做完了/ }))
+    const drawer = await screen.findByRole('dialog', { name: '消息详情' })
+    expect(within(drawer).getByText('转成的任务已经结束')).toBeInTheDocument()
+    expect(within(drawer).queryByRole('button', { name: '转为任务' })).toBeNull()
+    expect(within(drawer).getByRole('button', { name: 'T-4' })).toBeInTheDocument()
+    const more = within(drawer).getAllByRole('button', { name: '另有 1 条已完成' })
+    expect(more).toHaveLength(2)
+    expect(within(drawer).queryByRole('button', { name: 'T-3' })).toBeNull()
+    await userEvent.click(more[1])
+    expect(within(drawer).getByRole('button', { name: 'T-3' })).toBeInTheDocument()
+  })
+
+  it('已处理、已忽略的行带悬停才显示动作的类名，按钮仍在；待处理、已过期的没有', async () => {
+    fakeBackend([msg({ text: '甲', status: 'done' }), msg({ text: '乙', status: 'ignored' }), msg({ text: '丙' }), msg({ text: '丁', status: 'expired' })])
+    renderPage()
+    await screen.findByRole('listitem', { name: /丙/ })
+    await userEvent.click(within(screen.getByRole('group', { name: '状态' })).getByRole('button', { name: /^全部/ }))
+    const row = (t: string) => screen.getByRole('listitem', { name: new RegExp(`：${t}`) })
+    await waitFor(() => expect(row('甲').className).toContain('im-acts-hover'))
+    expect(row('乙').className).toContain('im-acts-hover')
+    expect(within(row('甲')).getByRole('button', { name: '重新打开' })).toBeInTheDocument()
+    expect(row('丙').className).not.toContain('im-acts-hover')
+    expect(row('丁').className).not.toContain('im-acts-hover')
+  })
+})

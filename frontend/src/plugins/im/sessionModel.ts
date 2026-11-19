@@ -4,6 +4,7 @@
 // 会话来源 source_ref 的形状同「转任务」写进任务的那份（后端 toTask），多一个 message_ids（合并显示的一组）、kind、label、project_id；
 // 内核把它记进会话，会话里 Agent 建的任务缺省带上它、挂到 project_id 的项目（内核 0047）。
 import type { Agent, AgentGrantMode, ImMessage, ImSessionIntent, SessionSourceRef } from '../../core/data'
+import type { ImThreadParent } from '../../core/data/im'
 import { shortTime, whoName } from './model'
 
 /** 会话页里打开某个会话 */
@@ -77,7 +78,11 @@ export function sourceRef(xs: readonly ImMessage[], chLabel: string): SessionSou
  * 拆分任务时让 Agent 先把清单列出来再逐条建：Agent 建任务的授权是「需确认」时每条都会弹确认卡片，在卡片上点确认才建；
  * 是「自动」时没有卡片，就让它列完先停下等用户回话
  */
-export function sessionPrompt(xs: readonly ImMessage[], intent: ImSessionIntent, opts: { chLabel: string; grant?: AgentGrantMode }): string {
+export function sessionPrompt(xs: readonly ImMessage[], intent: ImSessionIntent, opts: {
+  chLabel: string; grant?: AgentGrantMode
+  /** 串的父消息（0.32.0）：消息列回复发起、原消息不在这组里时，写在「消息原文」前面，只取到摘要时标「（摘要）」 */
+  parent?: ImThreadParent | null
+}): string {
   const all = chrono(xs)
   const last = all.at(-1)!
   const senders = [...new Set(all.map((m) => `${whoName(m)}（${opts.chLabel} 编号 ${m.sender_id}）`))]
@@ -94,6 +99,9 @@ export function sessionPrompt(xs: readonly ImMessage[], intent: ImSessionIntent,
     `归属项目：${p ? p.name || p.id : '未归项目'}`,
     ...(atts.length ? [`附件：${atts.join('、')}`] : []),
     '',
+    ...(opts.parent && opts.parent.text.trim() && !xs.some((m) => m.id === opts.parent!.message_id)
+      ? [`这些是消息列里的回复。消息列的原消息（${opts.parent.sender || '发信人不明'}）${opts.parent.partial ? '（摘要）' : ''}：`, opts.parent.text.trim(), '']
+      : []),
     '消息原文：',
     ...(all.length > shown.length ? [`（前面还有 ${all.length - shown.length} 条，只带最近 ${shown.length} 条）`] : []),
     ...shown.map((m) => `[${shortTime(m.at)}] ${whoName(m)}：${m.text.trim() || '（没有正文）'}`),

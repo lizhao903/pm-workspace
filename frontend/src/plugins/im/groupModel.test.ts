@@ -78,6 +78,12 @@ describe('合并显示的分组', () => {
     expect(selectAllState(loaded, new Set([...loaded.map((m) => m.id), 'msg_later']), 4)).toBe('all')
     expect(selectAllState([], new Set(), 0)).toBe('none')
   })
+
+  it('常驻全选也勾上收起的消息列回复（2026-11-19，SPEC-messages-1.41、1.63）：只算还没处理的，排在这一行后面；变淡的原消息行本身不算', () => {
+    const p = msg({}), r1 = msg({}), r2 = msg({ status: 'done' }), r3 = msg({ status: 'expired' }), fp = msg({ status: 'done' }), r4 = msg({})
+    const shown = [{ items: [p], threads: [{ parent: p, replies: [r1, r2, r3] }] }, { items: [], threads: [{ parent: fp, replies: [r4] }] }]
+    expect(loadedPicks(shown).map((m) => m.id)).toEqual([p.id, r1.id, r3.id, r4.id])
+  })
 })
 
 describe('消息列回复（0010）', () => {
@@ -151,6 +157,16 @@ describe('转任务附上消息列（SPEC-messages-2.15）', () => {
     const body = threadTaskBody([p, r1], () => 'T')
     expect(body).toBe('## 消息列（2 条）\n\n- **A**（原消息） T：话题\n- **王可** T：一')
     expect(threadTaskBody([])).toBe('')
+  })
+  it('原消息不在库里（我发的）时，后端取的父消息固定放第一条；只有摘要时标「（摘要）」；已有原消息时不重复（TSK-0837）', () => {
+    const p = msg({ text: '话题' })
+    const r1 = msg({ text: '这个华哥看一下吧', sender_name: '赵振华', thread: thread(p) })
+    const parent = { external_id: 'C:1', message_id: null, sender: 'Broleez Li', text: '外发文件有个问题\n需要直接外发', source: 'self', partial: false, link: '', permalink: '' }
+    expect(threadTaskBody([r1], () => 'T', parent)).toBe('## 消息列（2 条）\n\n- **Broleez Li**（原消息）：外发文件有个问题\n  需要直接外发\n- **赵振华** T：这个华哥看一下吧')
+    expect(threadTaskBody([r1], () => 'T', { ...parent, text: '外发文件', partial: true })).toContain('- **Broleez Li**（原消息）：外发文件（摘要）\n')
+    expect(threadTaskBody([], () => 'T', parent)).toBe('## 消息列（1 条）\n\n- **Broleez Li**（原消息）：外发文件有个问题\n  需要直接外发')
+    expect(threadTaskBody([p, r1], () => 'T', parent)).toBe(threadTaskBody([p, r1], () => 'T'))
+    expect(threadTaskBody([r1], () => 'T', null)).toBe('## 消息列（1 条）\n\n- **赵振华** T：这个华哥看一下吧')
   })
   it('太长时后面的不附，写明还有几条', () => {
     const p = msg({ text: '话题' })

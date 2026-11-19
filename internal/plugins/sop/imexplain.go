@@ -145,6 +145,10 @@ func (d *debugger) explain(ctx context.Context, msgID string, ev *imReceived, dr
 		ev = &imReceived{MessageID: msgID, Channel: txt(in["channel"]), ConnectorID: txt(in["connector_id"]),
 			ConversationID: strPtr(txt(in["conversation_id"])), StakeholderID: strPtr(txt(in["stakeholder_id"])),
 			Relevance: txt(in["relevance"]), At: txt(in["at"])}
+		// 串相关（IM 0.32.0）：读取消息带了就照着判
+		ev.ThreadRelated, _ = msg["thread_related"].(bool)
+		ev.ThreadReason = txt(msg["thread_reason"])
+		ev.ThreadParentMessageID = strPtr(txt(msg["thread_parent_message_id"]))
 		if _, ok := msg["conversation_id"]; !ok {
 			res.Notes = append(res.Notes, "IM 插件版本旧，读取消息没给会话 id、与我的关系等归类，过滤条件判不准；升级 IM 插件到 0.28.0")
 		}
@@ -158,7 +162,8 @@ func (d *debugger) explain(ctx context.Context, msgID string, ev *imReceived, dr
 		res.Message = Json{"channel": ev.Channel, "conversation_id": deref(ev.ConversationID), "relevance_key": ev.Relevance, "at": ev.At}
 	}
 	res.Event = Json{"message_id": msgID, "channel": ev.Channel, "connector_id": ev.ConnectorID, "conversation_id": deref(ev.ConversationID),
-		"stakeholder_id": deref(ev.StakeholderID), "relevance": ev.Relevance, "at": ev.At}
+		"stakeholder_id": deref(ev.StakeholderID), "relevance": ev.Relevance, "at": ev.At,
+		"thread_related": ev.ThreadRelated, "thread_reason": ev.ThreadReason, "thread_parent_message_id": ev.ThreadParentMessageID}
 	if at, err := time.Parse(time.RFC3339Nano, ev.At); err == nil && imTriggerNow().Sub(at) > imTriggerMaxAge {
 		res.Stale = true
 	}
@@ -171,7 +176,7 @@ func (d *debugger) explain(ctx context.Context, msgID string, ev *imReceived, dr
 	var stopper *Flow
 	for i := range list {
 		f := list[i]
-		x := IMExplainFlow{FlowID: f.ID, Name: f.Name, Order: i + 1, Stop: f.IM.Stop, Checks: imChecks(f.IM, *ev), Missing: []map[string]string{},
+		x := IMExplainFlow{FlowID: f.ID, Name: f.Name, Order: i + 1, Stop: f.IM.Stop, Checks: imChecks(f.IM, threadView(ctx, d.c, f, *ev)), Missing: []map[string]string{},
 			Draft: drafted == f.ID && f.ID != ""}
 		if drafted == "" && draft != nil && f.ID == "" {
 			x.Draft = true
@@ -262,15 +267,8 @@ func imChecks(t IMTrigger, m imReceived) []IMExplainCheck {
 		out = append(out, IMExplainCheck{Key: "conversation", OK: ok, Want: t.Conversations, Got: got, Text: text})
 	}
 	if len(t.Relevance) > 0 {
-		rel := m.Relevance
-		if rel == "" {
-			rel = imRelNone
-		}
-		ok := t.matches(imReceived{ConversationID: m.ConversationID, Relevance: m.Relevance})
-		if len(t.Conversations) > 0 {
-			// matches 先看会话，这里只要与我的关系这一项
-			ok = IMTrigger{Relevance: t.Relevance, RelevanceMode: t.RelevanceMode}.matches(imReceived{Relevance: m.Relevance})
-		}
+		rel := t.effRel(m)
+		ok := t.relevanceOK(m)
 		labels := make([]string, len(t.Relevance))
 		for i, r := range t.Relevance {
 			labels[i] = imRelLabel(r)
@@ -280,6 +278,7 @@ func imChecks(t IMTrigger, m imReceived) []IMExplainCheck {
 			verb = "排除"
 		}
 		text := fmt.Sprintf("与我的关系是「%s」，过滤条件%s %s", imRelLabel(rel), verb, strings.Join(labels, "、"))
+		text += threadNote(t, m)
 		out = append(out, IMExplainCheck{Key: "relevance", OK: ok, Want: t.Relevance, Mode: t.RelevanceMode, Got: rel, Text: text})
 	}
 	return out

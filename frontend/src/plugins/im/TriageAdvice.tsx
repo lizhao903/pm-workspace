@@ -202,6 +202,20 @@ function TriageAttempts({ attempts, ...acts }: Acts & { attempts: TriageAttempt[
  * 列表行上的分诊小标。已分诊的悬停时才去取详情，title 写结论和建议前 80 字（没有建议时写依据），点了打开消息抽屉定位到「分诊建议」；
  * 分诊中、等确认、失败的点了打开处理队列（那里能看排队、终止、重试）
  */
+/**
+ * 已分诊时跟在小标后面的结论（要处理、可忽略……，颜色同抽屉里的结论）：消息抽屉「消息列回复」一节每条回复用（SPEC-messages-2.45），
+ * 这里逐条读执行详情（一个消息列的回复不多）；列表行不用它，列表行只在悬停时读（1.53）。没跑完、读不出来时不显示
+ */
+export function TriageVerdictTag({ attempt, onOpen }: { attempt: TriageAttempt | undefined; onOpen: () => void }) {
+  const done = !!attempt && attemptStatus(attempt) === 'done'
+  const { summary } = useTriageSummary(attempt, done)
+  if (!done || !summary) return null
+  return (
+    <button type="button" className={cls('im-state', `im-tri-${verdictTone(summary.verdict)}`)} title={`${triageBrief(summary)}\n点击查看分诊建议`}
+      onClick={(e) => { e.stopPropagation(); onOpen() }} onKeyDown={(e) => e.stopPropagation()}>{summary.label}</button>
+  )
+}
+
 export function TriageTagButton({ attempt, onOpenAdvice, onOpenQueue }: {
   attempt: TriageAttempt | undefined
   onOpenAdvice: () => void

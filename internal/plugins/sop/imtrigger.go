@@ -35,6 +35,10 @@ type imReceived struct {
 	StakeholderID  *string `json:"stakeholder_id"`
 	Relevance      string  `json:"relevance"`
 	At             string  `json:"at"`
+	// 串相关（IM 0.32.0）：旧版 IM 插件没有这几项，当不相关
+	ThreadRelated         bool    `json:"thread_related"`
+	ThreadReason          string  `json:"thread_reason"`
+	ThreadParentMessageID *string `json:"thread_parent_message_id"`
 }
 
 func deref(s *string) string {
@@ -65,7 +69,7 @@ func (s *starter) onIMMessage(ctx context.Context, _ plugin.Core, ev plugin.Even
 		"conversation_id": deref(m.ConversationID), "stakeholder_id": deref(m.StakeholderID), "relevance": m.Relevance, "at": m.At}
 	info := imInfo(m)
 	for i, f := range list {
-		if why, detail := f.IM.filterMiss(m); why != "" {
+		if why, detail := f.IM.filterMiss(threadView(ctx, s.c, f, m)); why != "" {
 			recordSkip(ctx, s.c, f.ID, SourceIM, m.MessageID, skipFiltered, why, mergeInfo(info, detail))
 			continue
 		}
@@ -100,7 +104,7 @@ func (s *starter) onIMMessage(ctx context.Context, _ plugin.Core, ev plugin.Even
 			}
 			// 后面的流程过滤条件符合的记「被拦截」，不符合的本来也不会发起，记「过滤不符」
 			for _, g := range list[i+1:] {
-				if why, detail := g.IM.filterMiss(m); why != "" {
+				if why, detail := g.IM.filterMiss(threadView(ctx, s.c, g, m)); why != "" {
 					recordSkip(ctx, s.c, g.ID, SourceIM, m.MessageID, skipFiltered, why, mergeInfo(info, detail))
 					continue
 				}

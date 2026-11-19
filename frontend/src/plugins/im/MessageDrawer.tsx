@@ -25,7 +25,8 @@ import { Avatar, Button, Checkbox, Drawer, SearchSelect, cls } from '../../core/
 import {
   RELEVANCE, isSnoozed, replyBlocker, replyWarning, shortTime, snoozeOptions, timeAgo, whoName, type Channel, type StatusView,
 } from './model'
-import { AgentSection, ReplyBarActions } from './AgentLinks'
+import { AgentSection, ClosedTasks, ReplyBarActions } from './AgentLinks'
+import { useTaskTerminal } from './taskModel'
 import { AttachmentPanel } from './AttachmentPanel'
 import { MaterialSection } from './MaterialLinks'
 import { sendAsText } from './channelModel'
@@ -33,7 +34,7 @@ import { Caret, ChannelMark, Menu, MentionText } from './parts'
 import { useQuickReplies } from './quickReplies'
 import { ToClipRow } from './ToClipRow'
 import { ToDealRow } from './ToDealRow'
-import { ThreadReplies } from './ThreadReplies'
+import { ThreadReplies, type ThreadTriage } from './ThreadReplies'
 import type { ContactLinkMode, ContactLinkResult } from './ContactLink'
 import { LinkNote, SenderContactActs } from './SenderContact'
 import { threadHint } from './groupModel'
@@ -57,6 +58,8 @@ type AgentProps = {
   threadParent?: ImMessage
   /** 打开另一条消息（原消息、消息列里的某一条） */
   onOpenMessage?: (id: string) => void
+  /** 「消息列回复」一节的分诊（SOP 插件在跑时才给）：勾选批量分诊、每条回复的分诊小标 */
+  threadTriage?: ThreadTriage
 }
 
 export function MessageDrawer({ msg, missing, ch, connectors, sv, photo, note, triage, onClose, onOpenContact, onLinkContact, onToTask, onFixConnector, ...agent }: AgentProps & {
@@ -94,13 +97,14 @@ export function MessageDrawer({ msg, missing, ch, connectors, sv, photo, note, t
   )
 }
 
-function DrawerBody({ msg, ch, connectors, sv, photo, note, triage, onClose, onOpenContact, onLinkContact, onToTask, onFixConnector, onStart, onOpenSession, onOpenTask, onToMaterial, onOpenMaterial, thread = [], threadParent, onOpenMessage }: AgentProps & {
+function DrawerBody({ msg, ch, connectors, sv, photo, note, triage, onClose, onOpenContact, onLinkContact, onToTask, onFixConnector, onStart, onOpenSession, onOpenTask, onToMaterial, onOpenMaterial, thread = [], threadParent, onOpenMessage, threadTriage }: AgentProps & {
   msg: ImMessage; ch: Channel; connectors: Connector[] | undefined; sv: StatusView; photo?: string; note?: ContactLinkResult; triage?: ReactNode
   onClose: () => void; onOpenContact: (id: string) => void; onLinkContact: (mode: ContactLinkMode) => void; onToTask: () => void; onFixConnector: () => void
 }) {
   const act = useImAction()
   const reply = useImAction()
   const setProject = useImAction()
+  const isTerminal = useTaskTerminal()
   const projects = useProjects()
   const projectOptions = (projects.data?.data ?? []).filter((p) => !p.deleted_at).map((p) => ({ value: p.id, label: p.title }))
   const [text, setText] = useState('')
@@ -228,7 +232,7 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, triage, onClose, onO
       </div>
       <MessageLinks msg={msg} chLabel={ch.label} />
 
-      {thread.length > 0 && <ThreadReplies parent={msg} replies={thread} sv={sv} onOpen={onOpenMessage} />}
+      {thread.length > 0 && <ThreadReplies parent={msg} replies={thread} sv={sv} onOpen={onOpenMessage} triage={threadTriage} />}
 
       {triage}
 
@@ -250,8 +254,11 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, triage, onClose, onO
       {setProject.isError && <div className="im-err" role="alert">没改成：{errorText(setProject.error)}</div>}
 
       <div className="im-section">转任务</div>
-      {msg.task_id ? (
+      {msg.task_id && !isTerminal(msg.task_status) ? (
         <div className="im-act-row"><span className="im-muted">已转为任务 {msg.task_ref}</span><button type="button" className="im-act" onClick={onToTask}>打开任务</button></div>
+      ) : msg.task_id ? (
+        // 转成的任务已经到终态（SPEC-messages-1.68）：折叠成「另有 1 条已完成」，不能再转
+        <div className="im-act-row"><span className="im-muted">转成的任务已经结束</span><ClosedTasks tasks={[{ id: msg.task_id, ref: msg.task_ref, title: msg.task_ref }]} onOpenTask={onToTask} /></div>
       ) : (
         <div className="im-act-row"><button type="button" className="im-act" onClick={onToTask}>转为任务</button><span className="im-muted">原消息会记在任务里，方便回看</span></div>
       )}

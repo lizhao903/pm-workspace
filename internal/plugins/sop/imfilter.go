@@ -15,13 +15,19 @@ import (
 
 // IM 触发的过滤条件、执行顺序与拦截（TSK-0481，插件迁移 0008_im_trigger）。
 //
-// 流程接口的 im 是 IMTrigger。写流程时 body 可带 im：{conversations?, relevance?, relevance_mode?, order?, stop?}，给哪项改哪项。
+// 流程接口的 im 是 IMTrigger。写流程时 body 可带 im：{conversations?, relevance?, relevance_mode?, thread_related?, order?, stop?}，给哪项改哪项。
 //   - conversations：会话，空表示全部。每项认内核会话 id（cv_）、渠道里的会话编号（Slack 的 C0BNCBRL5C0）、「渠道:编号」、会话名，
 //     存成 cv_ id；找不到、对上多个都回 400。
 //   - relevance：与我的关系 me（@我）/ all（@所有人）/ dm（私聊）/ none（无关，事件里是空串），空表示不限；
 //     relevance_mode 是 include（只要这几种，缺省）或 exclude（除了这几种）。
 //   - order：在 IM 流程里排第几（1 起），插进去后其余顺延；超过总数排最后。不给时：新的 IM 流程排最后，已是 IM 的不动。
 //     触发方式不是 im 时 order 不认（只有 IM 流程有顺序），改成 im 时排最后。
+//   - thread_related（0.23.0）：相关串里的回复按 @我 算。消息列（串）里的回复只要串和我相关，它的关系是无关或 @所有人时按 @我 判断
+//     （私聊不变），口径同 IM 0.16 起「我发起的串里的回复记 @我」：「只要 @我」的流程会接，「除了 @我」的流程会放过；
+//     会话那一项照样要符合，不设关系（不限）时不起作用。串和我相关 = IM 事件的 thread_related 为真
+//     （我发起的串、父消息 @我、父消息是私信、父消息转过任务，见 im/threadrel.go），或父消息（thread_parent_message_id）
+//     已经被这条流程跑过（任意状态：自动分诊过、批量分诊过）。只看这条流程自己跑过的，免得别的流程（例如把某个群的
+//     自动消息标为忽略的流程）跑过的父消息也把回复带进来。缺省 false，已有流程行为不变。
 //   - stop：拦截。命中过滤、发起了执行（或这条消息此前已经为它发起过）后，排在后面的 IM 流程对这条消息不再发起。
 //     以「命中并发起」为准，不等执行跑完、不看执行成败；必填字段补不齐、发起出错的不算命中，不拦。
 //
@@ -41,23 +47,26 @@ const (
 var imRelevances = []string{"me", "all", "dm", imRelNone}
 
 // IMTrigger 是流程的 IM 触发设置。Order 是在 IM 流程里排第几（1 起），触发方式不是 im 时为 0。
+// ThreadRelated 是「相关串里的回复按 @我 算」（0.23.0）。
 type IMTrigger struct {
 	Conversations []string `json:"conversations"`
 	Relevance     []string `json:"relevance"`
 	RelevanceMode string   `json:"relevance_mode"`
+	ThreadRelated bool     `json:"thread_related"`
 	Order         int      `json:"order"`
 	Stop          bool     `json:"stop"`
 }
 
-// imFilter 是 im_filter 列里存的。
+// imFilter 是 im_filter 列里存的；thread_related 为 false 时不写，旧流程存的样子不变。
 type imFilter struct {
 	Conversations []string `json:"conversations"`
 	Relevance     []string `json:"relevance"`
 	RelevanceMode string   `json:"relevance_mode"`
+	ThreadRelated bool     `json:"thread_related,omitempty"`
 }
 
 func (t IMTrigger) filterJSON() string {
-	b, _ := json.Marshal(imFilter{Conversations: t.Conversations, Relevance: t.Relevance, RelevanceMode: t.RelevanceMode})
+	b, _ := json.Marshal(imFilter{Conversations: t.Conversations, Relevance: t.Relevance, RelevanceMode: t.RelevanceMode, ThreadRelated: t.ThreadRelated})
 	return string(b)
 }
 
@@ -65,7 +74,7 @@ func (t IMTrigger) filterJSON() string {
 func readIMFilter(raw string, t *IMTrigger) {
 	var f imFilter
 	_ = json.Unmarshal([]byte(raw), &f)
-	t.Conversations, t.Relevance, t.RelevanceMode = f.Conversations, f.Relevance, f.RelevanceMode
+	t.Conversations, t.Relevance, t.RelevanceMode, t.ThreadRelated = f.Conversations, f.Relevance, f.RelevanceMode, f.ThreadRelated
 	normIM(t)
 }
 
@@ -87,18 +96,68 @@ func (t IMTrigger) matches(m imReceived) bool {
 	if len(t.Conversations) > 0 && !slices.Contains(t.Conversations, deref(m.ConversationID)) {
 		return false
 	}
-	if len(t.Relevance) > 0 {
-		rel := m.Relevance
-		if rel == "" {
-			rel = imRelNone
-		}
-		in := slices.Contains(t.Relevance, rel)
-		if t.RelevanceMode == imModeExclude {
-			return !in
-		}
-		return in
+	return t.relevanceOK(m)
+}
+
+// relevanceOK 是与我的关系这一项符不符合（不看会话）：没设关系为符合；按 effRel 认关系。
+// m.ThreadRelated 应已按这条流程补过「父消息被这条流程跑过」（threadView）。
+func (t IMTrigger) relevanceOK(m imReceived) bool {
+	if len(t.Relevance) == 0 {
+		return true
 	}
-	return true
+	in := slices.Contains(t.Relevance, t.effRel(m))
+	if t.RelevanceMode == imModeExclude {
+		in = !in
+	}
+	return in
+}
+
+// effRel 是这条流程按什么关系判断这条消息（无关写成 none）：勾了「相关串里的回复按 @我 算」、这条是串相关的回复、
+// 关系是无关或 @所有人时按 me；其余照事件里的。
+func (t IMTrigger) effRel(m imReceived) string {
+	rel := m.Relevance
+	if t.ThreadRelated && m.ThreadRelated && (rel == "" || rel == "all") {
+		return "me"
+	}
+	if rel == "" {
+		return imRelNone
+	}
+	return rel
+}
+
+// imThreadTriaged 是 SOP 这边补的串相关原因：父消息已经被这条流程跑过。
+const imThreadTriaged = "triaged"
+
+// threadView 是按这条流程看的消息：流程设了「相关串里的回复按 @我 算」、IM 插件没认出串相关、又有父消息 id 时，
+// 查父消息是不是已经被这条流程跑过（任意状态），是的话记串相关、原因 triaged。查不了当不相关。
+func threadView(ctx context.Context, c plugin.Core, f Flow, m imReceived) imReceived {
+	if !f.IM.ThreadRelated || m.ThreadRelated || deref(m.ThreadParentMessageID) == "" || f.ID == "" {
+		return m
+	}
+	var n int
+	if err := c.Store().QueryRow(ctx, `SELECT COUNT(*) FROM sop_runs WHERE flow_id = ? AND json_extract(input, '$.message_id') = ?`,
+		f.ID, deref(m.ThreadParentMessageID)).Scan(&n); err != nil || n == 0 {
+		return m
+	}
+	m.ThreadRelated, m.ThreadReason = true, imThreadTriaged
+	return m
+}
+
+// imThreadLabel 是串相关原因给人看的说法。
+func imThreadLabel(r string) string {
+	switch r {
+	case "mine":
+		return "我发起的消息列"
+	case "mention":
+		return "原消息 @我"
+	case "dm":
+		return "原消息是私信"
+	case "task":
+		return "原消息转过任务"
+	case imThreadTriaged:
+		return "原消息被这条流程跑过"
+	}
+	return r
 }
 
 // imIn 是 body 里的 im，nil 字段是没给。
@@ -106,6 +165,7 @@ type imIn struct {
 	Conversations *[]string
 	Relevance     *[]string
 	RelevanceMode *string
+	ThreadRelated *bool
 	Order         *int
 	Stop          *bool
 }
@@ -120,13 +180,14 @@ func readIMIn(ctx context.Context, c plugin.Core, raw map[string]json.RawMessage
 		Conversations *json.RawMessage `json:"conversations"`
 		Relevance     *json.RawMessage `json:"relevance"`
 		RelevanceMode *string          `json:"relevance_mode"`
+		ThreadRelated *bool            `json:"thread_related"`
 		Order         *json.RawMessage `json:"order"`
 		Stop          *bool            `json:"stop"`
 	}
 	if err := json.Unmarshal(v, &b); err != nil {
-		return nil, apiErr(errValidation, "im 必须是对象：{conversations, relevance, relevance_mode, order, stop}")
+		return nil, apiErr(errValidation, "im 必须是对象：{conversations, relevance, relevance_mode, thread_related, order, stop}")
 	}
-	in := &imIn{Stop: b.Stop}
+	in := &imIn{Stop: b.Stop, ThreadRelated: b.ThreadRelated}
 	if b.Conversations != nil && string(*b.Conversations) != "null" {
 		var refs []string
 		if err := json.Unmarshal(*b.Conversations, &refs); err != nil {
@@ -191,6 +252,9 @@ func (in *imIn) applyIM(t *IMTrigger) {
 	}
 	if in.RelevanceMode != nil {
 		t.RelevanceMode = *in.RelevanceMode
+	}
+	if in.ThreadRelated != nil {
+		t.ThreadRelated = *in.ThreadRelated
 	}
 	if in.Stop != nil {
 		t.Stop = *in.Stop
@@ -340,6 +404,9 @@ func imDescribe(ctx context.Context, c plugin.Core, f Flow) string {
 			verb = "排除"
 		}
 		parts = append(parts, verb+" "+strings.Join(labels, "、"))
+		if t.ThreadRelated {
+			parts = append(parts, "相关消息列里的回复按 @我 算")
+		}
 	}
 	parts = append(parts, fmt.Sprintf("第 %d 个判断", t.Order))
 	if t.Stop {

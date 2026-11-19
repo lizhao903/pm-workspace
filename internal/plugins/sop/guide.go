@@ -169,9 +169,10 @@ const condGuide = `条件分支（decide）和条件回退（loopback）的条�
   - 能用触发方式自带的过滤表达的（比如 IM 消息的会话、和我的关系），用触发过滤，不要再加判断节点。`
 
 // imGuide 是 IM 触发的过滤、执行顺序、拦截（TSK-0481）怎么写进草稿。
-const imGuide = `触发方式是 im 时，草稿里可以带 "im"：{"conversations": [...], "relevance": [...], "relevance_mode": "include" 或 "exclude", "order": 数字, "stop": true/false}
+const imGuide = `触发方式是 im 时，草稿里可以带 "im"：{"conversations": [...], "relevance": [...], "relevance_mode": "include" 或 "exclude", "thread_related": true/false, "order": 数字, "stop": true/false}
   - conversations：只处理这些会话的消息，写渠道里的会话编号（如 Slack 的 "C0BNCBRL5C0"）、会话名或 cv_ 开头的会话 id；空数组是全部会话。
   - relevance：和我的关系 me（@我）、all（@所有人）、dm（私聊）、none（无关）；relevance_mode 是 include（只要这几种）或 exclude（除了这几种），比如「除了 @我 的」写 "relevance": ["me"], "relevance_mode": "exclude"。
+  - thread_related：true 表示消息列（串）里的回复只要所在的串和我相关（我发起的、原消息 @我 或是私信、原消息转过任务、原消息被这条流程跑过），关系是无关或 @所有人时按 @我（me）判断：「只要 @我」会接、「除了 @我」会放过；「串里别人的回复也要分诊」就写它。不写是 false。
   - order：在所有 IM 流程里排第几执行（1 最先）；stop=true 表示这条流程命中并发起后，排在后面的 IM 流程不再处理这条消息。「优先于其他流程」「先于别的工作流执行」就写 "order": 1, "stop": true。
   - 不符合过滤的消息根本不会发起执行，比在流程里加判断节点更省事、更准。
   - IM 触发只带 message_id 等几个字段（见触发方式），输入字段里必填又没有默认值的会让每条消息都被跳过；要正文、发信人用 im_get_message 取（输出 message.text 等）。`

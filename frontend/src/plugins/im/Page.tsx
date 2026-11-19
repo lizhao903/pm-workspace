@@ -28,6 +28,9 @@
 // 项目筛选（TSK-0723，SPEC-messages-1.67）：工具条「全部项目」下拉，选项是「未归项目」和没归档的项目，带当前视图下的条数；
 // 口径同后端读出的 project_id（消息自己归的优先，其次群默认项目），记在地址 ?project=<项目 id | none>。
 // 它和状态、渠道、会话、与我相关、未读、搜索一起筛，状态数字、会话下拉和群组标签、全选、批量分诊、「这个会话全部标为已处理」都只算筛出来的。
+// 消息列回复也走分诊（2026-11-19）：常驻全选把归到已加载行的、筛得出来、还没处理的消息列回复也勾上，批量分诊不勾时也带上它们（只算还没处理的），
+// 条数提示写「含 N 条消息列回复」（SPEC-messages-1.41、1.51、1.63）；原消息抽屉「消息列回复」一节能勾选回复批量分诊、每条显示分诊小标（2.45、2.51）。
+// 关联任务只显示没到终态的（1.68，taskModel）；已处理、已忽略的行，行内动作悬停或键盘聚焦到行内时才显示（1.69，CSS，触屏常显）。
 import { Fragment, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import {
@@ -64,7 +67,9 @@ import {
   toRows, toggleRow, type Row,
 } from './groupModel'
 import { TriageDialog } from './TriageDialog'
-import { isActiveRun, triageNote, triageTargets } from './triageModel'
+import { isActiveRun, repliesNote, triageNote, triageTargets } from './triageModel'
+import { liveTask, useTaskTerminal } from './taskModel'
+import type { ThreadTriage } from './ThreadReplies'
 import { TRIAGE_TOTAL_MAX } from './triageBatch'
 import { triageAttempts, type TriageAttempt } from './triageSummary'
 import { GroupTriageSection, TriageSection, TriageTagButton } from './TriageAdvice'
@@ -138,8 +143,11 @@ export default function Page() {
   if (queuePoll !== activeRuns > 0) setQueuePoll(activeRuns > 0)
   const triageOn = sopOn && !isApiError(triageRuns.error, 'not_found')
   const [triage, setTriage] = useState(false)
-  // 抽屉里「发起分诊」：只带这条或这一组
-  const [triageFor, setTriageFor] = useState<ImMessage[] | null>(null)
+  // 抽屉里「发起分诊」：只带这条或这一组；thread 是「消息列回复」一节勾选的回复
+  const [triageFor, setTriageForState] = useState<ImMessage[] | null>(null)
+  const [triageFrom, setTriageFrom] = useState<'drawer' | 'thread'>('drawer')
+  const setTriageFor = useCallback((msgs: ImMessage[] | null, from: 'drawer' | 'thread' = 'drawer') => { setTriageForState(msgs); setTriageFrom(from) }, [])
+  const isTerminal = useTaskTerminal()
   // 点「已分诊」小标打开的抽屉滚到「分诊建议」
   const [triageFocus, setTriageFocus] = useState<string | null>(null)
 
@@ -202,8 +210,8 @@ export default function Page() {
   // 消息列回复归到原消息那一行（不管合不合并），列表上不显示，只在原消息行上标「消息列 N 条未读回复」
   const viewRows = useMemo(() => nestThreads(toRows(rows, clusters, merge), list), [rows, clusters, merge, list])
   const byId = useMemo(() => new Map(list.map((m) => [m.id, m])), [list])
-  // 勾选、全选只算列表上看得到的：原消息收到了的消息列回复在原消息抽屉里处理
-  const listed = useMemo(() => rows.filter((m) => !(m.thread && threadParent(m, byId))), [rows, byId])
+  // 收起的消息列回复：原消息收到了、归到原消息那一行的（列表上不单独成行）；全选、批量分诊会带上筛得出来、还没处理的（1.41、1.63）
+  const isReply = useCallback((m: ImMessage) => !!m.thread && !!threadParent(m, byId), [byId])
   const views = viewsOf(sv)
   const segViews = views.length > VIEW_SEG_MAX + 1 ? views.slice(0, VIEW_SEG_MAX) : views
   const moreViews = views.slice(segViews.length)
@@ -212,7 +220,8 @@ export default function Page() {
   const convOpts = useMemo(() => convOptions(plist, channel, now), [plist, channel, now])
   const used = usedChannels(channels, list, imConnectors)
   const broken = imConnectors.filter((c) => c.status === 'error')
-  const picked = pickedRows(listed, sel)
+  const picked = pickedRows(rows, sel)
+  const pickedReplies = picked.filter(isReply).length
   const cb = useMemo(() => convBatch(plist, conv, now, !!project), [plist, conv, now, project])
   const tabs = useMemo(() => convTabs(plist, channel, now), [plist, channel, now])
   const convName = conv.startsWith('dm:') ? '私聊' : convOpts.find((o) => o.value === conv)?.label ?? ''
@@ -232,6 +241,8 @@ export default function Page() {
   const shown = viewRows.slice(0, limit)
   // 常驻全选只管已加载的行（TSK-0492）
   const loaded = loadedPicks(shown)
+  const loadedReplies = loaded.filter(isReply).length
+  const filterTriage = useMemo(() => triageTargets([], rows, TRIAGE_TOTAL_MAX, isReply), [rows, isReply])
   const allState = selectAllState(loaded, sel, picked.length)
   const unloaded = viewRows.length > limit
   const toggleAll = () => setSel((x) => (allState === 'all' ? new Set<string>() : new Set([...x, ...loaded.map((m) => m.id)])))
@@ -467,6 +478,11 @@ export default function Page() {
 
   const openSession = (id: string) => navigate(sessionPath(id))
   // 从抽屉打开 SOP 运行页，返回时回到这里（带着打开的抽屉）
+  // 原消息抽屉「消息列回复」一节的分诊（2.45、2.51）：勾选的回复批量分诊；小标点「已分诊」打开那条回复的抽屉、滚到分诊建议
+  const threadTriage: ThreadTriage = {
+    attemptsOf, onStart: (msgs) => setTriageFor(msgs, 'thread'), onOpenQueue: () => setQueueOpen(true),
+    onOpenAdvice: (id) => { setTriageFocus(id); setOpen(id) },
+  }
   const openRun = (id: string) => navigate(`/sop/runs/${encodeURIComponent(id)}`, { state: { back: `/messages?${params.toString()}` } })
   // 发起会话、拆分任务：一组时带上整组（最多一页的上限）
   const startSession = (msgs: readonly ImMessage[], intent: ImSessionIntent) => setStarting({ msgs: msgs.slice(-BATCH_MAX_SESSION), intent })
@@ -489,7 +505,7 @@ export default function Page() {
     const rel = r.items.find((x) => x.relevance === 'me')?.relevance ?? m.relevance
     return (
       <div role="listitem" tabIndex={0} aria-label={`${who}：${label || '1 条'}`}
-        className={cls('im-msg im-msg-group', groupKey === r.key && 'sel', unread > 0 && 'unread', !open.length && 'im-closed', ps !== 'none' && 'picked')}
+        className={cls('im-msg im-msg-group', groupKey === r.key && 'sel', unread > 0 && 'unread', !open.length && 'im-closed', !open.length && 'im-acts-hover', ps !== 'none' && 'picked')}
         onClick={() => setGroup(r.key)} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) setGroup(r.key) }}>
         <span className="im-unread" />
         {pickable
@@ -587,7 +603,7 @@ export default function Page() {
             <Fragment key={m.id}>
               {dayHead}
               <div role="listitem" tabIndex={0} aria-label={`${who}：${m.text}`}
-                className={cls('im-msg', openId === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'im-closed', sel.has(m.id) && canPick(m) && 'picked', r.faded && 'im-faded')}
+                className={cls('im-msg', openId === m.id && 'sel', !m.read && 'unread', m.status !== 'pending' && 'im-closed', (m.status === 'done' || m.status === 'ignored') && 'im-acts-hover', sel.has(m.id) && canPick(m) && 'picked', r.faded && 'im-faded')}
                 title={r.faded ? '原消息不在当前筛选里，消息列有新回复才显示' : undefined}
                 onClick={() => setOpen(m.id)} onKeyDown={(e) => { if (e.key === 'Enter' && e.target === e.currentTarget) setOpen(m.id) }}>
                 <span className="im-unread" />
@@ -620,7 +636,7 @@ export default function Page() {
                     {m.reply_error && <span className="im-state im-state-bad" title={m.reply_error}>回复失败</span>}
                     <TriageTagButton attempt={attemptsOf(m.id)[0]} onOpenQueue={() => setQueueOpen(true)}
                       onOpenAdvice={() => { setTriageFocus(m.id); setOpen(m.id) }} />
-                    {m.task_id && (
+                    {liveTask(m, isTerminal) && (
                       <button type="button" className="im-state im-state-task" title="打开这条任务"
                         onClick={(e) => { e.stopPropagation(); startToTask(m) }} onKeyDown={(e) => e.stopPropagation()}>已转任务 {m.task_ref}</button>
                     )}
@@ -783,17 +799,17 @@ export default function Page() {
             全选
           </label>
           {picked.length > 0
-            ? <span className="im-bulk-n">已选 {picked.length} 条</span>
+            ? <span className="im-bulk-n">已选 {picked.length} 条{repliesNote(pickedReplies)}</span>
             : null}
-          <span className="im-muted">{picked.length > 0 ? '/ ' : ''}已加载 {loaded.length} 条</span>
+          <span className="im-muted">{picked.length > 0 ? '/ ' : ''}已加载 {loaded.length} 条{picked.length ? '' : repliesNote(loadedReplies)}</span>
           {unloaded && loaded.length > 0 && <span className="im-muted im-bulk-hint">还有未加载的，加载更多后再全选可包含更多</span>}
           {!picked.length && (
-            <span className="im-muted im-bulk-hint">{triageOn ? `不勾时批量分诊对当前筛选结果 ${rows.length} 条` : `勾选后可批量标为${doneLabel}、忽略`}</span>
+            <span className="im-muted im-bulk-hint">{triageOn ? `不勾时批量分诊对当前筛选结果 ${filterTriage.list.length} 条${repliesNote(filterTriage.replies)}` : `勾选后可批量标为${doneLabel}、忽略`}</span>
           )}
           <span className="spacer" />
           {triageOn && (
-            <button type="button" className="btn btn-sm btn-outline" onClick={() => setTriage(true)} disabled={!picked.length && !rows.length}
-              title={picked.length ? `给勾选的 ${picked.length} 条消息各发起一次分诊流程` : `给当前筛选结果全部 ${rows.length} 条消息各发起一次分诊流程（最多 ${TRIAGE_TOTAL_MAX} 条，超过 200 条自动分批）`}>批量分诊</button>
+            <button type="button" className="btn btn-sm btn-outline" onClick={() => setTriage(true)} disabled={!picked.length && !filterTriage.list.length}
+              title={picked.length ? `给勾选的 ${picked.length} 条消息${repliesNote(pickedReplies)}各发起一次分诊流程` : `给当前筛选结果全部 ${filterTriage.list.length} 条消息${repliesNote(filterTriage.replies)}各发起一次分诊流程（最多 ${TRIAGE_TOTAL_MAX} 条，超过 200 条自动分批）`}>批量分诊</button>
           )}
           {picked.length > 0 && (
             <>
@@ -829,7 +845,8 @@ export default function Page() {
           onStart={(intent) => { if (opened) startSession([opened], intent) }}
           onToMaterial={() => { if (opened) startMaterial([opened]) }} onOpenMaterial={openMaterial}
           onOpenSession={openSession} onOpenTask={setTaskOpen}
-          thread={openedThread} threadParent={opened ? threadParent(opened, byId) : undefined} onOpenMessage={setOpen} />
+          thread={openedThread} threadParent={opened ? threadParent(opened, byId) : undefined} onOpenMessage={setOpen}
+          threadTriage={triageOn ? threadTriage : undefined} />
       )}
       {groupKey && !openId && (
         <GroupDrawer row={messages.isSuccess ? openedGroup : null} ch={channelOf(channels, openedGroup?.head.channel ?? '')} connectors={connectors.data} sv={sv}
@@ -874,14 +891,14 @@ export default function Page() {
           }} />
       )}
       {triage && (() => {
-        const t = triageTargets(picked, rows, TRIAGE_TOTAL_MAX)
+        const t = triageTargets(picked, rows, TRIAGE_TOTAL_MAX, isReply)
         return (
-          <TriageDialog targets={t.list} from={t.from} over={t.over} runs={tRuns} onCancel={() => setTriage(false)}
+          <TriageDialog targets={t.list} from={t.from} over={t.over} replies={t.replies} runs={tRuns} onCancel={() => setTriage(false)}
             onDone={(r) => { setTriage(false); setSel(new Set()); setSyncNote(triageNote(r)) }} />
         )
       })()}
       {triageFor && (
-        <TriageDialog targets={triageFor} from="drawer" over={triageFor.length > TRIAGE_TOTAL_MAX} runs={tRuns} onCancel={() => setTriageFor(null)}
+        <TriageDialog targets={triageFor} from={triageFrom} over={triageFor.length > TRIAGE_TOTAL_MAX} runs={tRuns} onCancel={() => setTriageFor(null)}
           onDone={(r) => { setTriageFor(null); setSyncNote(triageNote(r)) }} />
       )}
       {queueOpen && (

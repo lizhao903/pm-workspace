@@ -19,17 +19,19 @@ import {
 } from '../../core/data'
 import { Button, Checkbox, ConfirmDialog, Field, Select } from '../../core/ui'
 import { TRIAGE_TOTAL_MAX, batchCount, failReasons, progressResult, runTriageBatches, type TriageProgress } from './triageBatch'
-import { alreadyRun } from './triageModel'
+import { alreadyRun, repliesNote } from './triageModel'
 
 /** 失败原因最多列几种 */
 const REASONS_SHOWN = 3
 /** 发起后多久数一次这批执行的状态 */
 const RUNS_POLL_MS = 3000
 
-export function TriageDialog({ targets, from, over, runs, onCancel, onDone }: {
+export function TriageDialog({ targets, from, over, runs, replies = 0, onCancel, onDone }: {
   targets: readonly ImMessage[]
-  /** picked 勾选的；filter 当前筛选结果全部；drawer 抽屉里的这条或这一组 */
-  from: 'picked' | 'filter' | 'drawer'
+  /** picked 勾选的；filter 当前筛选结果全部；drawer 抽屉里的这条或这一组；thread 原消息抽屉「消息列回复」一节勾选的回复（SPEC-messages-2.51） */
+  from: 'picked' | 'filter' | 'drawer' | 'thread'
+  /** targets 里收起的消息列回复条数（列表批量分诊时），范围说明里写「含 N 条消息列回复」 */
+  replies?: number
   /** 超过总上限（TRIAGE_TOTAL_MAX）：不发起，提示先缩小范围 */
   over: boolean
   /** 已有的分诊执行，预估会跳过几条 */
@@ -58,9 +60,10 @@ export function TriageDialog({ targets, from, over, runs, onCancel, onDone }: {
   const ids = targets.map((m) => m.id)
   const ran = flowId ? alreadyRun(runs, flowId, ids) : 0
   const batches = batchCount(ids.length, SOP_BATCH_MAX)
-  const scope = from === 'picked' ? `勾选的 ${targets.length} 条消息`
+  const scope = from === 'picked' ? `勾选的 ${targets.length} 条消息${repliesNote(replies)}`
     : from === 'drawer' ? (targets.length === 1 ? '这条消息' : `这组 ${targets.length} 条消息`)
-      : `当前筛选结果全部 ${targets.length} 条消息`
+      : from === 'thread' ? `勾选的 ${targets.length} 条消息列回复`
+        : `当前筛选结果全部 ${targets.length} 条消息${repliesNote(replies)}`
   const running = !!cur && !cur.finished
   const n = rerun ? targets.length : Math.max(0, targets.length - ran)
   // 发起前：超上限、没目标、没流程、全会跳过（发起 0 次）都不能点

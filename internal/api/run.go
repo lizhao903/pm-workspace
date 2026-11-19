@@ -633,7 +633,8 @@ func writeRunSSE(w http.ResponseWriter, ev runner.Event) error {
 	return nil
 }
 
-// imSourceOf 从 props.source_ref 认出 IM 来源（IM 转任务时写的：message_id、channel、conversation、sender、text），
+// imSourceOf 从 props.source_ref 认出 IM 来源（IM 转任务时写的：message_id、channel、conversation、sender、text，
+// 消息列里的回复还有 thread_parent），
 // reply_on_done 为真表示 IM 插件建了回执 SOP，执行完成会回复原消息。不是 IM 来的回 nil。
 func imSourceOf(o *domain.Object) *runner.Source {
 	ref, _ := o.Props[domain.PropSourceRef].(map[string]any)
@@ -645,7 +646,16 @@ func imSourceOf(o *domain.Object) *runner.Source {
 		return nil
 	}
 	reply, _ := ref["reply_on_done"].(bool)
-	return &runner.Source{Channel: str("channel"), Conversation: str("conversation"), Sender: str("sender"), Text: str("text"), Reply: reply}
+	src := &runner.Source{Channel: str("channel"), Conversation: str("conversation"), Sender: str("sender"), Text: str("text"), Reply: reply}
+	// 消息列里的回复转的任务（IM 0.32.0）：source_ref.thread_parent 是串的父消息，提示词里写在回复前面
+	if tp, ok := ref["thread_parent"].(map[string]any); ok {
+		s := func(k string) string { v, _ := tp[k].(string); return strings.TrimSpace(v) }
+		partial, _ := tp["partial"].(bool)
+		if s("text") != "" {
+			src.ThreadParent = &runner.SourceParent{Sender: s("sender"), Text: s("text"), Partial: partial}
+		}
+	}
+	return src
 }
 
 // deepseekRoute 把工作台的模型服务商翻译成 dsh 的模型路由。

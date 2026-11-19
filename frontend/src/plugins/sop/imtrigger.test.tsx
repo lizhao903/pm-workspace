@@ -28,6 +28,7 @@ describe('IM 触发的写法', () => {
     expect(filterText({ conversations: [], relevance: ['me', 'dm'], relevance_mode: 'include' }, CONVS)).toBe('只要 @我、私聊')
     expect(filterText({ conversations: ['cv_gone'], relevance: [], relevance_mode: 'include' }, CONVS)).toBe('已删除的会话')
     expect(filterText(IM0, CONVS)).toBe('全部消息')
+    expect(filterText({ conversations: [], relevance: ['me', 'dm'], relevance_mode: 'include', thread_related: true }, CONVS)).toBe('只要 @我、私聊（相关消息列按 @我）')
   })
   it('勾选按固定顺序；草稿不带顺序；IM 流程按顺序排', () => {
     expect(toggleRel(['dm'], 'me', true)).toEqual(['me', 'dm'])
@@ -121,7 +122,24 @@ describe('编排页的 IM 触发', () => {
     await user.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
     const body = calls.find((c) => c.method === 'PATCH')!.body!
-    expect(body.im).toEqual({ conversations: [], relevance: ['dm'], relevance_mode: 'include', stop: false })
+    expect(body.im).toEqual({ conversations: [], relevance: ['dm'], relevance_mode: 'include', thread_related: false, stop: false })
+  })
+
+  it('相关消息列里的回复按 @我 算（SPEC-sop-9.35）：没勾关系时置灰，勾上后随保存提交，画布上写出来', async () => {
+    const user = userEvent.setup()
+    const calls = fakeBackend()
+    renderPage('/sop/flows/sop_triage/edit')
+    await openStart()
+    const panel = screen.getByRole('complementary', { name: '开始节点' })
+    const box = within(panel).getByRole('checkbox', { name: '相关消息列里的回复按 @我 算' })
+    expect(box).toBeDisabled()
+    await user.click(within(panel).getByRole('checkbox', { name: '@我' }))
+    expect(box).toBeEnabled()
+    await user.click(box)
+    expect(screen.getByRole('button', { name: '开始节点' })).toHaveTextContent('只要 @我（相关消息列按 @我）')
+    await user.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(calls.some((c) => c.method === 'PATCH')).toBe(true))
+    expect(calls.find((c) => c.method === 'PATCH')!.body!.im).toMatchObject({ relevance: ['me'], thread_related: true })
   })
 
   it('流程库卡片：IM 流程显示第几个、过滤条件、拦截', async () => {

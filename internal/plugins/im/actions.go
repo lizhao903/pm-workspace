@@ -387,6 +387,7 @@ func (in *inbox) toTask(w http.ResponseWriter, r *http.Request) {
 		title = defaultTaskTitle(m)
 	}
 	ref := sourceRefOf(m)
+	in.withThreadParent(ctx, m, ref)
 	// 回执流程要先确认能用，提示词里才好说「完成后会回复这条消息」（reply_on_done 写进来源）
 	replyOn, replyNote := body.ReplyOnDone == nil || *body.ReplyOnDone, ""
 	if replyOn {

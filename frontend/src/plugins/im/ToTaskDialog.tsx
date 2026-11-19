@@ -5,8 +5,11 @@
 // 这条消息在消息列里（是原消息且有回复，或本身是回复）时，可以勾「附上消息列」把整段消息列拼进任务正文（默认勾上）。
 // 「执行完成后在原消息里回复」（SPEC-messages-2.50，默认勾上）：后端发起内置 SOP「IM 任务回执」，任务执行完成后回复原消息；
 // 回执没发起（SOP 插件没在跑、流程被删等）不挡建任务，原因交给 onCreated 由列表顶栏提示。
+// 串的父消息（0.32.0，TSK-0837）：这条是消息列回复、列表里又没有原消息（父消息是我发的，我的消息不落成消息）时，
+// 向后端取父消息全文（取不到是 80 字摘要），消息列第一条固定是它；条数、预览都算上它。
 import { useMemo, useState } from 'react'
 import { errorText, isApiError, useImToTask, type ImMessage } from '../../core/data'
+import { useImThreadParent } from '../../core/data/im'
 import { Checkbox, ConfirmDialog, Field, Input } from '../../core/ui'
 import { threadTaskBody } from './groupModel'
 import { replyNoteOf, shortTime, taskTitleOf, whoName } from './model'
@@ -32,7 +35,11 @@ export function ToTaskDialog({ msg, thread = [], doneLabel, onCancel, onCreated,
   const [touched, setTouched] = useState(false)
   const [withThread, setWithThread] = useState(true)
   const [replyOnDone, setReplyOnDone] = useState(true)
-  const threadBody = useMemo(() => threadTaskBody(thread), [thread])
+  const needParent = !!msg.thread && !thread.some((x) => !x.thread)
+  const parentQ = useImThreadParent(needParent ? msg.id : null)
+  const parent = needParent && parentQ.data?.text.trim() ? parentQ.data : null
+  const threadBody = useMemo(() => threadTaskBody(thread, undefined, parent), [thread, parent])
+  const count = thread.length + (parent ? 1 : 0)
   const empty = !title.trim()
 
   const submit = () => {
@@ -57,11 +64,14 @@ export function ToTaskDialog({ msg, thread = [], doneLabel, onCancel, onCreated,
           <Input value={title} invalid={touched && empty} placeholder="要做的事" onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit() } }} />
         </Field>
-        {thread.length > 0 && (
+        {count > 0 && (
           <div className="im-totask-thread">
-            <Checkbox checked={withThread} onCheckedChange={setWithThread}>附上消息列（{thread.length} 条），写进任务正文</Checkbox>
+            <Checkbox checked={withThread} onCheckedChange={setWithThread}>附上消息列（{count} 条），写进任务正文</Checkbox>
             {withThread && (
               <ul className="im-totask-thread-list" aria-label="附上的消息列">
+                {parent && (
+                  <li><b>{parent.sender || '原消息'}</b><span className="im-muted">（原消息）</span>：<span className="ellipsis">{parent.text}</span>{parent.partial && <span className="im-muted">（摘要）</span>}</li>
+                )}
                 {thread.slice(-THREAD_PEEK).map((x) => (
                   <li key={x.id}><b>{whoName(x)}</b>{!x.thread && <span className="im-muted">（原消息）</span>} <span className="im-muted">{shortTime(x.at)}</span>：<span className="ellipsis">{x.text || '（没有正文）'}</span></li>
                 ))}
@@ -70,6 +80,7 @@ export function ToTaskDialog({ msg, thread = [], doneLabel, onCancel, onCreated,
             )}
           </div>
         )}
+        {needParent && parentQ.isPending && <div className="im-muted">正在取消息列的原消息…</div>}
         {pending && <Checkbox checked={done} onCheckedChange={setDone}>建好后把这条消息标为{doneLabel}</Checkbox>}
         <div className="im-totask-reply">
           <Checkbox checked={replyOnDone} onCheckedChange={setReplyOnDone}>执行完成后在原消息里回复</Checkbox>
