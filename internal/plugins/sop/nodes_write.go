@@ -128,7 +128,8 @@ func writeTask(ctx context.Context, c plugin.Core, w writeRun, def stepDef, inpu
 	// 来消息发起的执行（输入带 message_id，TSK-0411）：来源记上这条消息；这条消息已经被别的执行（别的流程、重新发起）建过任务时
 	// 取回那条，不再建第二条（消息分流、IM 需求自动受理、来消息确认派发同时开着时同一条消息只建一次任务）
 	ref := w.sourceRef()
-	if msgID := strings.TrimSpace(txt(input["message_id"])); msgID != "" {
+	msgID := strings.TrimSpace(txt(input["message_id"]))
+	if msgID != "" {
 		ref["message_id"] = msgID
 		if ex, ok := taskOfMessage(ctx, c, msgID, w.runID); ok {
 			return nodeResult{output: with(input, "task", map[string]any{
@@ -136,6 +137,13 @@ func writeTask(ctx context.Context, c plugin.Core, w writeRun, def stepDef, inpu
 				"project_id": ex.ProjectID, "project": "", "reused": true,
 			}), log: fmt.Sprintf("消息 %s 已经建过任务 %s %s，取回那条，没有再建", msgID, ex.Ref, ex.Title)}
 		}
+	} else if msgID = upstreamMessageID(input); msgID != "" {
+		// 输入没带 message_id、上游读取消息（im_get_message）取出了一条（sop 0.23.0）：只记来源，任务关联到那条消息，不按它去重
+		ref["message_id"] = msgID
+	}
+	// 输入里的一组消息（message_ids）：都记进来源，任务关联到每一条（sop 0.23.0）
+	if ids := inputMessageIDs(input, msgID); len(ids) > 0 {
+		ref["message_ids"] = ids
 	}
 	t, err := c.ObjectWriter().CreateAs(ctx, plugin.NewObject{
 		TypeID: "task", Title: title, Body: body, Priority: priority, OwnerID: owner, ProjectID: project,
@@ -145,6 +153,8 @@ func writeTask(ctx context.Context, c plugin.Core, w writeRun, def stepDef, inpu
 		return nodeResult{err: writeErr("建任务", err)}
 	}
 	logs = append(logs, reuseLog(t.Reused, fmt.Sprintf("建了任务 %s %s", t.Ref, t.Title)))
+	publishTaskCreated(ctx, c, TaskCreated{TaskID: t.ID, TaskRef: t.Ref, RunID: w.runID, FlowID: w.flowID, Step: w.step,
+		MessageID: msgID, MessageIDs: refMessageIDs(ref)})
 	return nodeResult{output: with(input, "task", map[string]any{
 		"id": t.ID, "ref": t.Ref, "title": t.Title, "priority": priority, "assignee": assignee, "status": t.Status,
 		"project_id": deref(project), "project": projectName,

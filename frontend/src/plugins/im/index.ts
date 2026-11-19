@@ -2,6 +2,7 @@
 
 // IM 消息插件（IM-02b 起）：清单在后端 internal/plugins/im/plugin.json，这里只有入口。
 // 模块 key 是 messages（工作台和菜单按它认，见 core/shell/workspace.ts）；页面是收件箱加消息抽屉，没有二级菜单
+import { lazy } from 'react'
 import { TODAY_ORDER, definePlugin } from '../../core/plugin'
 import { conversationsApi, dataKeys, imApi, projectOptions, queryClient, type Conversation, type ImMessage } from '../../core/data'
 import { messageTitle, searchMessages } from './search'
@@ -51,6 +52,9 @@ export default definePlugin({
       path: 'messages',
       load: () => import('./Page'),
     })
+    // 任务详情里的「来源消息」（0.32.0，SPEC-tasks-4.84）：建出这条任务的 IM 消息，点开回到原消息；没有时整块不显示。
+    // 不单独开标签，摆在基础信息末尾、工作区（order 40）前面
+    api.objectSections.register({ key: 'source-messages', typeIds: ['task'], order: 30, section: lazy(() => import('./SourceMessages')) })
     // 从消息发起的会话（0008）：会话页头部「来源」点回这条消息（合并的一组点回最新一条）
     api.sessionSources.register({
       kind: SOURCE_KIND,

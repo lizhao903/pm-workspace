@@ -207,7 +207,7 @@ func isFKError(err error) bool {
 	return err != nil && strings.Contains(strings.ToUpper(err.Error()), "FOREIGN KEY")
 }
 
-// onObjectCreated 记下来源指向本插件消息的任务（会话里拆出来的、转任务建的都会来，读的时候排除转任务那条）。
+// onObjectCreated 记下来源指向本插件消息的任务（会话里拆出来的、转任务建的、SOP task 节点建的都会来，读的时候排除转任务那条）。
 // 只看 type=task；来源里的 message_id、message_ids 有一条是本插件的消息就记。出错只记日志，不影响建对象。
 func (in *inbox) onObjectCreated(ctx context.Context, c plugin.Core, ev plugin.Event) error {
 	var p struct {
@@ -231,12 +231,9 @@ func (in *inbox) onObjectCreated(ctx context.Context, c plugin.Core, ev plugin.E
 	if len(ids) == 0 {
 		return nil
 	}
-	now := in.clock().UTC().Format(timeLayout)
-	for _, mid := range ids {
-		if _, err := c.Store().Exec(ctx, `INSERT INTO im_message_tasks (message_id, task_id, created_at)
-			SELECT id, ?, ? FROM im_messages WHERE id = ? ON CONFLICT(message_id, task_id) DO NOTHING`, o.ID, now, mid); err != nil {
-			return err
-		}
+	// SOP task 节点建的（source_ref 带 run_id）主来源消息还没转成任务时，记为转成的任务（0.32.0，links.go）
+	if _, err := in.linkTask(ctx, c, o, ids, primaryOf(o.Props)); err != nil {
+		return err
 	}
 	// 从消息发起的会话里拆出来的任务（手动拆分）：排 FDE 反馈转发，攒一段汇成一条（TSK-0468）
 	in.onSessionTask(ctx, o.Props, o.ID, ids)

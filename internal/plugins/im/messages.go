@@ -94,6 +94,9 @@ type Message struct {
 	RepliedSent *SentRef `json:"replied_sent"`
 	// Muted 是「因发信人 X 被设为自动忽略」（TSK-0495，mutes.go）：被自动忽略掉的才有，改回待处理、标为已处理后为 null
 	Muted *MessageMute `json:"muted"`
+	// Link 是这条消息在工作台里的深链（--public-url 加 /messages?m=<id>），Permalink 是原平台的消息链接，拼不出为空串（0.32.0，links.go）
+	Link      string `json:"link"`
+	Permalink string `json:"permalink"`
 }
 
 const messageCols = `id, channel, connector_id, external_id, conversation_id, conversation_external_id, conversation_kind,
@@ -132,6 +135,11 @@ func (in *inbox) list(w http.ResponseWriter, r *http.Request) {
 		// 到达时会话还没登记的消息按渠道编号算进来
 		where = append(where, "(conversation_id = ? OR (conversation_id IS NULL AND channel = ? AND conversation_external_id = ?))")
 		args = append(args, cv.ID, cv.Channel, cv.ExternalID)
+	}
+	if tid := strings.TrimSpace(q.Get("task_id")); tid != "" {
+		// 任务的来源消息（0.32.0，links.go）：转成这条任务的，和关联到它的（im_message_tasks：SOP 建的、会话里拆出来的）
+		where = append(where, "(task_id = ? OR id IN (SELECT message_id FROM im_message_tasks WHERE task_id = ?))")
+		args = append(args, tid, tid)
 	}
 	if pid := strings.TrimSpace(q.Get("project_id")); pid != "" {
 		// 只按归属筛，不校验项目在不在：项目删了，筛出来的是空列表。
@@ -333,6 +341,7 @@ func (in *inbox) query(ctx context.Context, sql string, args ...any) ([]Message,
 	if err := in.fillMutes(ctx, out, mutedBy, mutedName); err != nil {
 		return nil, err
 	}
+	in.fillLinks(ctx, out)
 	return out, nil
 }
 

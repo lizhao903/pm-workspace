@@ -18,6 +18,7 @@
 // 消息列回复（0010）：消息列回复的抽屉在正文上面写「回复 谁：原消息」，能打开原消息；原消息的抽屉在正文下面按时间列出整个消息列，
 // 每条能单独标已处理、忽略、重新打开，点开看那一条（列表上不列这些回复，只在原消息行上标未读数，详情都在这里看）；
 // 也能整列处理、勾选批量处理、连原消息一起（SPEC-messages-2.51，ThreadReplies）。回复框回消息列里的消息时发到同一个消息列（后端带父消息的 thread_ts）。
+// 正文下面一行链接（im 0.32.0，SPEC-messages-2.57，MessageLinks）：「复制链接」复制工作台里的深链，原平台拼得出链接时给「在 Slack 打开」。
 import { useState, type ReactNode } from 'react'
 import { errorText, useImAction, useImMembers, useProjects, type Connector, type ImAction, type ImMessage, type ImSessionIntent } from '../../core/data'
 import { Avatar, Button, Checkbox, Drawer, SearchSelect, cls } from '../../core/ui'
@@ -40,6 +41,7 @@ import { MentionBox } from './MentionBox'
 import { defaultMention } from './mentionModel'
 import { useMentions } from './useMentions'
 import { muteReason } from './muteModel'
+import { MessageLinks } from './MessageLinks'
 
 type AgentProps = {
   /** 带上这条消息发起会话、拆分任务 */
@@ -224,6 +226,7 @@ function DrawerBody({ msg, ch, connectors, sv, photo, note, triage, onClose, onO
           </div>
         ))}
       </div>
+      <MessageLinks msg={msg} chLabel={ch.label} />
 
       {thread.length > 0 && <ThreadReplies parent={msg} replies={thread} sv={sv} onOpen={onOpenMessage} />}
 

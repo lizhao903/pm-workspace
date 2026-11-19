@@ -109,12 +109,16 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		// 流水线视图与待我处理（AUTO-12，pipeline.go）
 		m.HandleFunc("GET /api/sop/pipeline/{id}", ph.pipeline)
 		m.HandleFunc("GET /api/sop/waiting", ph.waiting)
+		// 历史任务关联来源消息（sop 0.23.0，msgtasks.go）：手动再回填一遍
+		m.HandleFunc("POST /api/sop/maintenance/message-tasks", backfillMessageTasksHandler(c))
 	})
 	r.Job(plugin.Job{Name: "engine", Run: e.job})
 	// 旧触发方式 daily、weekly 转成随流程管理的定时任务（TSK-0463，flowsched.go），幂等
 	r.Job(plugin.Job{Name: "legacy_trigger", Every: legacyEvery, Run: legacyJob})
 	// 已有流程按名字前缀「xxx · 」归进文件夹，只做一次（TSK-0482，folders.go）
 	r.Job(plugin.Job{Name: "folder_seed", Run: folderSeedJob})
+	// task 节点建的历史任务关联来源消息，只自动做一次（sop 0.23.0，msgtasks.go）
+	r.Job(plugin.Job{Name: "message_tasks", Run: messageTasksJob})
 	// 别的插件登记的节点挂起后经内核 SOP().Resume 唤醒，交给这个引擎（SOP-03a）
 	r.SOPEngine(e)
 	// 定时任务的 sop 动作和 Agent 的 run_sop 经内核钩子发起执行（SOP-01d，launch.go）

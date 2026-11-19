@@ -55,6 +55,7 @@ type Slack struct {
 	mu       sync.Mutex
 	lastPull map[string]time.Time // 连接器 id -> 上次拉的时间
 	teams    map[string]string    // 连接器 id -> 工作区编号，回调按 team_id 认实例用
+	urls     map[string]string    // 连接器 id -> 工作区地址（https://acme.slack.com/），拼消息链接用；查过没有的记空串（0.32.0）
 	users    map[string]string    // Member ID -> 显示名
 	convs    map[string]slackConv // 会话 id -> 会话
 	mail     slackMail            // 资料里的邮箱和各实例有没有读邮箱的权限（slackemail.go）
@@ -67,7 +68,7 @@ type SlackOptions struct {
 }
 
 func NewSlack(o SlackOptions) *Slack {
-	return &Slack{api: connector.SlackEndpoints{API: o.API}.Base(), lastPull: map[string]time.Time{}, teams: map[string]string{},
+	return &Slack{api: connector.SlackEndpoints{API: o.API}.Base(), lastPull: map[string]time.Time{}, teams: map[string]string{}, urls: map[string]string{},
 		users: map[string]string{}, convs: map[string]slackConv{}}
 }
 
@@ -139,10 +140,12 @@ func (s *Slack) due(cn plugin.ConnectorInfo, now time.Time) bool {
 
 // slackCursor 是一个实例的进度：哪个实例、哪个工作区，每个会话拉到的最后一条 ts。工作区换了从头来。
 type slackCursor struct {
-	Connector string            `json:"connector"`
-	Team      string            `json:"team"`
-	Latest    map[string]string `json:"latest"`
-	Checked   map[string]int64  `json:"checked,omitempty"` // 会话 -> 上次读过历史的时间（Unix 秒），轮流查不活跃会话用
+	Connector string `json:"connector"`
+	Team      string `json:"team"`
+	// URL 是 auth.test 回的工作区地址（0.32.0），重启后还没拉过时拼消息链接用
+	URL     string            `json:"url,omitempty"`
+	Latest  map[string]string `json:"latest"`
+	Checked map[string]int64  `json:"checked,omitempty"` // 会话 -> 上次读过历史的时间（Unix 秒），轮流查不活跃会话用
 	// 串里的回复（0010，slackthreads.go）：会话 -> 父消息 ts -> 这个串的进度；会话 -> 上次翻近期历史找串的时间（Unix 秒）
 	Threads    map[string]map[string]*slackThread `json:"threads,omitempty"`
 	ThreadScan map[string]int64                   `json:"thread_scan,omitempty"`
@@ -393,6 +396,10 @@ func (s *Slack) pullInstance(ctx context.Context, cn plugin.ConnectorInfo, raw j
 		s.setTeam(cn.ID, me.TeamID)
 		if cur.Connector != cn.ID || cur.Team != me.TeamID || cur.Latest == nil {
 			cur = slackCursor{Connector: cn.ID, Team: me.TeamID, Latest: map[string]string{}}
+		}
+		if u := slackWorkspaceURL(me.URL); u != "" {
+			cur.URL = u
+			s.setURL(cn.ID, u)
 		}
 		if cur.Checked == nil {
 			cur.Checked = map[string]int64{}
@@ -1394,4 +1401,71 @@ func (s *Slack) Fetch(ctx context.Context, ref AttachmentRef) (io.ReadCloser, er
 		return nil, err
 	}
 	return body, nil
+}
+
+// --- 消息链接（0.32.0，links.go）---
+
+// Permalink 拼这条消息在 Slack 里的链接：工作区地址是拉取时 auth.test 回的（记在进度里），不另调接口；
+// 还没拉过（新接的实例、只走回调的）拼不出，回空串。
+func (s *Slack) Permalink(ctx context.Context, m Message) string {
+	parent := ""
+	if m.Thread != nil {
+		parent = m.Thread.ParentExternalID
+	}
+	return slackPermalink(s.workspaceURL(ctx, m.ConnectorID), m.ExternalID, parent)
+}
+
+// slackWorkspaceURL 规整 auth.test 回的 url：只认 https，末尾带一个斜杠；不像的回空串。
+func slackWorkspaceURL(u string) string {
+	u = strings.TrimSpace(u)
+	if !strings.HasPrefix(u, "https://") || len(u) <= len("https://") {
+		return ""
+	}
+	return strings.TrimRight(u, "/") + "/"
+}
+
+func (s *Slack) setURL(id, u string) {
+	s.mu.Lock()
+	s.urls[id] = u
+	s.mu.Unlock()
+}
+
+// workspaceURL 是实例的工作区地址：先看内存，没有再读一次拉取进度（重启后还没拉过时）；读过没有的记空串，下一轮拉取会补上。
+func (s *Slack) workspaceURL(ctx context.Context, id string) string {
+	if id == "" {
+		return ""
+	}
+	s.mu.Lock()
+	u, ok := s.urls[id]
+	s.mu.Unlock()
+	if ok {
+		return u
+	}
+	c := s.core()
+	if c == nil {
+		return ""
+	}
+	// 读不到（还没有进度、出错）也按没有记下，不让每条消息都去读一次
+	var raw string
+	if err := c.Store().QueryRow(ctx, `SELECT cursor FROM im_cursors WHERE adapter = ?`, s.Key()).Scan(&raw); err != nil {
+		raw = ""
+	}
+	found := map[string]string{}
+	for cid, r := range readCursors(raw) {
+		var cur slackCursor
+		if json.Unmarshal(r, &cur) == nil {
+			found[cid] = slackWorkspaceURL(cur.URL)
+		}
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for cid, v := range found {
+		if _, had := s.urls[cid]; !had && v != "" {
+			s.urls[cid] = v
+		}
+	}
+	if _, had := s.urls[id]; !had {
+		s.urls[id] = ""
+	}
+	return s.urls[id]
 }

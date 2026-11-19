@@ -117,6 +117,8 @@ func (in *inbox) getMessageNode(ctx context.Context, _ plugin.Core, n plugin.SOP
 		// 归类（0.28.0，TSK-0491）：同 im.message_received 带的，SOP 调试、模拟 IM 触发按它判过滤条件
 		"conversation_id": deref(m.ConversationID), "connector_id": m.ConnectorID, "relevance_key": m.Relevance,
 		"muted": mutedOut(m.Muted), "sender_muted": in.senderMuted(ctx, m),
+		// 链接（0.32.0，links.go）：工作台里的深链、原平台的链接（拼不出为空串），流程可以写进任务正文
+		"link": m.Link, "permalink": m.Permalink,
 	}), nil
 }
 

@@ -148,6 +148,8 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 	})
 	// 会话里拆出来的任务：来源指向消息的记下来（0008）
 	r.Subscribe("object.created", in.onObjectCreated)
+	// SOP task 节点建的任务（含历史回填）：记到来源消息上（0.32.0，links.go）
+	r.Subscribe(EventSOPTaskCreated, in.onSOPTaskCreated)
 	for _, a := range p.adapters {
 		if pl, ok := a.(Puller); ok {
 			every := pl.Interval()

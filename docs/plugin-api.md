@@ -1359,11 +1359,16 @@ type EmailLooker interface {                                      // 按渠道�
 	LookupEmails(ctx context.Context, connectorID string, ids []string) (EmailLookup, error)
 }
 // EmailLookup{Found: 编号 -> 邮箱（资料里没邮箱为空串，不在这个工作区的不回）, MissingScope, Hint, Pending（被限流没查完的个数）}
+type Permalinker interface {                                      // 能给出消息在原平台的链接（im 0.32.0）；拼不出回空串
+	Adapter
+	Permalink(ctx context.Context, m Message) string
+}
 ```
 
 - 谁能调：只有 IM 插件自己调适配器；适配器拿到的 `plugin.Core` 是 IM 插件的，所以 `Connectors().With`、`RecordSync` 只对 IM 插件登记的实例有效。
 - 权限：适配器出网用 `Core.HTTP("im")`，要 IM 插件清单里的 `network:im` 经用户确认；`ConnectorProvider` 的 `tool` 要写进 IM 清单的 `provides.connectors`，并和适配器的渠道同名。
 - `EmailLooker`：Slack 实现（`slackemail.go`，`users.info` 的 `profile.email`，要 `users:read.email`；先看 `auth.test` 响应头 `X-OAuth-Scopes`，没有这个 scope 时回 `MissingScope` 不逐个查）。插件用它做 `POST /api/im/connectors/{id}/backfill-emails` 和后台任务 `backfill_emails`：只填联系人邮箱为空的，不覆盖，写入走 `ContactWriter().Merge`（操作者 `im#email_backfill`，记审计）。缺权限不算失败。
+- `Permalinker`：消息读出时调，结果是 `Message.permalink`（契约「IM 消息插件 im」的「任务的来源消息」）。只能用已有的数据拼，**不许为此调渠道接口**（每读一次列表都会调）。Slack 实现：工作区地址取拉取时 `auth.test` 回的 `url`，记在内存和本实例的拉取进度里，按 `external_id`（`<会话>:<ts>`）拼 `archives/<会话>/p<ts 去点>`，串里的回复带 `thread_ts`、`cid`；Telegram 实现：只有超级群拼得出 `t.me/c/...`。
 - 进度：`cursor` 存在 `im_cursors` 里适配器的一行，一个工具接多个实例时按实例分开存（`{"instances": {<连接器 id>: <进度>}}`），整批落库后才存。
 
 例子（最小的拉取型适配器，示意：飞书还没做，`connector.Lark` 不存在）：

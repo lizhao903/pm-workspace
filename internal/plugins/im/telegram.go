@@ -767,3 +767,8 @@ func (t *Telegram) Fetch(ctx context.Context, ref AttachmentRef) (io.ReadCloser,
 	}
 	return body, nil
 }
+
+// Permalink 是消息在 Telegram 里的链接（0.32.0，links.go）：只有超级群拼得出（https://t.me/c/<群>/<消息>），别的回空串。
+func (t *Telegram) Permalink(_ context.Context, m Message) string {
+	return telegramPermalink(m.ExternalID)
+}

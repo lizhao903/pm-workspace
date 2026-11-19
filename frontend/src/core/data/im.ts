@@ -81,6 +81,10 @@ export type ImMessage = {
   replied_sent?: { outbox_id: string; text: string; at: string; via: 'thread' | 'next' | string } | null
   /** 因发信人被设为自动忽略才进「已忽略」的（0.27.0，TSK-0495）：被改回待处理、标为已处理后为 null */
   muted?: ImMessageMute | null
+  /** 工作台里的深链（0.32.0）：--public-url 加 /messages?m=<id>；旧版本后端没有时为空串 */
+  link?: string
+  /** 原平台的消息链接（0.32.0，Slack 等）：拼不出为空串，界面不显示「在 Slack 打开」 */
+  permalink?: string
 }
 
 /**
@@ -212,6 +216,7 @@ export const normMessage = (m: ImMessage): ImMessage => ({
   project_id: m.project_id ?? null, project_name: m.project_name ?? '', project_source: m.project_source ?? '',
   sessions: m.sessions ?? [], split_tasks: m.split_tasks ?? [], materials: m.materials ?? [],
   thread: m.thread ?? null, reply_count: m.reply_count ?? 0, replied_sent: m.replied_sent ?? null, muted: m.muted ?? null,
+  link: m.link ?? '', permalink: m.permalink ?? '',
 })
 
 const path = (id: string) => `/api/im/messages/${encodeURIComponent(id)}`
@@ -237,6 +242,16 @@ export const imApi = {
     }
   },
   get: async (id: string, signal?: AbortSignal) => normMessage(await request<ImMessage>('GET', path(id), { signal })),
+  /**
+   * 任务的来源消息（0.32.0）：转成这条任务的和关联到它的，按发送时间正序；一条任务的来源消息不会超过一页。
+   * 只留 task_id 是它、或 split_tasks 里有它的：0.32.0 之前的后端不认 task_id，会回全部消息
+   */
+  byTask: async (taskId: string, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ task_id: taskId, limit: String(IM_PAGE_MAX) })
+    const r = await requestList<ImMessage>('/api/im/messages', { query, signal })
+    return r.data.map(normMessage).filter((m) => m.task_id === taskId || m.split_tasks.some((t) => t.id === taskId))
+      .sort((a, b) => a.at.localeCompare(b.at))
+  },
   act: async (id: string, a: ImAction) => {
     const body = a.kind === 'snooze' ? { until: a.until } : a.kind === 'reply' ? { text: a.text, done: a.done, ...(a.mentions?.length ? { mentions: a.mentions } : {}) }
       : a.kind === 'project' ? { project_id: a.project_id } : {}
@@ -320,6 +335,16 @@ export function useImPendingCount(opts: { enabled?: boolean; refetchInterval?: n
     enabled: opts.enabled ?? true,
     retry: noRetry404,
     refetchInterval: opts.refetchInterval,
+  })
+}
+
+/** 任务的来源消息（0.32.0，任务详情「来源消息」）：在 im 前缀下，消息一变跟着刷；IM 插件没装、停用时 404 不重试 */
+export function useImTaskMessages(taskId: string) {
+  return useQuery({
+    queryKey: [...dataKeys.im.all, 'task', taskId] as const,
+    queryFn: ({ signal }) => imApi.byTask(taskId, signal),
+    enabled: !!taskId,
+    retry: noRetry404,
   })
 }
 

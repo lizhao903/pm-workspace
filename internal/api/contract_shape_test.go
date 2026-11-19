@@ -221,6 +221,8 @@ var contractSpecs = map[string]contractSpec{
 	// 批量停止（TSK-0717）
 	"SopRunStopResult":         {v: sop.RunStopResult{}},
 	"SOP 编排插件 sop / 运行#table1": {skip: "POST /api/sop/runs/stop 的请求体，按 map 读，无结构"},
+	// 任务关联来源消息（sop 0.23.0）：sop.task_created 的 payload
+	"SOP 编排插件 sop / 任务关联来源消息（0.23.0）#json1": {v: sop.TaskCreated{}},
 
 	"TerminalSession": {v: terminal.Session{}},
 
