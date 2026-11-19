@@ -110,6 +110,9 @@ type activation struct {
 
 	// projectPrototypes 是项目原型的查询入口（projectprotos.go）
 	projectPrototypes ProjectPrototypeLister
+
+	// projectRunAllow 是项目执行白名单的查询入口（projectprotos.go，TSK-0837）
+	projectRunAllow ProjectRunAllowLister
 }
 
 var (

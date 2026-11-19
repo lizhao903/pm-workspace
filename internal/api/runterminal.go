@@ -95,7 +95,9 @@ func firstRelated(props map[string]any) (string, string) {
 
 // promptFor 是两种方式共用的提示词拼法：任务本身加所属项目，再加回写一节——
 // 终端方式按交互执行写；流式（后台执行 Claude Code）按无人值守写，MCP 接不上时写明原因（TSK-0499）。
-func (s *Server) promptFor(ctx context.Context, o *domain.Object, workdir, extra, mode, runID string, preset *runner.Preset) string {
+//
+// perm 只对流式有用：按这一档合上项目执行白名单（TSK-0837），提示词里列出来；终端方式不看（权限由用户的启动命令决定）。
+func (s *Server) promptFor(ctx context.Context, o *domain.Object, workdir, extra, mode, runID string, preset *runner.Preset, perm string) string {
 	var wb *runner.WriteBack
 	switch mode {
 	case domain.RunModeTerminal:
@@ -104,7 +106,7 @@ func (s *Server) promptFor(ctx context.Context, o *domain.Object, workdir, extra
 		if runID == "" {
 			runID = previewRunID
 		}
-		wb = &runner.WriteBack{RunID: runID, ObjectID: o.ID, Stream: true}
+		wb = &runner.WriteBack{RunID: runID, ObjectID: o.ID, Stream: true, ProjectAllow: runner.ProjectAllowFor(perm, s.projectAllowOf(ctx, o))}
 		if err := runner.CheckMCP(s.opt.MCPBin, s.opt.PublicURL); err != nil {
 			wb.NoMCP = err.Error()
 		}
@@ -169,7 +171,13 @@ func (s *Server) handleRunPrompt(w http.ResponseWriter, r *http.Request) {
 			prompt = modulePrompt(prefix, prompt)
 		}
 	default:
-		prompt = s.promptFor(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), mode, previewRunID, preset)
+		// permission 同发起时的档位（TSK-0837）：决定合进哪些项目执行白名单；不传按允许改文件算，只读角色压成只读
+		perm, err := effectivePerm(q.Get("permission"), true, preset != nil && preset.ReadOnly)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		prompt = s.promptFor(ctx, o, strings.TrimSpace(wd), q.Get("extra_prompt"), mode, previewRunID, preset, perm)
 	}
 	respondData(w, http.StatusOK, map[string]string{"prompt": prompt, "workdir": strings.TrimSpace(wd)})
 }
@@ -227,13 +235,13 @@ func (s *Server) handleRunTerminal(w http.ResponseWriter, r *http.Request) {
 	// 先建记录拿到 id，提示词里要写它；提示词随后补进记录（建记录时先写不带 id 的版本兜底）。
 	run, err := s.st.CreateTaskRun(ctx, &domain.TaskRun{
 		ObjectID: o.ID, Workdir: workdir, Status: domain.RunRunning, Mode: domain.RunModeTerminal,
-		Prompt: s.promptFor(ctx, o, workdir, req.ExtraPrompt, domain.RunModeTerminal, previewRunID, preset),
+		Prompt: s.promptFor(ctx, o, workdir, req.ExtraPrompt, domain.RunModeTerminal, previewRunID, preset, ""),
 	})
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	prompt := s.promptFor(ctx, o, workdir, req.ExtraPrompt, domain.RunModeTerminal, run.ID, preset)
+	prompt := s.promptFor(ctx, o, workdir, req.ExtraPrompt, domain.RunModeTerminal, run.ID, preset, "")
 	run.Prompt = prompt
 
 	dir := filepath.Join(root, run.ID)

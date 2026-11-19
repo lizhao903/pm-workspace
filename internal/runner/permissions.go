@@ -4,6 +4,8 @@ package runner
 
 import (
 	"fmt"
+	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -29,6 +31,14 @@ import (
 // Claude Code 对管道、&&、; 连起来的命令按每一段分别判定，白名单按段生效：
 // `sqlite3 -readonly -safe x.db ".tables" | head` 要两段都在白名单里（或是 Claude Code
 // 自己认定的只读命令）才放行。输出重定向（> 文件）不算只读，只读档位下照旧被拒（2.1.319 实测）。
+//
+// 2.1.328 实测（TSK-0837、TSK-0841 复盘）补充几条白名单管不到的：
+//   - 2>/dev/null、2>&1 跟着所在那一段，不另算一段，不影响放行；> 文件 即便命令本身放行了也照旧要确认；
+//   - 路径在工作目录（和 --add-dir）之外的 ls / cat / grep / cd 被挡，Bash(ls:*) 这类前缀规则放不开，
+//     要么软链接进工作目录（LinkedDirs），要么放行 Read(//绝对路径/**)；
+//   - 命令里给 shell 变量赋值（C=...; ls "$C"）一律要确认，规则放不开；
+//   - cd 到别处再跑 git（cd x && git log）有单独的安全确认，规则放不开，要写 git -C 或直接在工作目录里跑；
+//   - 以 Agent 工具起的子代理继承这一组 --allowedTools。
 const (
 	PermReadOnly      = "read_only"
 	PermAcceptEdits   = "accept_edits"
@@ -73,7 +83,14 @@ func PermWrites(p string) bool { return p != PermReadOnly }
 //   - sqlite3 不带 -safe：.shell / .system 能跑任意命令，.output 能写文件，-readonly 管不住；
 //     -safe 模式下这三样连同 ATTACH 都被拒（sqlite 3.45 实测），所以只放 -readonly -safe 两种写法；
 //   - rg：--pre 会对每个文件跑一个外部程序；搜索用 Grep 工具或 grep；
-//   - find：-exec / -delete；sed / awk：-i 和 system() 都能写；git branch / checkout：会改仓库。
+//   - find：-exec / -delete；sed / awk：-i 和 system() 都能写；git branch / checkout：会改仓库；
+//   - env：env 命令 能拉起任意程序；不带参数时把环境变量（含令牌）整段打进执行记录，也不收；
+//   - file：-C 会在当前目录写编译好的 magic 文件；tree：-o 把输出写进文件；
+//   - [：规则里的方括号 Claude Code 怎么解析没验证过，用 test 写法（[ 本身 Claude Code 已自行放行）。
+//
+// 第二批（TSK-0837、TSK-0841 复盘）补的 cd、echo、printf、test、true、basename、dirname、realpath、stat、du、date、which：
+// 2.1.328 下这些 Claude Code 自己已经认作只读，写进来是为了换版本也稳，以及被拒提示不再把它们当成建议。
+// echo / printf 带 > 文件 时重定向照旧单独判定（实测命令放行了重定向仍要确认），不会因此变成写文件的口子。
 //
 // git diff 的 --output=<文件> 能写文件，属已知边界：写的位置受工作目录约束，影响等同一次文件编辑。
 var ReadOnlyCommands = []string{
@@ -82,6 +99,9 @@ var ReadOnlyCommands = []string{
 	"Bash(ls:*)", "Bash(cat:*)", "Bash(head:*)", "Bash(tail:*)", "Bash(wc:*)",
 	"Bash(grep:*)", "Bash(sort:*)", "Bash(uniq:*)", "Bash(cut:*)", "Bash(jq:*)", "Bash(pwd)",
 	"Bash(sqlite3 -readonly -safe:*)", "Bash(sqlite3 -safe -readonly:*)",
+	"Bash(cd:*)", "Bash(echo:*)", "Bash(printf:*)", "Bash(test:*)", "Bash(true)",
+	"Bash(basename:*)", "Bash(dirname:*)", "Bash(realpath:*)", "Bash(stat:*)", "Bash(du:*)",
+	"Bash(date:*)", "Bash(which:*)",
 }
 
 // TestCommands 是「允许改文件 + 跑测试构建」档额外放行的命令。
@@ -110,6 +130,37 @@ func PermAllowed(p string, custom []string) []string {
 		out = append(out, custom...)
 	}
 	return dedupe(out)
+}
+
+// ProjectAllowFor 是项目执行白名单（项目档案 run_allow，TSK-0837）在这一档实际合进去的规则。
+//
+// 写入档位（accept_edits / edits_and_tests / custom）全部合并：项目白名单是用户按项目录的，
+// 和自定义白名单同一口径，只是只在这个项目的任务上生效。
+// 只读档位只合并读规则（Read / Grep / Glob / LS，用来放行工作目录之外的目录）：只读是选角色、选档位时的明确承诺，
+// 不能因为任务挂在某个项目下就悄悄多出能执行脚本、调写操作 MCP 的口子。
+func ProjectAllowFor(p string, project []string) []string {
+	out := []string{}
+	for _, r := range project {
+		if PermWrites(p) || readRule(r) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// readRule：只读的工具规则（工具名是 Read、Grep、Glob、LS，可带括号限定）。
+func readRule(r string) bool {
+	name, _, _ := strings.Cut(r, "(")
+	switch name {
+	case "Read", "Grep", "Glob", "LS":
+		return true
+	}
+	return false
+}
+
+// PermAllowedWith 是 PermAllowed 再合上项目执行白名单（已按档位筛过的，ProjectAllowFor），去重保序。
+func PermAllowedWith(p string, custom, project []string) []string {
+	return dedupe(append(PermAllowed(p, custom), project...))
 }
 
 func dedupe(xs []string) []string {
@@ -204,9 +255,10 @@ func CleanRules(rules []string) ([]string, error) {
 
 // SuggestRules 从被拒的调用里推出「加进白名单就能放行」的规则，去重保序。
 //
-// Bash 命令按 &&、||、;、| 拆段，每段取命令名（git / npm / go / make 这类再带上子命令）
-// 作前缀；已经在 allowed 里的段跳过——那一段不是被拒的原因。文件编辑类工具不给规则：
-// 它们靠档位放开（选「允许改文件」），不该一条条加进白名单。
+// Bash 命令按 &&、||、;、|、& 拆段，每段取命令名（git / npm / go / make 这类再带上子命令，
+// python、node 这类解释器带上脚本名）作前缀；已经在 allowed 里的段跳过——那一段不是被拒的原因。
+// 推不出可靠规则的段不给：变量赋值、$C 开头的命令、python -c 这类等于放开任意代码的写法。
+// 文件编辑类工具不给规则：它们靠档位放开（选「允许改文件」），不该一条条加进白名单。
 func SuggestRules(denials []Denial, allowed []string) []string {
 	have := map[string]bool{}
 	for _, a := range allowed {
@@ -222,12 +274,7 @@ func SuggestRules(denials []Denial, allowed []string) []string {
 	for _, d := range denials {
 		switch {
 		case d.ToolName == "Bash":
-			cmd, _ := d.ToolInput["command"].(string)
-			for _, seg := range splitCommand(cmd) {
-				r := bashRule(seg)
-				if r == "" || covered(r, seg, allowed) {
-					continue
-				}
+			for _, r := range bashRules(d, allowed) {
 				add(r)
 			}
 		case strings.HasPrefix(d.ToolName, "mcp__"):
@@ -241,20 +288,63 @@ func SuggestRules(denials []Denial, allowed []string) []string {
 	return out
 }
 
+// bashRules 是一次被拒的 Bash 调用推出的规则（没去重）：每段一条，已放行、推不出的段跳过。
+func bashRules(d Denial, allowed []string) []string {
+	cmd, _ := d.ToolInput["command"].(string)
+	var out []string
+	for _, seg := range splitCommand(cmd) {
+		words := segWords(seg)
+		r := bashRule(words)
+		if r == "" || covered(r, strings.Join(words, " "), allowed) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// unexplainedBash 报告有没有被拒的 Bash 调用推不出任何规则：每一段都已放行或放不开，
+// 那被拒的原因在白名单之外（工作目录外的路径、shell 变量、cd 后跑 git），denialReason 据此另说一句。
+func unexplainedBash(denials []Denial, allowed []string) bool {
+	for _, d := range denials {
+		if d.ToolName == "Bash" && len(bashRules(d, allowed)) == 0 {
+			return true
+		}
+	}
+	return false
+}
+
 var editTools = map[string]bool{"Edit": true, "MultiEdit": true, "Write": true, "NotebookEdit": true}
 
 // subcommandTools 的规则带上子命令：Bash(git:*) 会把 git push、git reset 一起放开。
 var subcommandTools = map[string]bool{
 	"git": true, "go": true, "npm": true, "npx": true, "pnpm": true, "yarn": true, "make": true,
-	"cargo": true, "docker": true, "kubectl": true, "gh": true, "pip": true, "uv": true, "python": true, "python3": true,
+	"cargo": true, "docker": true, "kubectl": true, "gh": true, "pip": true, "uv": true,
 }
 
-// splitCommand 按 shell 的连接符拆段。只为给建议，不求完全符合 shell 语法：引号里的 | 会被误拆，
-// 误拆的结果只是多一条建议，不影响放行本身（放行由 Claude Code 判定）。
+// interpreterRe 认解释器（按程序名，/opt/miniconda3/bin/python 也算）：规则带上脚本名，
+// 只放这一个脚本；后面跟的是选项（python -c、node -e）时不给规则——那等于放开任意代码。
+var interpreterRe = regexp.MustCompile(`^(python[0-9.]*|node|ruby|perl|bash|sh|zsh|deno|bun|php)$`)
+
+// noRuleTools 是拿来再拉起别的程序的命令，按命令名放行等于放开任意命令，不给规则。
+var noRuleTools = map[string]bool{
+	"sudo": true, "eval": true, "exec": true, "xargs": true, "env": true, "nohup": true, "command": true,
+	"builtin": true, "source": true, ".": true, "time": true, "timeout": true, "nice": true,
+}
+
+// splitCommand 按 shell 的连接符拆段：&&、||、;、|、|&、后台 &、换行。只为给建议，不求完全符合 shell 语法，
+// 但要认得这几样，不然会拆出假命令（TSK-0837 实测拆出过 Bash(1:*)）：
+//   - 引号（单引号、双引号）和反斜杠转义里的连接符不算；
+//   - 重定向里的 &（2>&1、>&2、&>file、&>>file）不算连接符；
+//   - $( ) 和反引号里的整段跟着外面那一段；
+//   - here-doc（<<EOF … EOF）的正文不是命令，整段跳过。
 func splitCommand(cmd string) []string {
 	var segs []string
 	cur := strings.Builder{}
 	var quote rune
+	depth := 0 // $( ) 的层数
+	backtick := false
+	var heredocs []string // 这一行开了、还没读正文的 here-doc 结束标记
 	flush := func() {
 		if s := strings.TrimSpace(cur.String()); s != "" {
 			segs = append(segs, s)
@@ -264,6 +354,16 @@ func splitCommand(cmd string) []string {
 	rs := []rune(cmd)
 	for i := 0; i < len(rs); i++ {
 		c := rs[i]
+		next := rune(0)
+		if i+1 < len(rs) {
+			next = rs[i+1]
+		}
+		if c == '\\' && quote != '\'' && i+1 < len(rs) {
+			cur.WriteRune(c)
+			cur.WriteRune(next)
+			i++
+			continue
+		}
 		if quote != 0 {
 			cur.WriteRune(c)
 			if c == quote {
@@ -271,12 +371,75 @@ func splitCommand(cmd string) []string {
 			}
 			continue
 		}
-		switch c {
-		case '\'', '"':
+		if depth > 0 || backtick {
+			cur.WriteRune(c)
+			switch {
+			case c == '\'' || c == '"':
+				quote = c
+			case c == '`':
+				backtick = !backtick
+			case c == '$' && next == '(':
+				cur.WriteRune(next)
+				i++
+				depth++
+			case c == ')' && depth > 0:
+				depth--
+			}
+			continue
+		}
+		switch {
+		case c == '\'' || c == '"':
 			quote = c
 			cur.WriteRune(c)
-		case ';', '|', '&', '\n':
+		case c == '`':
+			backtick = true
+			cur.WriteRune(c)
+		case c == '$' && next == '(':
+			depth++
+			cur.WriteRune(c)
+			cur.WriteRune(next)
+			i++
+		case c == '<' && next == '<' && prevRune(rs, i) != '<' && (i+2 >= len(rs) || rs[i+2] != '<'):
+			// here-doc：记下结束标记，换行之后跳过正文
+			j := i + 2
+			if j < len(rs) && rs[j] == '-' {
+				j++
+			}
+			for j < len(rs) && (rs[j] == ' ' || rs[j] == '\t') {
+				j++
+			}
+			k := j
+			for k < len(rs) && !strings.ContainsRune(" \t\n;|&<>()", rs[k]) {
+				k++
+			}
+			if tag := strings.Trim(string(rs[j:k]), `'"\`); tag != "" {
+				heredocs = append(heredocs, tag)
+			}
+			cur.WriteString(string(rs[i:k]))
+			i = k - 1
+		case c == '&' && (next == '>' || prevRune(rs, i) == '>' || prevRune(rs, i) == '<'):
+			// 2>&1、>&2、&>file、&>>file：重定向，不是连接符
+			cur.WriteRune(c)
+		case c == ';' || c == '|' || c == '&':
 			flush()
+		case c == '\n':
+			flush()
+			for len(heredocs) > 0 {
+				// 跳过正文，直到一行（去掉开头的制表符）等于结束标记
+				tag := heredocs[0]
+				heredocs = heredocs[1:]
+				for i+1 < len(rs) {
+					end := i + 1
+					for end < len(rs) && rs[end] != '\n' {
+						end++
+					}
+					line := strings.TrimLeft(string(rs[i+1:end]), "\t")
+					i = end
+					if line == tag {
+						break
+					}
+				}
+			}
 		default:
 			cur.WriteRune(c)
 		}
@@ -285,17 +448,89 @@ func splitCommand(cmd string) []string {
 	return segs
 }
 
-// bashRule 给一段命令拼前缀规则：命令名，或命令名加子命令（subcommandTools）。
-// 开头的环境变量赋值（FOO=1 cmd）跳过；cd 不出规则（Claude Code 自己放行）。
-func bashRule(seg string) string {
-	f := strings.Fields(seg)
-	for len(f) > 0 && strings.Contains(f[0], "=") && !strings.HasPrefix(f[0], "-") {
-		f = f[1:]
+func prevRune(rs []rune, i int) rune {
+	if i == 0 {
+		return 0
 	}
-	if len(f) == 0 || f[0] == "cd" {
+	return rs[i-1]
+}
+
+var (
+	// redirRe 认一个重定向词：可带文件描述符的 >、>>、<、<>、&>、&>>、>&、<&、<<、<<<，后面可直接跟目标
+	redirRe  = regexp.MustCompile(`^[0-9]*(&>>|&>|>>|>&|<&|<<<|<<-|<<|<>|>\||>|<)(.*)$`)
+	assignRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*\+?=`)
+)
+
+// segWords 把一段命令拆成词：认引号（去掉引号、引号里的空格不拆），去掉重定向（2>/dev/null、2>&1、> 文件、<<EOF）
+// 和开头的变量赋值（FOO=1 cmd 的 FOO=1）、子 shell 括号。只剩赋值或重定向时回空。
+func segWords(seg string) []string {
+	var toks []string
+	cur := strings.Builder{}
+	in := false
+	var quote rune
+	for _, c := range seg {
+		switch {
+		case quote != 0:
+			if c == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(c)
+			}
+		case c == '\'' || c == '"':
+			quote, in = c, true
+		case c == ' ' || c == '\t':
+			if in {
+				toks = append(toks, cur.String())
+				cur.Reset()
+				in = false
+			}
+		default:
+			cur.WriteRune(c)
+			in = true
+		}
+	}
+	if in {
+		toks = append(toks, cur.String())
+	}
+	var words []string
+	skip := false
+	for _, t := range toks {
+		if skip {
+			skip = false
+			continue
+		}
+		if m := redirRe.FindStringSubmatch(t); m != nil {
+			skip = m[2] == "" // 目标在下一个词
+			continue
+		}
+		if len(words) == 0 {
+			t = strings.TrimLeft(t, "({!")
+			if t == "" || assignRe.MatchString(t) {
+				continue
+			}
+		}
+		words = append(words, t)
+	}
+	return words
+}
+
+// bashRule 给一段命令（segWords 的结果）拼前缀规则：命令名，或命令名加子命令（subcommandTools）、
+// 解释器加脚本名（interpreterRe）。推不出可靠规则时回空：cd（已在只读白名单）、变量开头、像数字或符号的「命令名」、
+// 再拉起别的程序的（noRuleTools）、解释器后面直接跟选项的。
+func bashRule(f []string) string {
+	if len(f) == 0 {
 		return ""
 	}
 	name := f[0]
+	if name == "cd" || noRuleTools[name] || !plausibleCommand(name) {
+		return ""
+	}
+	if interpreterRe.MatchString(filepath.Base(name)) {
+		if len(f) < 2 || strings.HasPrefix(f[1], "-") || !plausibleCommand(f[1]) {
+			return ""
+		}
+		return "Bash(" + name + " " + f[1] + ":*)"
+	}
 	if subcommandTools[name] && len(f) > 1 && !strings.HasPrefix(f[1], "-") {
 		if (name == "npm" || name == "pnpm" || name == "yarn") && f[1] == "run" && len(f) > 2 {
 			return "Bash(" + name + " run " + f[2] + ":*)"
@@ -307,6 +542,14 @@ func bashRule(seg string) string {
 		return "Bash(sqlite3 -readonly -safe:*)"
 	}
 	return "Bash(" + name + ":*)"
+}
+
+// plausibleCommand：像个命令名或脚本路径——不以 $、-、` 开头，不全是数字，不带 shell 的特殊符号。
+func plausibleCommand(s string) bool {
+	if s == "" || strings.ContainsAny(s[:1], "$-`*?~") || strings.ContainsAny(s, "<>|&;()$`=") {
+		return false
+	}
+	return strings.Trim(s, "0123456789") != ""
 }
 
 // covered 粗判一段命令是不是已被某条前缀规则覆盖（只看 Bash(前缀:*) 和 Bash(完整命令)）。

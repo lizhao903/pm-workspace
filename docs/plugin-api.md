@@ -223,6 +223,7 @@ type Registrar interface {
 	HostHandler(d HostHandlerDef)               // 2.11，只有后端
 	ScheduleAction(d ScheduleActionDef)         // 2.12，只有后端（VID-06a）
 	ProjectPrototypes(fn ProjectPrototypeLister) // 只给 provides.modules 含 projects 的插件，见 2.13.24
+	ProjectRunAllow(fn ProjectRunAllowLister)    // 只给 provides.modules 含 projects 的插件，见 2.13.30（TSK-0837）
 
 	// 规划，还没实现：SettingsSection（2.2）、ObjectType（2.3）、AgentTool（2.6）、SearchProvider（2.9）
 }
@@ -1800,6 +1801,21 @@ r.ProjectPrototypes(func(ctx context.Context, projectID string) ([]plugin.Projec
 })
 ```
 
+#### 2.13.30 `Registrar.ProjectRunAllow`（只有后端，TSK-0837）
+
+```go
+// internal/plugin/projectprotos.go
+type ProjectRunAllowLister func(ctx context.Context, projectID string) ([]string, error)
+// Registrar.ProjectRunAllow(fn ProjectRunAllowLister)
+// Registry.ProjectRunAllow(ctx, projectID) ([]string, error)，没人登记回 ErrNoProjectRunAllow
+```
+
+- 用途：任务交给 Claude Code 后台执行时，内核要把任务所属项目的「执行白名单」（项目档案 `run_allow`，Claude Code 权限规则）合进 `--allowedTools`；档案在项目插件的表 `projects_profiles` 里，内核读不到，就经这个入口问。按档位筛（只读档位只合 `Read` / `Grep` / `Glob` / `LS` 规则）由内核 `runner.ProjectAllowFor` 做，插件只管回规则。
+- 谁能调：同 2.13.24，清单 `provides.modules` 含 `projects` 的插件，在 `Register` 里登记一次；重复登记、传 nil 都是登记错误；插件 panic 转成错误。
+- 权限：不要权限，只读插件自己的表。
+- 内核的用法：没人登记（项目插件没装、停用或还没升到 0.20.0）或查询出错时按没有项目白名单处理，执行照跑；出错记一条 warn 日志。
+- 现在的登记：项目插件 `projects`（0.20.0 起），读 `run_allow` 后再过一遍 `runner.CheckRule`，不合规的不回。
+
 #### 2.13.25 前端扩展点 `terminalLauncher`
 
 ```ts
@@ -2201,6 +2217,8 @@ SOP 在进程启动时自动完成表结构迁移和 JSON 补建：主程序在 
 补记（不改版本号，2026-11-11，录音常驻）：前端 `PluginApi` 加 `shellStatus`（2.13.29），插件在任意页面常驻渲染一块状态（录音插件用它显示录音计时/暂停/停止）。不进清单 `provides`，只增不改；录音插件本身没改清单和权限。
 
 补记（不改版本号，2026-11-06，TSK-0491）：SOP 节点扩展点（2.7）`SOPNodeSpec` 加 `Effect`（`SOPEffectRead` / `SOPEffectWrite` / `SOPEffectWait`）、`DryRun`，SOP 调试按它决定真跑还是模拟；声明 `read` 的节点 `Run` 必须不改任何数据。流程目录加可选接口 `SOPDebugger`（`TestSOP`、`ExplainIMTrigger`，类型 `SOPTest`，内核别名 `SOPCatalogDebugger`），Agent 的 `test_sop`、`explain_im_trigger` 经注册表 `Registry.TestSOP` / `ExplainIMTrigger` 调；SOP 插件旧版本没实现时这两个工具不出现。只增不改。IM（0.28.0）、视频（0.8.2）插件声明了各自节点的 `Effect`；IM 插件 `emits` 加 `im.message_muted`。
+
+补记（不改版本号，2026-11-19，TSK-0837）：`Registrar` 加 `ProjectRunAllow`（2.13.30，类型 `ProjectRunAllowLister`、`ErrNoProjectRunAllow`），项目插件 0.20.0 登记它，回项目档案的执行白名单。只增不改，按 1.3 是小版本，和其余几条一起等用户定稿。
 
 补记（不改版本号，2026-11-19，串相关）：插件 API 不变。IM 插件（实际清单 0.32.0）的事件 `im.message_received`、`im.message_muted` 的 payload 只增三项 `thread_related`（布尔）、`thread_reason`（`mine` / `mention` / `dm` / `task` / 空串）、`thread_parent_message_id`（父消息 id 或 null），读取消息 `im_get_message` 的 `message` 同样多这三项；SOP 编排插件（实际清单 0.23.0）的 IM 过滤加 `thread_related`「相关串里的回复按 @我 算」，缺省 false。订阅方按 JSON 解 payload，旧订阅方不认的键忽略即可；口径见 `docs/api-contract.md` IM「事件」与 SOP「IM 触发」。不加迁移。
 

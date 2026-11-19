@@ -668,14 +668,24 @@ func denialReason(denials []Denial, req Request, partial bool) string {
 		for i, r := range rules {
 			quoted[i] = "`" + r + "`"
 		}
-		fmt.Fprintf(&b, "本次档位「%s」没放行这些调用；建议放行：%s。到「设置 / 执行权限」把它们加进自定义白名单，发起时选「%s」档位。",
+		fmt.Fprintf(&b, "本次档位「%s」没放行这些调用；建议放行：%s。到「设置 / 执行权限」把它们加进自定义白名单，发起时选「%s」档位；只跟某个项目有关的，加进项目档案的「执行白名单」。",
 			PermLabel(perm), strings.Join(quoted, "、"), PermLabel(PermCustom))
+		if unexplainedBash(denials, req.AllowedTools) {
+			b.WriteString(bashLimitsHint)
+		}
+	} else if unexplainedBash(denials, req.AllowedTools) {
+		b.WriteString(bashLimitsHint)
 	} else if !edits || req.AllowWrites {
 		// 推不出规则、又不是只读挡了编辑：多半是用户自己的 deny 规则。
 		b.WriteString("本次档位是「" + PermLabel(perm) + "」，这些调用不在工作台的放行范围内，或被你自己的权限配置挡下，请检查 ~/.claude/settings.json 和项目的 .claude/settings*.json。")
 	}
 	return b.String()
 }
+
+// bashLimitsHint 是被拒的命令每一段都已放行时的说法：原因在白名单管不到的地方（2.1.328 实测，见 permissions.go 文件头）。
+const bashLimitsHint = "有的命令每一段都已在放行范围内仍被拒，原因不在白名单：路径在工作目录之外的（在工作目录里放指向它的软链接，" +
+	"或在项目档案的执行白名单加 Read(//绝对路径/**)）、命令里给 shell 变量赋值的（C=…，规则放不开，改写成绝对路径）、" +
+	"cd 到别处再跑 git 的（改在工作目录里跑或用绝对路径读文件）。"
 
 // unsafeSqlite 报告被拒的命令里有没有不带 -safe 的 sqlite3。
 func unsafeSqlite(denials []Denial) bool {

@@ -128,10 +128,22 @@ type WriteBack struct {
 	// DSH 为真是交给 DeepSeek（dsh）的后台执行（TSK-0722）：没有命令白名单，命令都在 dsh 的沙箱里跑，
 	// 最后那段权限说明换成沙箱的说法。
 	DSH bool
+	// ProjectAllow 是这次合进 --allowedTools 的项目执行白名单（项目档案 run_allow，TSK-0837，ProjectAllowFor 之后的），
+	// 提示词里列出来：模型知道哪些项目脚本能直接跑，用户在预览里也看得到规则从哪来。只有交给 Claude Code 的后台执行有。
+	ProjectAllow []string
 }
 
 // MCPServerName 给模板用：工作台注入的 MCP server 名。
 func (WriteBack) MCPServerName() string { return MCPServer }
+
+// ProjectAllowText 给模板用：项目执行白名单逐条加反引号、顿号连起来。
+func (w WriteBack) ProjectAllowText() string {
+	q := make([]string, len(w.ProjectAllow))
+	for i, r := range w.ProjectAllow {
+		q[i] = "`" + r + "`"
+	}
+	return strings.Join(q, "、")
+}
 
 // promptTemplate 是喂给 claude 的任务描述。
 //
@@ -207,10 +219,13 @@ const promptTemplate = `你正在协助处理一个来自「产品工作台」�
 3. 过程中做完一个关键步骤，用 pmw_append_progress 记一条。
 {{if .Stream}}4. 结束前：调 pmw_finish_run，run_id={{.RunID}}，status 填 done 或 failed，summary 写结论摘要：做了什么、产出在哪、还剩什么没做。工作台在进程退出时收尾，这段结论放在执行记录最前面。
 {{else}}4. 结束时（做完、做不下去、或用户让你停下）：调 pmw_finish_run，run_id={{.RunID}}，status 填 done 或 failed，summary 写结论摘要：做了什么、产出在哪、还剩什么没做。任务做完了再用 pmw_update_object 改状态。
+{{end}}{{if $.Source}}读来源消息的原帖和整串回复用 pmw_get_source_message（object_id={{.ObjectID}}）{{if .Stream}}，不要用 Slack 等渠道自己的 MCP 工具（后台执行没放行，调了会被拒）{{end}}。
 {{end}}{{end}}{{if .DSH}}
 命令都在 dsh 的沙箱里跑：只读执行写不了任何文件；允许改文件时只能写当前目录（和软链接进来的目录）。写入被沙箱拒绝时不要反复重试，在结论里说明。
 {{else if .Stream}}
-只读命令（git status / log / diff、ls、cat、grep、wc 等，含管道组合）已放行；查 SQLite 库用 sqlite3 -readonly -safe（不带 -safe 的会被拒）。
+只读命令（git status / log / diff、ls、cat、grep、wc、cd、echo 等，含管道组合）已放行；查 SQLite 库用 sqlite3 -readonly -safe（不带 -safe 的会被拒）。
+{{if .ProjectAllow}}这个项目的执行白名单（项目档案）另放行：{{.ProjectAllowText}}。
+{{end}}后台执行没人确认，命令这样写才不会被拒：路径一律写绝对路径，不用 shell 变量（C=…; cat "$C/x" 这种整条被拒）；一条命令只做一件事，不要 cd 到别处再跑 git；只读得到当前目录和软链接进来的目录。被拒了不要换个写法重试同一件事，在结论里说明缺什么权限。
 {{end}}
 {{end}}## 约束
 {{if .Project}}- 所有产出只写在当前目录、以及上面「所属项目」里写明的文档目录和原型目录里，不要改动其他位置的文件。

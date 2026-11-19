@@ -79,6 +79,8 @@ type Registrar interface {
 	ScheduleAction(d ScheduleActionDef)
 	// ProjectPrototypes 登记「列出项目原型目录」的入口，只有 provides.modules 含 projects 的插件能登记（projectprotos.go）。
 	ProjectPrototypes(fn ProjectPrototypeLister)
+	// ProjectRunAllow 登记「项目执行白名单」的入口，只有 provides.modules 含 projects 的插件能登记（projectprotos.go，TSK-0837）。
+	ProjectRunAllow(fn ProjectRunAllowLister)
 }
 
 // RouteRegistrar 和 internal/api 里的同名接口一致，*http.ServeMux 天然满足。

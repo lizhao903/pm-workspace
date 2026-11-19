@@ -48,6 +48,11 @@ export type ProjectProfile = {
   prd_dir: string
   /** 只含设了的命令 */
   commands: Partial<Record<ProfileCommandKey, ProfileCommand>>
+  /**
+   * 执行白名单（projects 0.20.0，TSK-0837）：Claude Code 的权限规则，任务属于这个项目、交给 Claude Code 后台执行时合进放行规则
+   * （写入档位全合，只读档位只合 Read / Grep / Glob / LS）。旧版本插件没有这一项
+   */
+  run_allow: string[]
   owner_ids: string[]
   acceptor_ids: string[]
   /** 项目目录（对象 workdir），只读；代码库没设时摘要里沿用它 */
@@ -59,7 +64,7 @@ export type ProjectProfile = {
 
 /** PATCH 每个字段整体替换，没传的不动；commands 也整体替换 */
 export type ProjectProfilePatch = Partial<Pick<ProjectProfile,
-  'intro' | 'keywords' | 'platforms' | 'code_dir' | 'proto_dir' | 'proto_rules' | 'prd_dir' | 'commands' | 'owner_ids' | 'acceptor_ids'>>
+  'intro' | 'keywords' | 'platforms' | 'code_dir' | 'proto_dir' | 'proto_rules' | 'prd_dir' | 'commands' | 'run_allow' | 'owner_ids' | 'acceptor_ids'>>
 
 export type ProfileDirState = { path: string; state: 'ok' | 'missing' | 'unset'; inherited?: boolean }
 
@@ -81,7 +86,7 @@ const one = (id: string) => `/api/projects/${encodeURIComponent(id)}/profile`
 
 const norm = (p: ProjectProfile): ProjectProfile => ({
   ...p,
-  keywords: p.keywords ?? [], platforms: p.platforms ?? [], commands: p.commands ?? {}, proto_rules: p.proto_rules ?? '',
+  keywords: p.keywords ?? [], platforms: p.platforms ?? [], commands: p.commands ?? {}, proto_rules: p.proto_rules ?? '', run_allow: p.run_allow ?? [],
   owner_ids: p.owner_ids ?? [], acceptor_ids: p.acceptor_ids ?? [],
 })
 

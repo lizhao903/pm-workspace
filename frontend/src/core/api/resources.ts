@@ -176,6 +176,7 @@ function runPromptQuery(p: RunPromptParams): URLSearchParams {
   if (p.preset_id) q.set('preset_id', p.preset_id)
   if (p.harness) q.set('harness', p.harness)
   if (p.resume) q.set('resume', 'true')
+  if (p.permission) q.set('permission', p.permission)
   return q
 }
 

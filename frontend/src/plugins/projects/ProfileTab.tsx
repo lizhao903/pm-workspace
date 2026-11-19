@@ -10,7 +10,7 @@ import { Avatar, ErrorState, LoadingState, SearchSelect, Textarea, cls } from '.
 import { nameInitial } from '../../core/ui/pinyin'
 import { PathInput } from './PathInput'
 import { ProtoSyncBlock } from './ProtoSyncBlock'
-import { DIR_FIELDS, PLATFORM_PRESETS, formOfProfile, profileDiff, readyError, timeoutError, type DirField, type ProfileForm } from './profileModel'
+import { DIR_FIELDS, PLATFORM_PRESETS, formOfProfile, profileDiff, readyError, runAllowError, timeoutError, type DirField, type ProfileForm } from './profileModel'
 
 const SAVE_DELAY = 500
 const PICK_LIMIT = 80
@@ -172,6 +172,20 @@ function ProfileEditor({ profile }: { profile: ProjectProfile }) {
             })}
           </div>
         ))}
+      </section>
+
+      <section className="pj-block" aria-label="执行白名单">
+        <h2 className="pj-sec-title">执行白名单<span className="pj-hint">这个项目的任务交给 Claude Code 后台执行时额外放行的规则，一行一条；写法同「设置 / 执行权限」的自定义白名单</span></h2>
+        <label className="field">
+          <span className="field-label">规则
+            <span className="pj-hint">允许改文件的档位全部放行；只读档位只放行 Read(…) 这类读规则，脚本和 MCP 工具不放行</span>
+          </span>
+          <Textarea rows={3} autoGrow value={form.run_allow} aria-label="执行白名单" spellCheck={false} className="pj-mono"
+            invalid={!!runAllowError(form.run_allow)}
+            placeholder={'Bash(./_shared/新建需求.sh:*)\nBash(python3 核格式.py:*)\nRead(//Volumes/project/other-repo/**)'}
+            onChange={(e) => update({ run_allow: e.target.value })} />
+          {runAllowError(form.run_allow) && <span className="field-err" role="alert">{runAllowError(form.run_allow)}，改好前这一项先不存</span>}
+        </label>
       </section>
 
       <section className="pj-block" aria-label="人员">

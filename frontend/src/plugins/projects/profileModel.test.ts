@@ -2,14 +2,26 @@
 
 import { describe, expect, it } from 'vitest'
 import { PROFILE_COMMANDS, PROFILE_COMMAND_GROUPS, type ProjectProfile } from '../../core/data'
-import { commandsOf, formOfProfile, platformsOf, profileDiff, profileGaps, readyError, rulesPeek, splitTags, timeoutError, timeoutOf } from './profileModel'
+import { commandsOf, formOfProfile, platformsOf, profileDiff, profileGaps, readyError, rulesPeek, runAllowError, runAllowOf, splitTags, timeoutError, timeoutOf } from './profileModel'
 
 const base: ProjectProfile = {
   project_id: 'obj_p', intro: '', keywords: [], platforms: [], code_dir: '', proto_dir: '', proto_rules: '', prd_dir: '',
-  commands: {}, owner_ids: [], acceptor_ids: [], root: '/src/p', created_at: null, updated_at: null,
+  commands: {}, run_allow: [], owner_ids: [], acceptor_ids: [], root: '/src/p', created_at: null, updated_at: null,
 }
 
 describe('档案表单', () => {
+  it('执行白名单（TSK-0837）：按行拆、去空去重；放开任意命令的写法报错，没改不发', () => {
+    expect(runAllowOf(' Bash(a:*) \n\nRead(//x/**)\nBash(a:*)')).toEqual(['Bash(a:*)', 'Read(//x/**)'])
+    for (const bad of ['Bash', 'Bash(*)', 'Bash(:*)', 'Bash()', 'Bash( * )']) expect(runAllowError(bad)).toMatch('放开任意命令')
+    expect(runAllowError('Bash(git commit:*)\nmcp__slack\nWebFetch')).toBe('')
+    const f = formOfProfile({ ...base, run_allow: ['Bash(a:*)'] })
+    expect(f.run_allow).toBe('Bash(a:*)')
+    expect(profileDiff({ ...f, run_allow: 'Bash(a:*)\n' }, f).patch).toEqual({})
+    expect(profileDiff({ ...f, run_allow: 'Bash(a:*)\nBash(*)' }, f).patch).toEqual({})
+    expect(profileDiff({ ...f, run_allow: '' }, f).patch).toEqual({ run_allow: [] })
+  })
+
+
   it('关键词按中英文逗号、顿号、换行拆，去空去重（不分大小写）', () => {
     expect(splitTags(' 工作台，需求、 PRD,prd\n\n原型 ')).toEqual(['工作台', '需求', 'PRD', '原型'])
     expect(splitTags('')).toEqual([])

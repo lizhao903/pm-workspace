@@ -17,7 +17,7 @@ function fakeBackend() {
   const patches: Record<string, unknown>[] = []
   let profile: Record<string, unknown> = {
     project_id: 'obj_p', intro: '旧简介', keywords: ['工作台'], platforms: ['web'], code_dir: '', proto_dir: '', proto_rules: '', prd_dir: '',
-    commands: {}, owner_ids: [], acceptor_ids: [], root: '/src/p', created_at: null, updated_at: null,
+    commands: {}, run_allow: [], owner_ids: [], acceptor_ids: [], root: '/src/p', created_at: null, updated_at: null,
   }
   const json = (data: unknown, status = 200) => new Response(JSON.stringify(status < 300 ? { data } : data), { status })
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -69,6 +69,20 @@ describe('档案标签', () => {
     await screen.findByDisplayValue('旧简介')
     await userEvent.type(screen.getByLabelText('原型库规则'), '不做独立 HTML')
     await waitFor(() => expect(patches.at(-1)).toEqual({ proto_rules: '不做独立 HTML' }), { timeout: 2000 })
+  })
+
+  it('执行白名单（TSK-0837）：一行一条存 run_allow；Bash(*) 这类先不存、就地说原因', async () => {
+    const patches = fakeBackend()
+    mount()
+    await screen.findByDisplayValue('旧简介')
+    const box = screen.getByRole('textbox', { name: '执行白名单' })
+    await userEvent.type(box, 'Bash(./_shared/新建需求.sh:*){enter}  {enter}Read(//x/**)')
+    await waitFor(() => expect(patches.at(-1)).toEqual({ run_allow: ['Bash(./_shared/新建需求.sh:*)', 'Read(//x/**)'] }), { timeout: 2000 })
+    const n = patches.length
+    await userEvent.type(box, '{enter}Bash(*)')
+    expect(await screen.findByText(/等于放开任意命令/)).toBeTruthy()
+    await new Promise((r) => setTimeout(r, 800))
+    expect(patches.length).toBe(n)
   })
 
   it('点平台立即存；命令超时填错时提示且先不存命令', async () => {

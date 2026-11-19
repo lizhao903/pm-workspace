@@ -490,7 +490,11 @@ export type TerminalHandoff = {
 export type FinishRunInput = { status: 'done' | 'failed' | 'canceled'; summary?: string }
 /** GET /api/objects/{id}/run/prompt 的参数和响应 */
 /** harness=agent 时预览交给工作台 Agent 的那一份（TSK-0460），resume 是续跑的说法 */
-export type RunPromptParams = { mode?: RunMode; workdir?: string; extra_prompt?: string; preset_id?: string; harness?: RunHarness; resume?: boolean }
+/** permission 是这次要用的档位（TSK-0837）：只影响流式提示词里列出的项目执行白名单，不传按允许改文件算 */
+export type RunPromptParams = {
+  mode?: RunMode; workdir?: string; extra_prompt?: string; preset_id?: string; harness?: RunHarness; resume?: boolean
+  permission?: RunPermission
+}
 export type RunPrompt = { prompt: string; workdir: string }
 /** 角色的权限：只读不放开文件编辑；accept_edits 流式执行时加 --permission-mode acceptEdits（AUTO-03） */
 export type RolePermission = 'read_only' | 'accept_edits'

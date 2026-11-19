@@ -268,16 +268,18 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var allowed []string
+	var allowed, projAllow []string
 	if claude {
 		perms, err := s.runPerms(ctx)
 		if err != nil {
 			s.fail(w, r, err)
 			return
 		}
-		allowed = runner.PermAllowed(perm, perms.Custom)
+		// 任务属于项目时合上项目档案的执行白名单（TSK-0837）：写入档位全合，只读档位只合读规则
+		projAllow = runner.ProjectAllowFor(perm, s.projectAllowOf(ctx, obj))
+		allowed = runner.PermAllowedWith(perm, perms.Custom, projAllow)
 	}
-	wb := &runner.WriteBack{RunID: previewRunID, ObjectID: obj.ID, Stream: true, DSH: !claude}
+	wb := &runner.WriteBack{RunID: previewRunID, ObjectID: obj.ID, Stream: true, DSH: !claude, ProjectAllow: projAllow}
 	var dsRoute *runner.DeepSeekRoute
 	var sessionID string
 	// moduleKey / modulePrefix / moduleVersion 是这次执行复用的模块前缀（0058），非 deepseek 恒为空。

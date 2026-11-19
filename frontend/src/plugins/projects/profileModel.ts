@@ -30,6 +30,8 @@ export type ProfileForm = {
   proto_rules: string
   prd_dir: string
   commands: Record<ProfileCommandKey, CommandDraft>
+  /** 执行白名单原文，一行一条规则（TSK-0837） */
+  run_allow: string
   owner_ids: string[]
   acceptor_ids: string[]
 }
@@ -63,8 +65,28 @@ export function formOfProfile(p: ProjectProfile): ProfileForm {
     code_dir: p.code_dir, proto_dir: p.proto_dir, prd_dir: p.prd_dir,
     proto_rules: p.proto_rules ?? '',
     commands,
+    run_allow: (p.run_allow ?? []).join('\n'),
     owner_ids: p.owner_ids, acceptor_ids: p.acceptor_ids,
   }
+}
+
+/** 执行白名单原文 → 规则数组：按行拆，去首尾空白、去空、去重（规范化和校验以后端 CheckRule 为准） */
+export function runAllowOf(s: string): string[] {
+  const out: string[] = []
+  for (const raw of s.split('\n')) {
+    const x = raw.trim()
+    if (x && !out.includes(x)) out.push(x)
+  }
+  return out
+}
+
+/**
+ * 执行白名单里一眼就不行的规则（后端也挡）：Bash、Bash(*) 这类等于放开任意命令的。
+ * 有的话这一项先不存，等改好
+ */
+export function runAllowError(s: string): string {
+  const bad = runAllowOf(s).find((r) => r === 'Bash' || /^Bash\(\s*([*:].*)?\)$/.test(r))
+  return bad ? `「${bad}」等于放开任意命令，不收；按命令前缀写，如 Bash(./scripts/check.sh:*)` : ''
 }
 
 /** 超时输入框原文 → 秒；空、不是非负整数时当 0（用默认值） */
@@ -120,6 +142,7 @@ export function profileDiff(f: ProfileForm, saved: ProfileForm): { patch: Projec
   if (f.proto_rules.trim() !== saved.proto_rules.trim()) patch.proto_rules = f.proto_rules.trim()
   const bad = PROFILE_COMMANDS.some(({ key }) => timeoutError(f.commands[key].timeout)) || !!readyError(f.commands.test_env.ready)
   if (!bad && !same(commandsOf(f), commandsOf(saved))) patch.commands = commandsOf(f)
+  if (!runAllowError(f.run_allow) && !same(runAllowOf(f.run_allow), runAllowOf(saved.run_allow))) patch.run_allow = runAllowOf(f.run_allow)
   if (!same(f.owner_ids, saved.owner_ids)) patch.owner_ids = f.owner_ids
   if (!same(f.acceptor_ids, saved.acceptor_ids)) patch.acceptor_ids = f.acceptor_ids
   const dirs: Partial<Record<DirField, string>> = {}

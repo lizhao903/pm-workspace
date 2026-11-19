@@ -67,3 +67,48 @@ func (r *Registry) ProjectPrototypes(ctx context.Context, projectID string) (out
 	}
 	return nil, ErrNoProjectPrototypes
 }
+
+// 「项目执行白名单」钩子（TSK-0837）：项目档案里录的 Claude Code 权限规则（run_allow），
+// 任务属于这个项目时由内核合进后台执行的 --allowedTools。档案在项目插件的表里，同原型目录走钩子取。
+
+// ErrNoProjectRunAllow：没有在跑的插件登记执行白名单的查询入口（项目插件没装、停用或还没升到 0.20.0）。
+var ErrNoProjectRunAllow = errors.New("no project run-allow provider")
+
+// ProjectRunAllowLister 回一个项目档案里的执行白名单（已按 runner.CheckRule 校验过的规则）；没建档案、没录回空切片。
+type ProjectRunAllowLister func(ctx context.Context, projectID string) ([]string, error)
+
+func (c *collector) ProjectRunAllow(fn ProjectRunAllowLister) {
+	switch {
+	case !slices.Contains(c.e.m.Provides.Modules, ProjectsModule):
+		c.add("只有 provides.modules 含 %s 的插件能登记项目执行白名单的查询入口", ProjectsModule)
+	case fn == nil:
+		c.add("项目执行白名单的查询入口是 nil")
+	case c.a.projectRunAllow != nil:
+		c.add("项目执行白名单的查询入口重复登记")
+	default:
+		c.a.projectRunAllow = fn
+	}
+}
+
+// ProjectRunAllow 交给登记了查询入口、正在跑的插件（按登记顺序第一个）列出项目的执行白名单；
+// 没有时回 ErrNoProjectRunAllow，插件 panic 转成错误。
+func (r *Registry) ProjectRunAllow(ctx context.Context, projectID string) (out []string, err error) {
+	if r == nil {
+		return nil, ErrNoProjectRunAllow
+	}
+	for _, id := range r.order {
+		e := r.entries[id]
+		a := e.active.Load()
+		if a == nil || a.projectRunAllow == nil {
+			continue
+		}
+		defer func() {
+			if v := recover(); v != nil {
+				e.core.log.Error("plugin project run-allow panic", "panic", v, "stack", string(debug.Stack()))
+				out, err = nil, fmt.Errorf("查项目执行白名单出错")
+			}
+		}()
+		return a.projectRunAllow(ctx, projectID)
+	}
+	return nil, ErrNoProjectRunAllow
+}

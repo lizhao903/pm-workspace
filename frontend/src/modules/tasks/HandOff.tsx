@@ -218,6 +218,8 @@ export function RunDialog({ task, workdir, inherit, onStart, onClose, harness = 
   }, [extra, extraSettled])
   const prompt = useRunPrompt(task.id, {
     mode: effMode, workdir: checked, extra_prompt: extraSettled, preset_id: presetId || undefined, ...(dsh ? { harness: 'deepseek' as const } : {}),
+    // 档位决定提示词里列出哪些项目执行白名单（TSK-0837）：只读只列读规则
+    ...(!dsh && effMode === 'stream' ? { permission: allow ? writeProfile : 'read_only' as const } : {}),
   }, preview)
   const check = useWorkdirCheck(checked)
   const typing = dir.trim() !== checked

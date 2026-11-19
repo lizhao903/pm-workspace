@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/lizhao903/pm-workspace/internal/plugin"
+	"github.com/lizhao903/pm-workspace/internal/runner"
 )
 
 // 项目档案（AUTO-04）：表 projects_profiles（迁移 0005），给分类 Agent 和各 pipeline 用。
@@ -64,9 +65,12 @@ type Profile struct {
 	ProtoRules string `json:"proto_rules"`
 	PRDDir     string `json:"prd_dir"`
 	// Commands 只含设了的命令，key 见 CommandKeys
-	Commands    map[string]Command `json:"commands"`
-	OwnerIDs    []string           `json:"owner_ids"`
-	AcceptorIDs []string           `json:"acceptor_ids"`
+	Commands map[string]Command `json:"commands"`
+	// RunAllow 是项目执行白名单（迁移 0014，TSK-0837）：Claude Code 的权限规则，任务属于这个项目、交给 Claude Code
+	// 后台执行时合进 --allowedTools（写入档位全合，只读档位只合 Read 这类读规则，见 runner.MergeProjectAllow）
+	RunAllow    []string `json:"run_allow"`
+	OwnerIDs    []string `json:"owner_ids"`
+	AcceptorIDs []string `json:"acceptor_ids"`
 	// Root 是项目本身的目录（对象 workdir 列），只读；代码库目录没设时摘要里用它
 	Root string `json:"root"`
 	// CreatedAt、UpdatedAt 没建过档案时为 null
@@ -102,6 +106,7 @@ type profilePatch struct {
 	ProtoRules  *string             `json:"proto_rules"`
 	PRDDir      *string             `json:"prd_dir"`
 	Commands    *map[string]Command `json:"commands"`
+	RunAllow    *[]string           `json:"run_allow"`
 	OwnerIDs    *[]string           `json:"owner_ids"`
 	AcceptorIDs *[]string           `json:"acceptor_ids"`
 }
@@ -137,7 +142,7 @@ func (h *profiles) update(w http.ResponseWriter, r *http.Request) {
 	}{
 		{"intro", in.Intro != nil}, {"keywords", in.Keywords != nil}, {"platforms", in.Platforms != nil},
 		{"code_dir", in.CodeDir != nil}, {"proto_dir", in.ProtoDir != nil}, {"proto_rules", in.ProtoRules != nil}, {"prd_dir", in.PRDDir != nil},
-		{"commands", in.Commands != nil}, {"owner_ids", in.OwnerIDs != nil}, {"acceptor_ids", in.AcceptorIDs != nil},
+		{"commands", in.Commands != nil}, {"run_allow", in.RunAllow != nil}, {"owner_ids", in.OwnerIDs != nil}, {"acceptor_ids", in.AcceptorIDs != nil},
 	} {
 		if c.sent {
 			sets = append(sets, c.col+" = excluded."+c.col)
@@ -146,11 +151,11 @@ func (h *profiles) update(w http.ResponseWriter, r *http.Request) {
 	sets = append(sets, "updated_at = excluded.updated_at")
 	now := time.Now().UTC().Format(time.RFC3339)
 	_, err = h.c.Store().Exec(ctx, `INSERT INTO projects_profiles
-		(project_id, intro, keywords, platforms, code_dir, proto_dir, proto_rules, prd_dir, commands, owner_ids, acceptor_ids, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		(project_id, intro, keywords, platforms, code_dir, proto_dir, proto_rules, prd_dir, commands, run_allow, owner_ids, acceptor_ids, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (project_id) DO UPDATE SET `+strings.Join(sets, ", "),
 		pid, cur.Intro, enc(cur.Keywords), enc(cur.Platforms), cur.CodeDir, cur.ProtoDir, cur.ProtoRules, cur.PRDDir,
-		enc(cur.Commands), enc(cur.OwnerIDs), enc(cur.AcceptorIDs), now, now)
+		enc(cur.Commands), enc(cur.RunAllow), enc(cur.OwnerIDs), enc(cur.AcceptorIDs), now, now)
 	if err != nil {
 		h.fail(w, r, err)
 		return
@@ -204,6 +209,14 @@ func (h *profiles) apply(ctx context.Context, p *Profile, in profilePatch) error
 		if p.Commands, err = cleanCommands(*in.Commands); err != nil {
 			return err
 		}
+	}
+	if in.RunAllow != nil {
+		// 校验同「设置 / 执行权限」的自定义白名单：一样的规则写法、一样的上限，Bash(*) 这类放开任意命令的不收
+		rules, err := runner.CleanRules(*in.RunAllow)
+		if err != nil {
+			return apiErr(errValidation, "run_allow: %s", err.Error())
+		}
+		p.RunAllow = rules
 	}
 	if in.OwnerIDs != nil {
 		if p.OwnerIDs, err = h.cleanPeople(ctx, "owner_ids", *in.OwnerIDs); err != nil {
@@ -365,7 +378,7 @@ func (h *profiles) liveProject(ctx context.Context, id string) (plugin.ObjectInf
 	return o, err
 }
 
-const profileCols = `project_id, intro, keywords, platforms, code_dir, proto_dir, proto_rules, prd_dir, commands, owner_ids, acceptor_ids, created_at, updated_at`
+const profileCols = `project_id, intro, keywords, platforms, code_dir, proto_dir, proto_rules, prd_dir, commands, run_allow, owner_ids, acceptor_ids, created_at, updated_at`
 
 // load 读一个项目的档案，没有行时回空档案。人员按名册过滤掉已经删掉的联系人。
 func (h *profiles) load(ctx context.Context, o plugin.ObjectInfo) (Profile, error) {
@@ -402,24 +415,25 @@ func (h *profiles) existing(ctx context.Context, ids []string) ([]string, error)
 }
 
 func emptyProfile(pid string) Profile {
-	return Profile{ProjectID: pid, Keywords: []string{}, Platforms: []string{}, Commands: map[string]Command{}, OwnerIDs: []string{}, AcceptorIDs: []string{}}
+	return Profile{ProjectID: pid, Keywords: []string{}, Platforms: []string{}, Commands: map[string]Command{}, RunAllow: []string{}, OwnerIDs: []string{}, AcceptorIDs: []string{}}
 }
 
 func scanProfile(row plugin.Row) (Profile, error) {
 	var p Profile
-	var kw, pf, cmds, owners, acceptors, created, updated string
-	if err := row.Scan(&p.ProjectID, &p.Intro, &kw, &pf, &p.CodeDir, &p.ProtoDir, &p.ProtoRules, &p.PRDDir, &cmds, &owners, &acceptors, &created, &updated); err != nil {
+	var kw, pf, cmds, allow, owners, acceptors, created, updated string
+	if err := row.Scan(&p.ProjectID, &p.Intro, &kw, &pf, &p.CodeDir, &p.ProtoDir, &p.ProtoRules, &p.PRDDir, &cmds, &allow, &owners, &acceptors, &created, &updated); err != nil {
 		return Profile{}, err
 	}
 	e := emptyProfile(p.ProjectID)
-	p.Keywords, p.Platforms, p.Commands, p.OwnerIDs, p.AcceptorIDs = e.Keywords, e.Platforms, e.Commands, e.OwnerIDs, e.AcceptorIDs
+	p.Keywords, p.Platforms, p.Commands, p.RunAllow, p.OwnerIDs, p.AcceptorIDs = e.Keywords, e.Platforms, e.Commands, e.RunAllow, e.OwnerIDs, e.AcceptorIDs
 	// 解不开当空：表里只有接口写进去的 JSON，坏了也不该让整个档案读不出来
 	_ = json.Unmarshal([]byte(kw), &p.Keywords)
 	_ = json.Unmarshal([]byte(pf), &p.Platforms)
 	_ = json.Unmarshal([]byte(cmds), &p.Commands)
+	_ = json.Unmarshal([]byte(allow), &p.RunAllow)
 	_ = json.Unmarshal([]byte(owners), &p.OwnerIDs)
 	_ = json.Unmarshal([]byte(acceptors), &p.AcceptorIDs)
-	for _, s := range []*[]string{&p.Keywords, &p.Platforms, &p.OwnerIDs, &p.AcceptorIDs} {
+	for _, s := range []*[]string{&p.Keywords, &p.Platforms, &p.RunAllow, &p.OwnerIDs, &p.AcceptorIDs} {
 		if *s == nil {
 			*s = []string{}
 		}
@@ -539,4 +553,28 @@ func dirState(p string) DirState {
 		return DirState{Path: p, State: "ok"}
 	}
 	return DirState{Path: p, State: "missing"}
+}
+
+// projectRunAllow 是内核「项目执行白名单」钩子的实现（TSK-0837）：读档案的 run_allow，没建档案回空。
+// 读出来再过一遍 CheckRule：表里只有接口写进去的规则，但规则口径以后收紧时，旧数据里不再合规的不该带进命令行。
+func projectRunAllow(c plugin.Core) plugin.ProjectRunAllowLister {
+	return func(ctx context.Context, projectID string) ([]string, error) {
+		var raw string
+		err := c.Store().QueryRow(ctx, `SELECT run_allow FROM projects_profiles WHERE project_id = ?`, projectID).Scan(&raw)
+		if errors.Is(err, plugin.ErrNoRows) {
+			return []string{}, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		var rules []string
+		_ = json.Unmarshal([]byte(raw), &rules)
+		out := []string{}
+		for _, r := range rules {
+			if x, err := runner.CheckRule(r); err == nil {
+				out = append(out, x)
+			}
+		}
+		return out, nil
+	}
 }

@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	"sync"
 
 	"github.com/lizhao903/pm-workspace/internal/domain"
+	"github.com/lizhao903/pm-workspace/internal/plugin"
 	"github.com/lizhao903/pm-workspace/internal/runner"
 )
 
@@ -123,6 +125,23 @@ func (s *Server) handlePutRunPermissions(w http.ResponseWriter, r *http.Request)
 	s.auditConfig(r, "update", "run_permissions", runPermsKey, "修改交给 Claude Code 的执行权限",
 		map[string]any{"write_profile": wp, "custom": custom})
 	respondData(w, http.StatusOK, runPermsView(v))
+}
+
+// projectAllowOf 是任务所属项目的执行白名单（项目档案 run_allow，TSK-0837），经插件钩子问项目插件。
+// 没挂项目、项目插件没装或还没升到 0.20.0（ErrNoProjectRunAllow）、查询出错时回空：辅助信息缺失不能让执行起不来，
+// 出错记一条日志。按档位筛（只读只留读规则）由调用方 runner.ProjectAllowFor 做。
+func (s *Server) projectAllowOf(ctx context.Context, o *domain.Object) []string {
+	if o == nil || o.ProjectID == nil || strings.TrimSpace(*o.ProjectID) == "" || s.opt.Plugins == nil {
+		return nil
+	}
+	rules, err := s.opt.Plugins.ProjectRunAllow(ctx, *o.ProjectID)
+	if err != nil {
+		if !errors.Is(err, plugin.ErrNoProjectRunAllow) {
+			s.log.Warn("list project run allow failed", "project", *o.ProjectID, "err", err)
+		}
+		return nil
+	}
+	return rules
 }
 
 // effectivePerm 定这次流式执行的档位：permission 给了以它为准，没给按 allow_writes

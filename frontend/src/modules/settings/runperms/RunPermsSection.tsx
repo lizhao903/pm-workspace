@@ -65,7 +65,7 @@ function PermsForm({ saved, title }: { saved: RunPermissions; title: ReactNode }
           onValueChange={(v) => { setProfile(v as RunWriteProfile); setNote(null) }} />
       </Field>
       <Field label="自定义白名单" error={issue || undefined}
-        hint="一行一条 Claude Code 权限规则，只在「自定义白名单」档生效。如 Bash(git commit:*)、Bash(make deploy:*)、mcp__slack、WebFetch">
+        hint="一行一条 Claude Code 权限规则，只在「自定义白名单」档生效。如 Bash(git commit:*)、Bash(make deploy:*)、mcp__slack、WebFetch、Read(//别处的目录/**)。只跟某个项目有关的脚本，录在项目档案的「执行白名单」里，只对那个项目的任务生效">
         <Textarea rows={6} value={text} aria-label="自定义白名单" spellCheck={false} invalid={!!issue}
           placeholder={'Bash(git add:*)\nBash(git commit:*)'} onChange={(e) => { setText(e.target.value); setNote(null) }} />
       </Field>
