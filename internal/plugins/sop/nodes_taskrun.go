@@ -55,6 +55,7 @@ type claudeParams struct {
 	workdir, prompt, task, preset, executor string
 	writes, follow                          bool
 	timeout                                 time.Duration
+	readDirs                                []string // 工作目录之外要读的目录（TSK-0851，只有 claude_code 节点配）
 }
 
 // taskRunContinue 是这一步失败时不停、把失败交给下游。

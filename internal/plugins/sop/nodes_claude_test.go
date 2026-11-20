@@ -355,3 +355,38 @@ func TestClaudeNodeSelectedExecutor(t *testing.T) {
 	}
 	f.results <- &clauderun.Result{Status: domain.RunDone}
 }
+
+// TestClaudeNodeReadDirs（TSK-0851 复现）：「系统版本更新 → 视频素材」的 Claude Code 节点在 web-video 里跑，
+// 提示词要它去 pm-workspace 读 git log，工作目录外没有放行，git -C / ls / Read 全被拒。
+// 节点配了「额外可读目录」（read_dirs，支持 {{字段}}、一行一个）后，发起时要带上该目录的只读规则和提示词里的说明，
+// 步骤日志写明额外可读哪些目录；保存时相对路径要被挡下。
+func TestClaudeNodeReadDirs(t *testing.T) {
+	r, h, f, wd := setupClaude(t)
+	repo := t.TempDir()
+	code, out := call(t, h, "POST", "/api/sop/flows", claudeFlow(wd, `,"read_dirs":"relative/repo"`))
+	if code != 400 || !strings.Contains(errMsg(out), "额外可读目录要写绝对路径") {
+		t.Fatalf("相对路径要挡下，得到 %d %s", code, errMsg(out))
+	}
+	fid := newFlow(t, h, claudeFlow(wd, `,"read_dirs":"{{repo}}\n"`))
+	run := startRun(t, h, fid, fmt.Sprintf(`{"input":{"topic":"本周变更","dir":%q,"repo":%q}}`, wd, repo))
+	id := run["id"].(string)
+	rid := recvRun(t, f)
+	req := f.req(0)
+	have := strings.Join(req.AllowedTools, "\n")
+	for _, want := range []string{"Read(/" + repo + "/**)", "Bash(git -C " + repo + " log:*)"} {
+		if !strings.Contains(have, want) {
+			t.Errorf("放行规则里没有 %q：\n%s", want, have)
+		}
+	}
+	if !strings.Contains(req.Prompt, "## 额外可读目录\n") || !strings.Contains(req.Prompt, "- "+repo) {
+		t.Errorf("提示词没说明额外可读目录：%s", req.Prompt)
+	}
+	waitFor(t, "日志写明额外可读目录", func() bool {
+		return hasLog(step(getRun(t, h, id), "review"), "额外可读 "+repo)
+	})
+	if _, err := r.ReportRun(rid, "done", "好了", map[string]any{"verdict": "pass"}); err != nil {
+		t.Fatal(err)
+	}
+	f.results <- &clauderun.Result{Status: domain.RunDone, Output: "过程"}
+	waitStatus(t, h, id, "done")
+}

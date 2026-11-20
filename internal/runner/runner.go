@@ -799,7 +799,7 @@ func classifierReasons(cls []Denial) string {
 
 // bashLimitsHint 是被拒的命令每一段都已放行时的说法：原因在白名单管不到的地方（2.1.328 实测，见 permissions.go 文件头）。
 const bashLimitsHint = "有的命令每一段都已在放行范围内仍被拒，原因不在白名单：路径在工作目录之外的（在工作目录里放指向它的软链接，" +
-	"或在项目档案的执行白名单加 Read(//绝对路径/**)）、命令里给 shell 变量赋值的（C=…，规则放不开，改写成绝对路径）、" +
+	"或在项目档案的执行白名单加 Read(//绝对路径/**)；SOP 的 Claude Code 节点在「额外可读目录」里填上那个目录）、命令里给 shell 变量赋值的（C=…，规则放不开，改写成绝对路径）、" +
 	"cd 到别处再跑 git 的（改在工作目录里跑或用绝对路径读文件）。"
 
 // unsafeSqlite 报告被拒的命令里有没有不带 -safe 的 sqlite3。

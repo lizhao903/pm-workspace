@@ -73,6 +73,12 @@ func checkClaude(cfg map[string]string) []string {
 	if _, err := claudeTimeout(cfg["timeout"]); err != nil {
 		out = append(out, err.Error())
 	}
+	// 额外可读目录（TSK-0851）：保存时只查写法（绝对路径），在不在、是不是目录到执行时由内核查——保存的机器不一定是跑的机器
+	for _, d := range readDirs(cfg["read_dirs"]) {
+		if !strings.Contains(d, "{{") && !strings.HasPrefix(d, "/") {
+			out = append(out, "额外可读目录要写绝对路径："+d)
+		}
+	}
 	return out
 }
 
@@ -163,6 +169,7 @@ func (r *runner) startClaude(ctx context.Context, i int, release func()) {
 	id, err := r.e.c.Runs().StartClaudeCode(ctx, plugin.ClaudeCodeStart{
 		Workdir: workdir, Prompt: p.prompt, AllowWrites: writes, ObjectID: task, RecordOnTask: task != "",
 		ExecutorID: p.executor, ReportBack: true, PresetID: preset, FollowPreset: follow, Timeout: timeout,
+		ReadDirs: p.readDirs,
 	})
 	if err != nil {
 		r.claudeFail(i, t, "交给 Claude Code 失败："+claudeStartErr(err))
@@ -179,8 +186,11 @@ func (r *runner) startClaude(ctx context.Context, i int, release func()) {
 		mode = "可写"
 	}
 	where := ""
+	if len(p.readDirs) > 0 {
+		where += "，额外可读 " + strings.Join(p.readDirs, "、")
+	}
 	if task != "" {
-		where = "，执行记录留在任务 " + task + " 上"
+		where += "，执行记录留在任务 " + task + " 上"
 	}
 	r.log(i, t, fmt.Sprintf("交给 Claude Code（执行 %s，%s，目录 %s，最多 %s%s），等它结束", id, mode, workdir, humanDuration(timeout), where))
 	r.watchClaude(ctx, i, release)
@@ -215,7 +225,19 @@ func (r *runner) claudeCodeParams(i int, t time.Time, def stepDef, input Json) (
 	return claudeParams{
 		executor: strings.TrimSpace(cfg["executor"]), workdir: workdir, prompt: prompt, task: strings.TrimSpace(render(cfg["task"], input)), preset: preset,
 		writes: cfg["permission"] == "write", follow: cfg["permission"] == "" && preset != "", timeout: timeout,
+		readDirs: readDirs(render(cfg["read_dirs"], input)),
 	}, true
+}
+
+// readDirs 拆「额外可读目录」（TSK-0851）：一行一个，也认逗号、分号隔开；去掉空的。校验交给内核（StartClaudeCode）。
+func readDirs(s string) []string {
+	var out []string
+	for _, d := range strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == '\r' || r == ',' || r == '，' || r == ';' || r == '；' }) {
+		if d = strings.TrimSpace(d); d != "" {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // claudeFail 是发起前、发起时失败：执行任务配了 on_fail=continue 时这一步照样完成，输出 status=failed 和原因，交给下游回报；

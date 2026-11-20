@@ -337,6 +337,7 @@ const INFO: Record<string, NodeInfo> = {
       },
       { key: 'workdir', label: '工作目录', type: 'text', placeholder: '{{project.code_dir}}', hint: '本机绝对路径，或取输入里的字段' },
       { key: 'prompt', label: '提示词', type: 'textarea', placeholder: '按 {{task_id}} 的验收标准评审 PRD', hint: '支持 {{字段}}；被条件回退退回时自动附上上一轮的意见' },
+      { key: 'read_dirs', label: '额外可读目录', type: 'textarea', placeholder: '/Users/you/Projects/other-repo', hint: '工作目录之外要读的目录，一行一个绝对路径；只放开读和 git -C 目录 log/show/diff，不能改' },
       { key: 'task', label: '关联任务', type: 'text', placeholder: '{{task_id}}', hint: '填了就在任务上留执行记录，执行详情能跳过去' },
       {
         key: 'permission', label: '权限', type: 'select', default: '',

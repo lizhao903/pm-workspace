@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -109,6 +110,9 @@ type ClaudeCodeStart struct {
 	// ReportBack 为真时要 Claude Code 结束前经工作台 MCP 的 pmw_finish_run 回报结论（summary、结构化 result），
 	// 内核在提示词末尾加「回写到工作台」一节，并给这次执行接上回写用的 MCP（AUTO-01）
 	ReportBack bool
+	// ReadDirs 可选，工作目录之外要读的目录（绝对路径，TSK-0851）：内核按目录放行只读规则（Read、git -C <目录> log 等，
+	// runner.ReadDirRules），不放开写；提示词末尾说明哪些目录能读、命令怎么写。在工作目录里面的忽略，目录不可用报错
+	ReadDirs []string
 }
 
 // RunInfo 是一条运行的样子，Finished 为假时只有 ID、Kind、Source、Status、StartedAt 可信。
@@ -245,6 +249,34 @@ func (r *Registry) runPermsFor(ctx context.Context, box claudeBox, writes bool) 
 		perm = p.WriteProfile
 	}
 	return perm, runner.PermAllowed(perm, p.Custom), runner.DenyWith(runner.DenyEnv{DataDir: r.DataDir, PublicURL: box.apiURL}, p.Deny)
+}
+
+// outsideReadDirs 校验额外可读目录（TSK-0851），去掉空的、重复的和在工作目录里面的（本来就能读），保序。
+// 有一个不可用就整体报错：静默丢掉会让执行照跑、到读的时候才被拒，正是 TSK-0851 的样子。
+func outsideReadDirs(workdir string, dirs []string) ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	for _, d := range dirs {
+		if strings.TrimSpace(d) == "" {
+			continue
+		}
+		p, err := runner.CheckReadDir(d)
+		if err != nil {
+			return nil, err
+		}
+		if seen[p] || pathInside(workdir, p) {
+			continue
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	return out, nil
+}
+
+// pathInside：p 是 root 本身或在它下面（都是规范化过的绝对路径）。
+func pathInside(root, p string) bool {
+	rel, err := filepath.Rel(root, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 // taskRunRecorder 是在任务上建、收尾执行记录的 store 方法，cmd/pmw 交的外层 store 满足它。
@@ -419,6 +451,10 @@ func (s runService) StartClaudeCode(ctx context.Context, q ClaudeCodeStart) (str
 	if err != nil {
 		return "", err
 	}
+	readDirs, err := outsideReadDirs(workdir, q.ReadDirs)
+	if err != nil {
+		return "", err
+	}
 	r := s.c.reg
 	var box claudeBox
 	if r != nil {
@@ -487,6 +523,10 @@ func (s runService) StartClaudeCode(ctx context.Context, q ClaudeCodeStart) (str
 	info.TaskRun = tr != nil
 	req.RunID, req.Workdir, req.AllowWrites, req.Timeout = info.ID, workdir, q.AllowWrites, q.Timeout
 	req.Permission, req.AllowedTools, req.DisallowedTools = r.runPermsFor(ctx, box, q.AllowWrites)
+	if len(readDirs) > 0 {
+		req.AllowedTools = append(req.AllowedTools, runner.ReadDirRules(readDirs)...)
+		prompt += runner.ReadDirsSection(readDirs)
+	}
 	cleanup := func() {}
 	if q.ReportBack {
 		path, done, cbErr := writeCallbackMCP(box.mcpBin, box.apiURL)
