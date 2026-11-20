@@ -5,11 +5,12 @@ import './markets.css'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
 import {
-  ALERT_COND, DOWN, INSTRUMENTS, MARKETS, OPTION_EXPIRIES, OPTION_UNDERLYINGS, SESSION_LABEL, UP,
-  bars, fmtPct, fmtPrice, instOf, optionChain, prevClose, priceAt, sessionOf,
-  type AlertCond, type AlertEvent, type AlertNotify, type MarketKey, type PriceAlert, type SessionState, type Watchlist,
+  ALERT_COND, CHART_INTERVALS, DOWN, IND_DEFAULT, INDICATORS, INSTRUMENTS, INTERVALS, MARKETS, OPTION_EXPIRIES, OPTION_UNDERLYINGS, SESSION_LABEL, TDX_INDICATORS, UP,
+  bars, fmtPct, fmtPrice, instOf, isIndCond, optionChain, prevClose, priceAt, sessionOf,
+  type AlertCond, type AlertEvent, type AlertIndicatorSpec, type AlertNotify, type BarInterval, type Indicator, type MarketKey, type PriceAlert, type SessionState, type Watchlist,
 } from './tradedata'
-import { condFits, condValue, fmtCondValue } from './alertcheck'
+import { alertIndOf, condFits, condValue, fmtCondValue, indPriceScale, indText } from './alertcheck'
+import type { AlertIndicator } from './ta'
 import { newId } from './ids'
 import { SearchSelect } from './searchselect'
 import { SymbolPicker } from './symbolpick'
@@ -157,6 +158,11 @@ function WallCell({ symbol, now, onOpen }: { symbol: string; now: number; onOpen
 
 const NOTIFY_LABEL: Record<AlertNotify, string> = { app: '应用内', im: 'IM', sound: '声音' }
 const isPrice = (c: AlertCond) => c === 'price_above' || c === 'price_below'
+/** 指标条件能选的指标：策略能用的那些，去掉收盘价、成交量；常用的在前，通达信口径的在后 */
+const IND_OPTS = (Object.keys(INDICATORS) as Indicator[]).filter((k) => k !== 'price' && k !== 'volume')
+  .sort((a, b) => Number(TDX_INDICATORS.has(a)) - Number(TDX_INDICATORS.has(b))) as AlertIndicator[]
+/** 规则表的条件列：指标条件写成「1h RSI(14) 高于」 */
+const condLabel = (a: PriceAlert) => `${a.interval ?? ''} ${indText(a.indicator)} ${ALERT_COND[a.cond].label.slice(2)}`
 
 /** 提醒能选的标的：全部标的按市场排，加上各标的第二个到期日的平值认购 / 认沽；当前标的不在里面时放最前 */
 function symbolChoices(extra: string) {
@@ -184,6 +190,10 @@ function AlertDrawer({ alert, symbol, imConnectors, onClose, onSave, onDelete }:
     ? { ...alert, value: String(alert.value) }
     : { symbol, cond: 'price_above', value: '', repeat: false, cooldown_min: 30, notify: ['app'], im_connector: imConnectors[0]?.id, enabled: true, note: '' })
   const [confirmDel, setConfirmDel] = useState(false)
+  // 指标条件（TRD-10）的指标和周期：默认 1 小时 RSI(14)；别的条件保存时不带
+  const [indSpec, setIndSpec] = useState<AlertIndicatorSpec>(() => alert?.indicator ?? { kind: 'ind', ind: 'rsi', params: [...IND_DEFAULT.rsi] })
+  const [indIv, setIndIv] = useState<BarInterval>(() => alert?.interval ?? '1h')
+  const indCond = isIndCond(d.cond)
   const now = useClock()
   const closeRef = useRef(onClose)
   closeRef.current = onClose
@@ -195,11 +205,12 @@ function AlertDrawer({ alert, symbol, imConnectors, onClose, onSave, onDelete }:
   const pool = useMemo(() => symbolChoices(d.symbol), [d.symbol])
   const inst = instOf(d.symbol)
   const conds = (Object.keys(ALERT_COND) as AlertCond[]).filter((c) => condFits(c, inst))
-  const cur = condValue(d.cond, d.symbol, now)
+  const indOk = !indCond || indSpec.params.every(Number.isFinite)
+  const cur = condValue(d.cond, d.symbol, now, indCond && indOk ? { indicator: indSpec, interval: indIv } : undefined)
   const num = Number(d.value)
   const valueOk = d.value.trim() !== '' && Number.isFinite(num)
   const imOk = !d.notify.includes('im') || !!d.im_connector
-  const ok = valueOk && imOk && d.notify.length > 0 && !!inst
+  const ok = valueOk && imOk && d.notify.length > 0 && !!inst && indOk
 
   const setSymbol = (s: string) => {
     const i = instOf(s)
@@ -208,13 +219,16 @@ function AlertDrawer({ alert, symbol, imConnectors, onClose, onSave, onDelete }:
   const toggleNotify = (n: AlertNotify) => setD({ ...d, notify: d.notify.includes(n) ? d.notify.filter((x) => x !== n) : [...d.notify, n] })
   const fill = () => {
     if (cur === null) return
-    const v = isPrice(d.cond) ? fmtPrice(d.symbol, cur).replace(/,/g, '') : d.cond === 'funding_above' ? cur.toFixed(4) : cur.toFixed(2)
+    const v = isPrice(d.cond) || (indCond && indPriceScale(indSpec)) ? fmtPrice(d.symbol, cur).replace(/,/g, '') : d.cond === 'funding_above' ? cur.toFixed(4) : cur.toFixed(2)
     setD({ ...d, value: v })
   }
   const save = () => {
     if (!ok) return
     const { value: _v, ...rest } = d
-    onSave({ ...rest, value: num, cooldown_min: Math.max(0, Number(d.cooldown_min) || 0), im_connector: d.notify.includes('im') ? d.im_connector : undefined })
+    onSave({
+      ...rest, value: num, cooldown_min: Math.max(0, Number(d.cooldown_min) || 0), im_connector: d.notify.includes('im') ? d.im_connector : undefined,
+      indicator: indCond ? indSpec : undefined, interval: indCond ? indIv : undefined,
+    })
   }
 
   return (
@@ -241,9 +255,32 @@ function AlertDrawer({ alert, symbol, imConnectors, onClose, onSave, onDelete }:
               onChange={(e) => setD({ ...d, value: e.target.value })} onKeyDown={(e) => { if (e.key === 'Enter') save() }} />
           </label>
         </div>
+        {indCond && (
+          // 指标 / 参数 / 周期（SPEC-monitor-3.3，TRD-10）：指标列策略能用的（不含收盘价、成交量），换指标时参数换成默认值、阈值清空
+          <div className="field-row mo-ind-row">
+            <label className="field"><span className="field-label">指标<span className="field-hint">在所选周期的 K 线上算</span></span>
+              <select aria-label="指标" value={indSpec.ind} onChange={(e) => { const k = e.target.value as AlertIndicator; setIndSpec({ kind: 'ind', ind: k, params: [...IND_DEFAULT[k]] }); setD({ ...d, value: '' }) }}>
+                {IND_OPTS.map((k) => <option key={k} value={k}>{TDX_INDICATORS.has(k) ? `${INDICATORS[k].label}（通达信口径）` : INDICATORS[k].label}</option>)}
+              </select>
+            </label>
+            {INDICATORS[indSpec.ind].params.map((label, i) => (
+              <label key={`${indSpec.ind}-${i}`} className="field mo-ind-param"><span className="field-label">{label}</span>
+                <input inputMode="decimal" aria-label={`指标${label}`} className={cls(!Number.isFinite(indSpec.params[i]) && 'bad')}
+                  value={Number.isFinite(indSpec.params[i]) ? String(indSpec.params[i]) : ''}
+                  onChange={(e) => { const t = e.target.value.trim(); const ps = [...indSpec.params]; ps[i] = t === '' ? NaN : Number(t); setIndSpec({ ...indSpec, params: ps }) }} />
+              </label>
+            ))}
+            <label className="field mo-ind-param"><span className="field-label">周期</span>
+              <select aria-label="周期" value={indIv} onChange={(e) => setIndIv(e.target.value as BarInterval)}>
+                {CHART_INTERVALS.map((iv) => <option key={iv} value={iv}>{INTERVALS[iv].label}</option>)}
+              </select>
+            </label>
+          </div>
+        )}
         <div className="mo-cur">
           <span className="muted">当前值</span>
-          <span className="mo-cur-v">{cur === null ? '-' : fmtCondValue(d.cond, d.symbol, cur)}</span>
+          <span className="mo-cur-v">{cur === null ? '-' : fmtCondValue(d.cond, d.symbol, cur, indCond ? indSpec : undefined)}</span>
+          {indCond && <span className="faint">{d.cond === 'ind_cross_up' || d.cond === 'ind_cross_down' ? '上一根在阈值另一侧、最新一根穿过去才算' : '最新一根（还没收盘，随行情变）的值'}</span>}
           {d.cond === 'pct_below' && <span className="faint">跌幅按正数填，例如 4 表示跌 4%</span>}
           {d.cond === 'limit_near' && <span className="faint">离涨停或跌停的距离，占昨收的百分比</span>}
           {isPrice(d.cond) && <span className="faint">价格在阈值{d.cond === 'price_above' ? '上方' : '下方'}时就算满足</span>}
@@ -331,8 +368,8 @@ const RULE_PAGE = 50
 function CurValue({ a }: { a: PriceAlert }) {
   const [ref, near] = useNearView<HTMLSpanElement>()
   const now = useClock(a.enabled && near)
-  const v = condValue(a.cond, a.symbol, now)
-  return <span ref={ref} className="mo-r-cur">{v === null ? '-' : fmtCondValue(a.cond, a.symbol, v)}</span>
+  const v = condValue(a.cond, a.symbol, now, alertIndOf(a))
+  return <span ref={ref} className="mo-r-cur">{v === null ? '-' : fmtCondValue(a.cond, a.symbol, v, a.indicator)}</span>
 }
 
 const AlertRow = memo(function AlertRow({ a, sel, imName, onOpen, onPatch }: {
@@ -349,7 +386,7 @@ const AlertRow = memo(function AlertRow({ a, sel, imName, onOpen, onPatch }: {
         <span className="mo-r-name"><span className="mk-dot" style={{ background: i ? MARKETS[i.market].color : 'var(--faint)' }} /><span className="ellipsis">{i?.name ?? a.symbol}</span></span>
         {a.note && <span className="mo-r-note ellipsis">{a.note}</span>}
       </span>
-      <span className="mo-r-cond">{ALERT_COND[a.cond].label} <b>{isPrice(a.cond) ? fmtPrice(a.symbol, a.value) : a.value}</b> <span className="faint">{isPrice(a.cond) ? '' : ALERT_COND[a.cond].unit}</span>{!fits && <span className="state state-bad">不适用</span>}</span>
+      <span className="mo-r-cond">{isIndCond(a.cond) ? condLabel(a) : ALERT_COND[a.cond].label} <b>{isPrice(a.cond) ? fmtPrice(a.symbol, a.value) : a.value}</b> <span className="faint">{isPrice(a.cond) ? '' : ALERT_COND[a.cond].unit}</span>{!fits && <span className="state state-bad">不适用</span>}</span>
       <CurValue a={a} />
       <span className="mo-r-notify">{a.notify.map((n) => <span key={n} className="tag">{n === 'im' ? `IM${imName ? `：${imName}` : ''}` : NOTIFY_LABEL[n]}</span>)}</span>
       <span className="mo-r-rep">{a.repeat ? `重复 · 冷却 ${a.cooldown_min} 分` : '单次'}</span>
@@ -380,7 +417,7 @@ function RulesPanel({ alerts, selId, imConnectors, onOpen, onPatch, onNew }: {
   const rows = useMemo(() => alerts.filter((a) => {
     if (!ruleIn(a, f)) return false
     if (!words.length) return true
-    const hay = `${instOf(a.symbol)?.name ?? ''} ${a.symbol} ${a.note} ${ALERT_COND[a.cond].label}`.toLowerCase()
+    const hay = `${instOf(a.symbol)?.name ?? ''} ${a.symbol} ${a.note} ${ALERT_COND[a.cond].label} ${isIndCond(a.cond) ? indText(a.indicator) : ''}`.toLowerCase()
     return words.every((w) => hay.includes(w))
   }), [alerts, f, words.join(' ')])
   const shown = rows.slice(0, limit)

@@ -18,7 +18,7 @@ import { TaskPipelineBlock, taskRuns, waitOf } from './taskpipeline'
 import { TaskReminders, type ReminderForm } from './taskreminders'
 import { TaskWorktreeBlock } from './worktree'
 import type { Schedule } from './scheduledata'
-import { buildPrompt, projectContext } from './handoff'
+import { buildPrompt, projectByWorkdir, projectContext, type ProjectContext } from './handoff'
 import { digest, permalinkLabel, permalinkOf, threadTaskBody, type ThreadParentText } from './msggroup'
 import type { Project } from './projectdata'
 import { StageBoard } from './taskstage'
@@ -503,7 +503,15 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], fromTh
   const aiNames = [...CLI_MEMBERS.filter((n) => n !== 'DeepSeek'), ...agentNames].filter((n) => !assignees.includes(n))
   const inheritDir = projects.find((x) => x.id === d.project_id)?.root
   const proj = projects.find((x) => x.id === d.project_id)
-  const projectCtx = proj ? projectContext({ name: proj.name, root: proj.root ?? '', related: proj.related ?? [], prototypes: proj.prototypes ?? [], profile: proj.profile }) : undefined
+  const ctxOf = (x: typeof proj) => x ? projectContext({ name: x.name, root: x.root ?? '', related: x.related ?? [], prototypes: x.prototypes ?? [], profile: x.profile }) : undefined
+  const projectCtx = ctxOf(proj)
+  // 没挂项目的任务按工作目录认定项目（SPEC-tasks-6.13a）：交给 AI 弹窗的预览、终端提示词都用；挂了项目时不看工作目录
+  const projectByDir = (dir: string): ProjectContext | undefined => {
+    if (proj) return undefined
+    const hit = projectByWorkdir(dir, projects)
+    const c = hit && ctxOf(hit.project)
+    return c && { ...c, byWorkdir: { label: hit.label, dir: hit.dir } }
+  }
   const mine = <T extends { task_id: string }>(xs: T[]) => (task ? xs.filter((x) => x.task_id === task.id) : [])
   // 基础信息里点了「设为开发任务」
   const [devOpened, setDevOpened] = useState(false)
@@ -769,7 +777,7 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], fromTh
         )}
       </div>
       {runOpen && task && dev && (
-        <RunDialog task={{ ...task, workdir: d.workdir }} inheritDir={inheritDir} project={projectCtx} terminalOn={!!handoff?.terminalOn} onClose={() => setRunOpen(false)}
+        <RunDialog task={{ ...task, workdir: d.workdir }} inheritDir={inheritDir} project={projectCtx} projectByDir={projectByDir} terminalOn={!!handoff?.terminalOn} onClose={() => setRunOpen(false)}
           agentRun={handoff?.agentRun && (() => {
             const last = mine(dev.runs).filter((r) => r.harness === 'agent' && r.agent_session).sort((a, b) => b.started_at.localeCompare(a.started_at))[0]
             // DeepSeek 续跑（TSK-0722）：这条任务上一次 DeepSeek 执行的 dsh 会话
@@ -795,7 +803,7 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], fromTh
             if (o.mode === 'terminal') {
               setD((x) => (x.status === 'done' || x.status === 'cancelled' ? x : { ...x, status: 'doing', assignee: 'Claude Code', assignee_ai: 'cli' }))
               setRunOpen(false)
-              handoff?.onTerminal({ task, runId, workdir: o.workdir, prompt: buildPrompt({ task, workdir: o.workdir, extra: o.extra_prompt, mode: 'terminal', project: projectCtx, runId, preset: o.preset }) })
+              handoff?.onTerminal({ task, runId, workdir: o.workdir, prompt: buildPrompt({ task, workdir: o.workdir, extra: o.extra_prompt, mode: 'terminal', project: projectCtx ?? projectByDir(o.workdir), runId, preset: o.preset }) })
               return
             }
             // 交出去就算开工（SPEC-tasks-6.17），负责人改成 Claude Code 或 DeepSeek（SPEC-tasks-6.33）；允许写入时它还会领取

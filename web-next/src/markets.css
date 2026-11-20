@@ -314,3 +314,8 @@ button.mo-cell:hover { border-color: var(--line-2); box-shadow: var(--shadow-sm)
   .mo-sessions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .mo-sess-clock { font-size: 17px; }
 }
+
+/* 盯盘指标条件（TRD-10，SPEC-monitor-3.3）：指标、参数、周期一行，窄了换行 */
+.field-row.mo-ind-row { display: flex; flex-wrap: wrap; gap: 10px 12px; }
+.mo-ind-row > .field:first-child { flex: 2 1 200px; }
+.mo-ind-row > .mo-ind-param { flex: 1 1 64px; min-width: 64px; }

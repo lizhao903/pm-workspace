@@ -22,7 +22,7 @@
 | TRD-05b | 策略部署到模拟盘账户 | `SPEC-strategy-8`（运行记录页）；部署本身见 `SPEC-trading-7` |
 | TRD-05c | 前端交易页接模拟盘 | `SPEC-strategy-5` 侧栏「运行记录」、`SPEC-strategy-8` |
 | TRD-08c、TRD-08d | 实盘部署闸门 | 本文件里带实盘标记的条目 |
-| TRD-09 | 内置策略（autotrader 移植）、多周期、按币种资金权重、按日期区间回测、网格扫描 | `SPEC-strategy-9`（原型未同步） |
+| TRD-09 | 内置策略（autotrader 移植）、多周期、按币种资金权重、按日期区间回测、网格扫描 | `SPEC-strategy-9`（原型同步 2026-11-20） |
 
 策略与回测是交易套件的子插件之一，依赖行情（`SPEC-markets`）。部署到账户上跑的部分归交易执行（`SPEC-trading`）：本模块只发起部署和查看运行记录，启停在交易里做。
 
@@ -60,7 +60,7 @@
 
 字段名和类型照抄 `web-next/src/tradedata.ts`、`web-next/src/backtest.ts`。
 
-`StrategyMode`：`rules` 条件规则 / `code` 代码。
+`StrategyMode`：`rules` 条件规则 / `code` 代码 / `builtin` 内置策略（TRD-09，`SPEC-strategy-9`）。
 
 `Indicator` 指标；`INDICATORS: Record<Indicator, { label: string; params: string[] }>`：
 
@@ -76,7 +76,7 @@
 | `volume` | 成交量 | 无 | 无 | 成交量 |
 | `atr` | ATR | 周期 | 14 | ATR |
 
-正式版（TRD-10，原型未同步）在上面九个之后加一批通达信口径的指标（后端指标库 `internal/plugins/trade/ta` 算，口径见 `docs/api-contract.md`「技术指标」；上面九个保持原型口径，回测结果不变）。编辑器的指标下拉分两组：「常用（回测原型口径）」「通达信口径」。
+TRD-10 起（原型同步 2026-11-20）在上面九个之后加一批通达信口径的指标（正式产品由后端指标库 `internal/plugins/trade/ta` 算，原型用 `web-next/src/ta.ts`，口径见 `docs/api-contract.md`「技术指标」；上面九个保持原型口径，回测结果不变）。编辑器的指标下拉分两组：「常用（回测原型口径）」「通达信口径」。
 
 | key | 显示 | 参数 | 默认参数 | 规则文字里的短名 |
 |---|---|---|---|---|
@@ -726,7 +726,7 @@ RSI 超卖反弹（入场两条条件、全部满足）：
 
 ## SPEC-strategy-9 内置策略（TRD-09）
 
-用户 2026-11-19 提「把 autotrader 需要的功能加入到项目，并且配置上策略」。**原型未同步**（原型 `web-next/src` 没有内置策略，只按本节和正式前端）。正式前端 `frontend/src/plugins/trade/BuiltinParts.tsx`，接口见 `docs/api-contract.md`「内置策略和多周期（TRD-09）」。
+用户 2026-11-19 提「把 autotrader 需要的功能加入到项目，并且配置上策略」。原型同步 2026-11-20：目录照抄后端注册表（`web-next/src/builtin.ts` 的 `BUILTIN_STRATEGIES`），信号、多周期聚合和持仓管理按 `builtin.go`、`posman.go` 的口径在 `builtin.ts` 再写一份给原型回测引擎用（行情是模拟的，数值不和正式产品对拍；模拟行情较平滑，SuperTrend 倍数取默认 3.5 时 3 分线几乎不翻转、回测常没有成交，调到 2 左右能看到成交）；原型目录是本地的，9.1 的「没取到：原因」演示不到；9.9 网格扫描同正式前端没有发起入口，原型的 `sweepGrid` 只在引擎里，报告按 `Backtest.sweep` 显示，演示数据里没有网格扫描结果。正式前端 `frontend/src/plugins/trade/BuiltinParts.tsx`，接口见 `docs/api-contract.md`「内置策略和多周期（TRD-09）」。
 
 内置策略是信号写在后端（Go）、参数可调的策略，`mode` 为 `builtin`。第一批从 autotrader 移植：「KDJ 1h 定趋势 + 3m 定买卖点」（`kdj-short-1h3m`，autotrader 主策略）、「SuperTrend + ADX 1h 定方向 + 3m 翻多入场」（`supertrend-adx-1h3m`）。都是 3m 入场、1h 定趋势，1h 由 3m 聚合；只做多。
 

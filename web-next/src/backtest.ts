@@ -8,11 +8,16 @@
 //    RSI 策略里数值 30、65 跟着 low、high 走。多个键值相同时取先出现的那个
 // 3. cfg.params 里的 stop_loss / take_profit / position_pct 三个保留键覆盖策略同名字段，扫参时可以直接扫它们
 // 4. 模拟行情没有交易时段，年化按自然时间算：一年 = 365 天 / K 线周期
+// 5. 多个标的按策略的资金权重（symbol_weights，没写的按 1 算）分资金；多标的或内置策略另给分标的统计（TRD-09）
+// 6. 内置策略（TRD-09）按日期区间回测（cfg.start、cfg.end，UTC，左闭右开），信号和持仓管理见 builtin.ts
+// 7. 通达信口径的指标（TRD-10）用 ta.ts 算；前九个保持原来的口径，回测结果不变
 
 import {
-  INTERVALS, bars as getBars, instOf, round,
-  type Bar, type BacktestConfig, type BacktestResult, type BacktestTrade, type Operand, type Rule, type RuleGroup, type Strategy,
+  INTERVALS, bars as getBars, instOf, isTdx, round,
+  type Bar, type BacktestConfig, type BacktestResult, type BacktestTrade, type Operand, type Rule, type RuleGroup, type Strategy, type SweepPoint,
 } from './tradedata'
+import { tdxSeries, tdxWarm } from './ta'
+import { addAtClose, builtinOf, builtinSignals, intrabar, pmCfgOf, sellAtClose, weightsOf, type PmPos } from './builtin'
 
 export const RESERVED_PARAMS = ['stop_loss', 'take_profit', 'position_pct'] as const
 const YEAR_MS = 365 * 86400000
@@ -76,6 +81,7 @@ const p = (ps: number[], i: number, d: number) => Math.max(1, Math.round(Number.
 /** 指标序列：按 Operand 对 K 线算出与 bars 等长的数组（前面不够周期的填 NaN） */
 export function series(op: Operand, bs: Bar[]): number[] {
   if (op.kind === 'num') return bs.map(() => op.value)
+  if (isTdx(op.ind)) return tdxSeries(op.ind, op.params, bs)
   const c = bs.map((b) => b.c)
   const ps = op.params
   switch (op.ind) {
@@ -114,6 +120,7 @@ export function series(op: Operand, bs: Bar[]): number[] {
 function warmOf(op: Operand): number {
   if (op.kind === 'num') return 0
   const ps = op.params
+  if (isTdx(op.ind)) return tdxWarm(op.ind, ps)
   switch (op.ind) {
     case 'ema': return p(ps, 0, 20) * 3
     case 'macd': return (p(ps, 1, 26) + p(ps, 2, 9)) * 3
@@ -349,6 +356,64 @@ function runBasis(ctx: Ctx, fut: string, spot: string, cash: number, notes: Set<
   return leg
 }
 
+/** 内置策略（TRD-09）：取「回测根数 + 预热」根入场周期 K 线，算出每根收盘时的买卖信号，再按持仓管理（builtin.ts）逐根模拟；
+ *  只做多，成交走同一个账本；最后一根有持仓按收盘价平掉。同 internal/plugins/trade/backtest_builtin.go */
+function runBuiltinLeg(ctx: Ctx, symbol: string, cash: number, notes: Set<string>): Leg {
+  const { cfg, st } = ctx
+  const b = builtinOf(st.builtin)
+  if (!b) { notes.add(`内置策略不认识：${st.builtin ?? ''}`); return { equity: [], bench: [], t: [], trades: [] } }
+  const bs = ctx.load(symbol, cfg.bars + b.warm_bars)
+  const from = Math.max(bs.length - cfg.bars, 0)
+  const prm = { ...st.params, ...cfg.params }
+  const sig = builtinSignals(b, prm, bs)
+  const pm = pmCfgOf(b, st, prm)
+  const inst = instOf(symbol)
+  const book = new Book(cash, symbol, inst?.multiplier ?? 1, cfg.fee_bp / 10000, cfg.slippage_ticks * 10 ** -(inst?.digits ?? 2))
+  const p0 = bs[from]?.c ?? 1
+  const leg: Leg = { equity: [], bench: [], t: [], trades: book.trades }
+  let pos: PmPos = { avg: 0, first: 0, peak: 0, armed: false }
+  let entryIdx = -1
+  let reserve = 0
+  const flat = () => { pos = { avg: 0, first: 0, peak: 0, armed: false }; entryIdx = -1; reserve = 0 }
+  // 斥候仓之后用留着的资金补满
+  const add = (px: number, t: number, reason: string) => {
+    pos.armed = false
+    if (reserve <= 0) return
+    const q = sizeOf(Math.min(reserve, book.cash), px, symbol, notes)
+    reserve = 0
+    if (q > 0) book.trade(q, px, t, reason)
+  }
+  for (let i = from; i < bs.length; i++) {
+    const bar = bs[i]
+    const last = i === bs.length - 1
+    if (book.qty > 0 && entryIdx >= 0 && i > entryIdx) {
+      pos.avg = book.avg
+      const r = intrabar(pm, pos, bar, i - entryIdx)
+      if (r.exit) { book.trade(-book.qty, r.exit.px, bar.t, r.exit.reason); flat() }
+      else if (r.addPx > 0) add(r.addPx, bar.t, `浮盈到 ${(pm.addTrig * 100).toFixed(2)}% 加仓`)
+      if (book.qty > 0) pos.peak = Math.max(pos.peak, bar.h)
+    }
+    if (!last) {
+      if (book.qty > 0) {
+        pos.avg = book.avg
+        if (sellAtClose(pm, pos, bar.c, sig.sell[i])) { book.trade(-book.qty, bar.c, bar.t, '出场信号'); flat() }
+        else if (addAtClose(pos, bar.c, sig.buy[i])) add(bar.c, bar.t, '买入信号加仓')
+      }
+      if (book.qty === 0 && sig.buy[i]) {
+        const alloc = book.equity(bar.c) * pm.pct
+        const first = alloc * pm.first
+        book.trade(sizeOf(first, bar.c, symbol, notes), bar.c, bar.t, pm.first < 1 ? `入场信号，首笔 ${Number((pm.first * 100).toFixed(2))}%` : '入场信号')
+        if (book.qty > 0) { entryIdx = i; pos = { avg: book.avg, first: bar.c, peak: bar.c, armed: pm.first < 1 }; reserve = alloc - first }
+      }
+    }
+    if (last && book.qty !== 0) book.trade(-book.qty, bar.c, bar.t, '回测结束平仓')
+    leg.t.push(bar.t)
+    leg.equity.push(book.equity(bar.c))
+    leg.bench.push((cash * bar.c) / p0)
+  }
+  return leg
+}
+
 /** 未知的代码策略：退回双均线，参数取 fast / slow，没有就 12 / 48 */
 function fallbackMa(st: Strategy, cfg: BacktestConfig): Strategy {
   const prm = { ...st.params, ...cfg.params }
@@ -408,28 +473,37 @@ function run(cfg: BacktestConfig, st: Strategy, end: number, load: Ctx['load']):
     return { equity: [], trades: [], stats: statsOf([], [], [], cfg.capital, ms), note: '没有可回测的标的或区间' }
   }
   const ctx: Ctx = { cfg, st, end, load }
+  // 按资金权重分（TRD-09）；legSyms 是每条腿对应的标的，期现基差一条腿管两个标的时不出分标的统计
+  const share = weightsOf(st, syms).map((w) => cfg.capital * w)
+  const cap = (s: string) => share[syms.indexOf(s)]
+  let legSyms: string[] | null = syms
   let legs: Leg[]
-  if (st.mode === 'code') {
+  if (st.mode === 'builtin') {
+    notes.add('内置策略：信号和持仓管理按正式产品的口径在原型里模拟')
+    legs = syms.map((s) => runBuiltinLeg(ctx, s, cap(s), notes))
+  } else if (st.mode === 'code') {
     const kind = codeKindOf(st)
     notes.add(`代码策略用内置近似模拟（${CODE_KIND_LABEL[kind]}），不执行源码`)
-    if (kind === 'grid') legs = syms.map((s) => runGridLeg(ctx, s, cfg.capital / syms.length, notes))
+    if (kind === 'grid') legs = syms.map((s) => runGridLeg(ctx, s, cap(s), notes))
     else if (kind === 'basis') {
       const fut = syms.find((s) => ['future', 'perp'].includes(instOf(s)!.kind))
       const spot = fut && (syms.find((s) => s !== fut && instOf(s)!.kind === 'spot') ?? instOf(fut)!.underlying)
-      if (fut && spot && instOf(spot)) legs = [runBasis(ctx, fut, spot, cfg.capital, notes)]
+      if (fut && spot && instOf(spot)) { legs = [runBasis(ctx, fut, spot, cfg.capital, notes)]; legSyms = null }
       else {
         notes.add('没找到期货和对应现货，退回双均线')
         const fb = fallbackMa(st, cfg)
-        legs = syms.map((s) => runRulesLeg({ ...ctx, st: fb, cfg: { ...cfg, params: pick(cfg.params, RESERVED_PARAMS) } }, s, cfg.capital / syms.length, notes))
+        legs = syms.map((s) => runRulesLeg({ ...ctx, st: fb, cfg: { ...cfg, params: pick(cfg.params, RESERVED_PARAMS) } }, s, cap(s), notes))
       }
     } else {
       const fb = fallbackMa(st, cfg)
-      legs = syms.map((s) => runRulesLeg({ ...ctx, st: fb, cfg: { ...cfg, params: pick(cfg.params, RESERVED_PARAMS) } }, s, cfg.capital / syms.length, notes))
+      legs = syms.map((s) => runRulesLeg({ ...ctx, st: fb, cfg: { ...cfg, params: pick(cfg.params, RESERVED_PARAMS) } }, s, cap(s), notes))
     }
   } else {
     if (!st.entry.rules.length) notes.add('入场规则为空，不会开仓')
-    legs = syms.map((s) => runRulesLeg(ctx, s, cfg.capital / syms.length, notes))
+    legs = syms.map((s) => runRulesLeg(ctx, s, cap(s), notes))
   }
+  legs = legs.filter((l) => l.t.length)
+  if (!legs.length) return { equity: [], trades: [], stats: statsOf([], [], [], cfg.capital, ms), note: [...notes, '区间内没有 K 线'].join('；') }
   // 合并：各标的 K 线按同一周期对齐到整点，按下标相加；长度不一时按最短的对齐到末尾
   const len = Math.min(...legs.map((l) => l.t.length))
   const tail = <T,>(xs: T[]) => xs.slice(xs.length - len)
@@ -439,7 +513,11 @@ function run(cfg: BacktestConfig, st: Strategy, end: number, load: Ctx['load']):
   const trades = legs.flatMap((l) => l.trades).sort((a, b) => a.t - b.t)
   const stats = statsOf(equity.map((e) => e.v), equity.map((e) => e.bench), trades, cfg.capital, ms)
   if (!trades.length) notes.add('区间内没有触发入场条件，可以放宽阈值、换周期或拉长区间')
-  return { equity, trades, stats, note: notes.size ? [...notes].join('；') : undefined }
+  // 分标的统计（TRD-09）：多标的或内置策略才有，按各自分到的资金算
+  const perSymbol = legSyms && (legSyms.length > 1 || st.mode === 'builtin') && legs.length === legSyms.length
+    ? legSyms.map((s, i) => ({ symbol: s, capital: cap(s), stats: statsOf(legs[i].equity, legs[i].bench, legs[i].trades, cap(s), ms) }))
+    : undefined
+  return { equity, trades, stats, per_symbol: perSymbol, note: notes.size ? [...notes].join('；') : undefined }
 }
 
 function pick(o: Record<string, number>, ks: readonly string[]) {
@@ -457,24 +535,60 @@ function loader(cfg: BacktestConfig, end: number) {
   }
 }
 
-/** 同步跑完一次回测 */
-export function runBacktest(cfg: BacktestConfig, st: Strategy, end = Date.now()): BacktestResult & { note?: string } {
-  return run(cfg, st, end, loader(cfg, end))
+/** 内置策略按区间回测最多多少根入场周期 K 线（3 分约 416 天） */
+export const MAX_RANGE_BARS = 200000
+const DAY_MS = 86400000
+
+/** 区间（UTC 日期，左闭右开）换成根数和截止时间；没给区间按 cfg.bars 截到 now。结束晚于现在的截到现在 */
+function rangeOf(cfg: BacktestConfig, now: number): { cfg: BacktestConfig; end: number } {
+  if (!cfg.start || !cfg.end) return { cfg, end: now }
+  const s = Date.parse(`${cfg.start}T00:00:00Z`)
+  const e = Math.min(Date.parse(`${cfg.end}T00:00:00Z`), now)
+  const ms = INTERVALS[cfg.interval].ms
+  const n = Number.isFinite(s) && Number.isFinite(e) ? Math.max(0, Math.min(MAX_RANGE_BARS, Math.floor((e - s) / ms))) : 0
+  return { cfg: { ...cfg, bars: n }, end: e - 1 }
 }
 
+/** 区间有几天（含开始不含结束）；不合法时 0 */
+export const rangeDays = (start?: string, end?: string) =>
+  start && end ? Math.round((Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`)) / DAY_MS) || 0 : 0
+
+/** 内置策略默认回测最近 30 天（到今天 0 点，UTC） */
+export function builtinRange(now = Date.now()) {
+  const day = (t: number) => new Date(t).toISOString().slice(0, 10)
+  return { start: day(now - 30 * DAY_MS), end: day(now) }
+}
+
+/** 同步跑完一次回测 */
+export function runBacktest(cfg: BacktestConfig, st: Strategy, now = Date.now()): BacktestResult & { note?: string } {
+  const r = rangeOf(cfg, now)
+  return run(r.cfg, st, r.end, loader(r.cfg, r.end))
+}
+
+const pointOf = (r: BacktestResult) => ({ total_return: r.stats.total_return, max_dd: r.stats.max_dd, sharpe: r.stats.sharpe, win_rate: r.stats.win_rate, trades: r.stats.trades })
+
 /** 参数扫描：对一个参数取一组值各跑一次；K 线只取一次 */
-export function sweep(cfg: BacktestConfig, st: Strategy, param: string, values: number[], end = Date.now()): { value: number; total_return: number; max_dd: number; sharpe: number }[] {
-  const load = loader(cfg, end)
-  return values.map((value) => {
-    const r = run({ ...cfg, params: { ...cfg.params, [param]: value } }, st, end, load)
-    return { value, total_return: r.stats.total_return, max_dd: r.stats.max_dd, sharpe: r.stats.sharpe }
-  })
+export function sweep(cfg: BacktestConfig, st: Strategy, param: string, values: number[], now = Date.now()): SweepPoint[] {
+  const r0 = rangeOf(cfg, now)
+  const load = loader(r0.cfg, r0.end)
+  return values.map((value) => ({ value, ...pointOf(run({ ...r0.cfg, params: { ...r0.cfg.params, [param]: value } }, st, r0.end, load)) }))
+}
+
+/** 多参数网格扫描（TRD-09）：各参数取值的全组合各跑一次，最多 4 个参数、64 组；正式产品是 sweep 接口带 grid，页面还没有发起入口 */
+export function sweepGrid(cfg: BacktestConfig, st: Strategy, grid: Record<string, number[]>, now = Date.now()): SweepPoint[] {
+  const keys = Object.keys(grid).slice(0, 4)
+  let combos: Record<string, number>[] = [{}]
+  for (const k of keys) combos = combos.flatMap((c) => grid[k].map((v) => ({ ...c, [k]: v })))
+  const r0 = rangeOf(cfg, now)
+  const load = loader(r0.cfg, r0.end)
+  return combos.slice(0, 64).map((params) => ({ value: 0, params, ...pointOf(run({ ...r0.cfg, params: { ...r0.cfg.params, ...params } }, st, r0.end, load)) }))
 }
 
 /** 能扫的参数：策略参数 + 三个保留键 */
 export function sweepableParams(st: Strategy): { key: string; label: string; value: number }[] {
+  const b = st.mode === 'builtin' ? builtinOf(st.builtin) : undefined
   return [
-    ...Object.entries(st.params).map(([key, value]) => ({ key, label: key, value })),
+    ...Object.entries(st.params).map(([key, value]) => ({ key, label: b?.params.find((x) => x.key === key)?.label ?? key, value })),
     { key: 'stop_loss', label: '止损 %', value: st.stop_loss },
     { key: 'take_profit', label: '止盈 %', value: st.take_profit },
     { key: 'position_pct', label: '仓位 %', value: st.position_pct },

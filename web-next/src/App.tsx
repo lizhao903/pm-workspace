@@ -74,6 +74,7 @@ import { EtfPage } from './etf'
 import { TradingNav, TradingPage, killAll, type TradingView } from './trading'
 import { BacktestReport, BacktestsPage, StrategyEditor, StrategyListPage, StrategyNav, type StrategyView } from './strategy'
 import { runBacktest } from './backtest'
+import { builtinDefaults, type BuiltinStrategy } from './builtin'
 import { QuickSession } from './quicksession'
 import { GroupDrawer, StartSessionDialog } from './msgagent'
 import { IM_MATERIAL_TAG, ToMaterialDialog, notesOf } from './msgmaterial'
@@ -1104,6 +1105,16 @@ export default function App() {
     const st: Strategy = {
       id: `st_${Date.now().toString(36)}`, name: '新策略', desc: '', mode: 'rules', symbols: [], interval: '1h', direction: 'long',
       entry: { logic: 'all', rules: [] }, exit: { logic: 'any', rules: [] }, stop_loss: 0, take_profit: 0, position_pct: 20, code: '', params: {}, tags: [], updated_at: now, created_at: now,
+    }
+    setStrategies((xs) => [st, ...xs]); setStrategyView(`st:${st.id}`)
+  }
+  // 从内置策略新建（TRD-09，SPEC-strategy-9.1）：名称、推荐标的、止损止盈仓位、参数都取内置的默认值
+  const newBuiltinStrategy = (b: BuiltinStrategy) => {
+    const now = new Date().toISOString()
+    const st: Strategy = {
+      id: `st_${Date.now().toString(36)}`, name: b.name, desc: '', mode: 'builtin', builtin: b.id, symbols: [...b.symbols], interval: b.entry_interval, direction: b.direction,
+      entry: { logic: 'all', rules: [] }, exit: { logic: 'any', rules: [] }, stop_loss: b.stop_loss, take_profit: b.take_profit, position_pct: b.position_pct,
+      code: '', params: builtinDefaults(b), symbol_weights: {}, tags: [], updated_at: now, created_at: now,
     }
     setStrategies((xs) => [st, ...xs]); setStrategyView(`st:${st.id}`)
   }
@@ -2216,7 +2227,7 @@ export default function App() {
               accountDeleteBlock={accountBlock} onDeleteAccount={deleteAccount}
               orderRequest={orderReq} deployRequest={deployReq} onView={setTradingView} onOpenChart={openChart} onOpenStrategy={(id) => { setPage('strategy'); setStrategyView(`st:${id}`) }} onReport={tradeReport} />
           )}
-          {page === 'strategy' && strategyView === 'list' && <StrategyListPage strategies={strategies} backtests={backtests} onOpen={(id) => setStrategyView(`st:${id}`)} onNew={newStrategy} />}
+          {page === 'strategy' && strategyView === 'list' && <StrategyListPage strategies={strategies} backtests={backtests} onOpen={(id) => setStrategyView(`st:${id}`)} onNew={newStrategy} onNewBuiltin={newBuiltinStrategy} />}
           {page === 'strategy' && strategyView === 'runs' && (
             <StrategyRunsPage runs={tradeRuns} strategies={strategies} accounts={accounts} onOpenStrategy={(id) => setStrategyView(`st:${id}`)}
               onManage={() => { setTradingView('runs'); setPage('trading') }} />

@@ -1275,7 +1275,10 @@ button.run-row:hover { background: var(--panel-2); }
 .issue-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; flex: none; }
 .dot-error { background: var(--danger); }
 .dot-warn { background: var(--warn); }
-.cv-tools { left: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+.cv-tools { left: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+/* 自动布局：工具条里唯一带字的按钮，图标在上、字在下（SPEC-sop-8.15） */
+.cv-autolayout { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 5px 4px 4px; border-radius: var(--r-sm); color: var(--muted); font-size: 11px; line-height: 1.2; white-space: nowrap; }
+.cv-autolayout:hover { background: var(--hover); color: var(--text); }
 .cv-bottom-left { left: 12px; bottom: 12px; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
 .cv-hint { font-size: 11.5px; color: var(--faint); padding: 0 8px; white-space: nowrap; }
 .cv-bottom-right { right: 12px; bottom: 12px; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }

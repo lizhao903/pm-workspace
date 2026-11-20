@@ -6,6 +6,7 @@
 // markets.tsx / strategy.tsx / trading.tsx 只读这里的类型和函数，不改它
 
 import { useEffect, useState } from 'react'
+import type { AlertIndicator, TdxIndicator } from './ta'
 
 /* ---------- 市场与标的 ---------- */
 
@@ -179,11 +180,14 @@ export function quoteOf(symbol: string, at = Date.now()): Quote {
   }
 }
 
-export type BarInterval = '1m' | '5m' | '15m' | '1h' | '4h' | '1d'
+/** 3m 只给内置策略（TRD-09）当入场周期用，行情页、策略编辑器的周期按钮不列它（CHART_INTERVALS） */
+export type BarInterval = '1m' | '3m' | '5m' | '15m' | '1h' | '4h' | '1d'
 export const INTERVALS: Record<BarInterval, { label: string; ms: number }> = {
-  '1m': { label: '1 分', ms: 60000 }, '5m': { label: '5 分', ms: 300000 }, '15m': { label: '15 分', ms: 900000 },
+  '1m': { label: '1 分', ms: 60000 }, '3m': { label: '3 分', ms: 180000 }, '5m': { label: '5 分', ms: 300000 }, '15m': { label: '15 分', ms: 900000 },
   '1h': { label: '1 时', ms: 3600000 }, '4h': { label: '4 时', ms: 14400000 }, '1d': { label: '日线', ms: 86400000 },
 }
+/** 行情页、策略编辑器、盯盘指标条件可选的周期：1 分到日线，不含 3 分 */
+export const CHART_INTERVALS: BarInterval[] = ['1m', '5m', '15m', '1h', '4h', '1d']
 export interface Bar { t: number; o: number; h: number; l: number; c: number; v: number }
 
 /** 截至 end 的最近 count 根 K 线（最后一根是未走完的当前 K 线） */
@@ -268,6 +272,7 @@ export const seedWatchlists: Watchlist[] = [
 /* ---------- 盯盘提醒 ---------- */
 
 export type AlertCond = 'price_above' | 'price_below' | 'pct_above' | 'pct_below' | 'volume_spike' | 'funding_above' | 'iv_above' | 'limit_near'
+  | 'ind_above' | 'ind_below' | 'ind_cross_up' | 'ind_cross_down'
 export const ALERT_COND: Record<AlertCond, { label: string; unit: string; kinds?: InstKind[] }> = {
   price_above: { label: '价格上穿', unit: '价格' },
   price_below: { label: '价格下穿', unit: '价格' },
@@ -277,7 +282,15 @@ export const ALERT_COND: Record<AlertCond, { label: string; unit: string; kinds?
   funding_above: { label: '资金费率高于', unit: '%', kinds: ['perp'] },
   iv_above: { label: '隐含波动率高于', unit: '%', kinds: ['option'] },
   limit_near: { label: '接近涨跌停', unit: '% 以内' },
+  // 指标条件（TRD-10）：指标在所选周期的 K 线上算，取最新一根（还没收盘，随行情变）
+  ind_above: { label: '指标高于', unit: '指标值' },
+  ind_below: { label: '指标低于', unit: '指标值' },
+  ind_cross_up: { label: '指标上穿', unit: '指标值' },
+  ind_cross_down: { label: '指标下穿', unit: '指标值' },
 }
+export const isIndCond = (c: AlertCond) => c.startsWith('ind_')
+/** 指标条件的指标（写法同策略规则的操作数），不含收盘价、成交量 */
+export type AlertIndicatorSpec = { kind: 'ind'; ind: AlertIndicator; params: number[] }
 export type AlertNotify = 'app' | 'im' | 'sound'
 export interface PriceAlert {
   id: string
@@ -292,6 +305,9 @@ export interface PriceAlert {
   im_connector?: string
   enabled: boolean
   note: string
+  /** 指标条件（ind_*）才有：指标和算指标用的 K 线周期（TRD-10） */
+  indicator?: AlertIndicatorSpec
+  interval?: BarInterval
   last_fired_at?: string
   created_at: string
 }
@@ -316,8 +332,10 @@ export const seedAlertEvents: AlertEvent[] = [
 
 /* ---------- 策略 ---------- */
 
-export type StrategyMode = 'rules' | 'code'
-export type Indicator = 'price' | 'ma' | 'ema' | 'rsi' | 'macd' | 'boll_up' | 'boll_low' | 'volume' | 'atr'
+/** builtin 是内置策略（TRD-09，SPEC-strategy-9）：信号写在后端，参数见 BUILTIN_STRATEGIES */
+export type StrategyMode = 'rules' | 'code' | 'builtin'
+/** 前九个是回测原型的口径；后面一批（TRD-10）按通达信口径，正式产品由后端指标库 ta 算，原型用 ta.ts */
+export type Indicator = 'price' | 'ma' | 'ema' | 'rsi' | 'macd' | 'boll_up' | 'boll_low' | 'volume' | 'atr' | TdxIndicator
 export const INDICATORS: Record<Indicator, { label: string; params: string[] }> = {
   price: { label: '收盘价', params: [] },
   ma: { label: '均线 MA', params: ['周期'] },
@@ -328,7 +346,47 @@ export const INDICATORS: Record<Indicator, { label: string; params: string[] }> 
   boll_low: { label: '布林下轨', params: ['周期', '倍数'] },
   volume: { label: '成交量', params: [] },
   atr: { label: 'ATR', params: ['周期'] },
+  // 以下按通达信口径（TRD-10），参数顺序同通达信
+  macd_dif: { label: 'MACD DIF', params: ['快', '慢', '信号'] },
+  macd_dea: { label: 'MACD DEA', params: ['快', '慢', '信号'] },
+  macd_bar: { label: 'MACD 柱（通达信）', params: ['快', '慢', '信号'] },
+  kdj_k: { label: 'KDJ K', params: ['N', 'M1', 'M2'] },
+  kdj_d: { label: 'KDJ D', params: ['N', 'M1', 'M2'] },
+  kdj_j: { label: 'KDJ J', params: ['N', 'M1', 'M2'] },
+  wr: { label: '威廉 WR', params: ['周期'] },
+  cci: { label: 'CCI', params: ['周期'] },
+  bias: { label: '乖离率 BIAS', params: ['周期'] },
+  boll_mid: { label: '布林中轨', params: ['周期', '倍数'] },
+  bbi: { label: 'BBI', params: [] }, // 四个周期固定 3、6、12、24
+  psy: { label: '心理线 PSY', params: ['周期', '均线'] },
+  roc: { label: '变动率 ROC', params: ['周期', '均线'] },
+  mtm: { label: '动量 MTM', params: ['周期', '均线'] },
+  trix: { label: 'TRIX', params: ['周期', '均线'] },
+  obv: { label: 'OBV', params: [] },
+  mfi: { label: 'MFI', params: ['周期'] },
+  vr: { label: 'VR', params: ['周期'] },
+  cr: { label: 'CR', params: ['周期'] },
+  pdi: { label: 'DMI +DI', params: ['M1', 'M2'] },
+  mdi: { label: 'DMI -DI', params: ['M1', 'M2'] },
+  adx: { label: 'DMI ADX', params: ['M1', 'M2'] },
 }
+/** 规则文字里的短名 */
+export const IND_SHORT: Record<Indicator, string> = {
+  price: '收盘价', ma: 'MA', ema: 'EMA', rsi: 'RSI', macd: 'MACD 柱', boll_up: '布林上轨', boll_low: '布林下轨', volume: '成交量', atr: 'ATR',
+  macd_dif: 'DIF', macd_dea: 'DEA', macd_bar: 'MACD', kdj_k: 'K', kdj_d: 'D', kdj_j: 'J', wr: 'WR', cci: 'CCI', bias: 'BIAS', boll_mid: '布林中轨', bbi: 'BBI',
+  psy: 'PSY', roc: 'ROC', mtm: 'MTM', trix: 'TRIX', obv: 'OBV', mfi: 'MFI', vr: 'VR', cr: 'CR', pdi: '+DI', mdi: '-DI', adx: 'ADX',
+}
+/** 编辑器里的默认参数 */
+export const IND_DEFAULT: Record<Indicator, number[]> = {
+  price: [], ma: [20], ema: [20], rsi: [14], macd: [12, 26, 9], boll_up: [20, 2], boll_low: [20, 2], volume: [], atr: [14],
+  macd_dif: [12, 26, 9], macd_dea: [12, 26, 9], macd_bar: [12, 26, 9], kdj_k: [9, 3, 3], kdj_d: [9, 3, 3], kdj_j: [9, 3, 3],
+  wr: [10], cci: [14], bias: [6], boll_mid: [20, 2], bbi: [], psy: [12, 6], roc: [12, 6], mtm: [12, 6], trix: [12, 9],
+  obv: [], mfi: [14], vr: [26], cr: [26], pdi: [14, 6], mdi: [14, 6], adx: [14, 6],
+}
+/** 通达信口径的那一批（TRD-10）：编辑器里分组显示 */
+export const TDX_INDICATORS = new Set<Indicator>(['macd_dif', 'macd_dea', 'macd_bar', 'kdj_k', 'kdj_d', 'kdj_j', 'wr', 'cci', 'bias', 'boll_mid', 'bbi',
+  'psy', 'roc', 'mtm', 'trix', 'obv', 'mfi', 'vr', 'cr', 'pdi', 'mdi', 'adx'])
+export const isTdx = (i: Indicator): i is TdxIndicator => TDX_INDICATORS.has(i)
 export type Operand = { kind: 'ind'; ind: Indicator; params: number[] } | { kind: 'num'; value: number }
 export type Compare = 'cross_up' | 'cross_down' | 'gt' | 'lt'
 export const COMPARE: Record<Compare, string> = { cross_up: '上穿', cross_down: '下穿', gt: '大于', lt: '小于' }
@@ -353,8 +411,12 @@ export interface Strategy {
   position_pct: number
   /** 代码模式的源码（Python 风格，原型不执行，只做展示和参数提取） */
   code: string
-  /** 可调参数：名字 → 值，回测时可以扫参 */
+  /** 可调参数：名字 → 值，回测时可以扫参；内置策略是 BUILTIN_STRATEGIES 里的参数 */
   params: Record<string, number>
+  /** 内置策略的 id（mode=builtin 时才有值，TRD-09） */
+  builtin?: string
+  /** 按标的的资金权重（TRD-09）：没写的标的按 1 算，空对象或没有是平均分；回测分资金、部署算下单量都按它 */
+  symbol_weights?: Record<string, number>
   tags: string[]
   updated_at: string
   created_at: string
@@ -421,14 +483,22 @@ export interface BacktestConfig {
   slippage_ticks: number
   /** 参数覆盖 */
   params: Record<string, number>
+  /** 回测区间（UTC 日期 YYYY-MM-DD，左闭右开，TRD-09）：内置策略按区间回测，给了时 bars 按区间算 */
+  start?: string
+  end?: string
 }
 export interface BacktestTrade { t: number; symbol: string; side: 'buy' | 'sell'; price: number; qty: number; pnl?: number; reason: string }
 export interface BacktestResult {
   /** 资金曲线（与 K 线对齐）和基准（买入持有） */
   equity: { t: number; v: number; bench: number }[]
   trades: BacktestTrade[]
-  stats: { total_return: number; annual: number; max_dd: number; sharpe: number; win_rate: number; trades: number; profit_factor: number; bench_return: number }
+  stats: BacktestStats
+  /** 每个标的单独的统计（TRD-09），capital 是它分到的资金；多标的或内置策略才有 */
+  per_symbol?: { symbol: string; capital: number; stats: BacktestStats }[]
 }
+export type BacktestStats = { total_return: number; annual: number; max_dd: number; sharpe: number; win_rate: number; trades: number; profit_factor: number; bench_return: number }
+/** 参数扫描的一个点；params 只有网格扫描才有（TRD-09） */
+export interface SweepPoint { value: number; params?: Record<string, number>; total_return: number; max_dd: number; sharpe: number; win_rate: number; trades: number }
 export type BacktestStatus = 'queued' | 'running' | 'done' | 'failed'
 export interface Backtest {
   id: string
@@ -439,6 +509,8 @@ export interface Backtest {
   /** 回测时的策略快照（策略之后再改不影响这次结果） */
   strategy_snapshot: Strategy
   result?: BacktestResult
+  /** 最近一次参数扫描（正式产品存在回测上）；grid 只有网格扫描才有（TRD-09） */
+  sweep?: { param: string; grid?: string[]; points: SweepPoint[]; at: string }
   error?: string
   created_at: string
   finished_at?: string

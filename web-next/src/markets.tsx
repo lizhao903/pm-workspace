@@ -6,12 +6,13 @@ import { fundingRate, SessionPill, fmtSpan } from './monitor'
 import { PageTitle } from './topbar'
 import { cls } from './ui'
 import {
-  DOWN, INST_KIND, INSTRUMENTS, INTERVALS, MARKETS, OPTION_EXPIRIES, OPTION_UNDERLYINGS, SESSION_LABEL, UP,
+  CHART_INTERVALS, DOWN, INST_KIND, INSTRUMENTS, INTERVALS, MARKETS, OPTION_EXPIRIES, OPTION_UNDERLYINGS, SESSION_LABEL, UP,
   bars, fmtPct, fmtPrice, greeks, instOf, optionChain, orderBook, prevClose, priceAt, quoteOf, round, sessionOf, useNow,
   type BarInterval, type Instrument, type MarketKey, type Watchlist,
 } from './tradedata'
 import { newId } from './ids'
 import { SearchSelect } from './searchselect'
+import { EMA, kdj } from './ta'
 
 // 行情：左自选、中 K 线、右盘口与数据源；另一个标签是期权（数据源未接，可看演示）
 // K 线历史按 (标的, 周期, 分钟) 缓存，最后一根每秒用 bars(...,1,now) 单独现算
@@ -257,10 +258,15 @@ function WatchPanel({ watchlists, onWatchlists, wlId, setWlId, symbol, onPick, n
 
 /* ---------- 中间：K 线 ---------- */
 
-type SubKind = 'vol' | 'macd' | 'rsi'
-type Overlay = { ma5: boolean; ma20: boolean; ma60: boolean; boll: boolean }
-const MA_COLOR = { ma5: '#e8a317', ma20: '#7a4fd6', ma60: '#0c8599' }
+type SubKind = 'vol' | 'macd' | 'rsi' | 'kdj'
+/** 主图叠加的线：MA5、MA20、MA60，TRD-10 加 EMA12、EMA26（默认关） */
+type LineKey = 'ma5' | 'ma20' | 'ma60' | 'ema12' | 'ema26'
+type Overlay = Record<LineKey, boolean> & { boll: boolean }
+const LINE_KEYS: LineKey[] = ['ma5', 'ma20', 'ma60', 'ema12', 'ema26']
+const LINE_LABEL: Record<LineKey, string> = { ma5: 'MA5', ma20: 'MA20', ma60: 'MA60', ema12: 'EMA12', ema26: 'EMA26' }
+const MA_COLOR: Record<LineKey, string> = { ma5: '#e8a317', ma20: '#7a4fd6', ma60: '#0c8599', ema12: '#d6336c', ema26: '#2b8a3e' }
 const BOLL_COLOR = '#8a8578'
+const KDJ_COLOR = { k: '#e8a317', d: '#7a4fd6', j: '#0c8599' }
 
 function fmtT(t: number, iv: BarInterval, long = false) {
   const d = new Date(t)
@@ -285,7 +291,9 @@ function KChart({ symbol, interval, now, ov, sub }: { symbol: string; interval: 
 
   const ind = useMemo(() => {
     const c = data.map((b) => b.c)
-    return { ma5: sma(c, 5), ma20: sma(c, 20), ma60: sma(c, 60), boll: boll(c), macd: macd(c), rsi: rsi(c), vma: sma(data.map((b) => b.v), 5) }
+    // EMA12、EMA26、KDJ(9,3,3)（TRD-10）按通达信口径用 ta.ts 算；正式产品这些指标都由后端指标库算（K 线带 ?indicators=）
+    const lines: Record<LineKey, number[]> = { ma5: sma(c, 5), ma20: sma(c, 20), ma60: sma(c, 60), ema12: EMA(c, 12), ema26: EMA(c, 26) }
+    return { lines, boll: boll(c), macd: macd(c), rsi: rsi(c), kdj: kdj(data, 9, 3, 3), vma: sma(data.map((b) => b.v), 5) }
   }, [data])
 
   const off = Math.max(0, data.length - VIEW)
@@ -303,7 +311,7 @@ function KChart({ symbol, interval, now, ov, sub }: { symbol: string; interval: 
   view.forEach((b, k) => {
     lo = Math.min(lo, b.l); hi = Math.max(hi, b.h)
     const j = k + off
-    for (const key of ['ma5', 'ma20', 'ma60'] as const) if (ov[key] && Number.isFinite(ind[key][j])) { lo = Math.min(lo, ind[key][j]); hi = Math.max(hi, ind[key][j]) }
+    for (const key of LINE_KEYS) if (ov[key] && Number.isFinite(ind.lines[key][j])) { lo = Math.min(lo, ind.lines[key][j]); hi = Math.max(hi, ind.lines[key][j]) }
     if (ov.boll && Number.isFinite(ind.boll.up[j])) { lo = Math.min(lo, ind.boll.low[j]); hi = Math.max(hi, ind.boll.up[j]) }
   })
   if (!Number.isFinite(lo)) { lo = 0; hi = 1 }
@@ -318,7 +326,11 @@ function KChart({ symbol, interval, now, ov, sub }: { symbol: string; interval: 
   let slo = 0, shi = 1
   if (sub === 'vol') shi = Math.max(1, ...view.map((b) => b.v))
   else if (sub === 'rsi') { slo = 0; shi = 100 }
-  else {
+  else if (sub === 'kdj') {
+    // 纵轴至少 0 到 100，J 超出时放宽
+    const vals = view.flatMap((_, k) => [ind.kdj.k[k + off], ind.kdj.d[k + off], ind.kdj.j[k + off]]).filter(Number.isFinite)
+    slo = Math.min(0, ...vals); shi = Math.max(100, ...vals)
+  } else {
     const vals = view.flatMap((_, k) => [ind.macd.dif[k + off], ind.macd.dea[k + off], ind.macd.hist[k + off]]).filter(Number.isFinite)
     const m = Math.max(1e-9, ...vals.map(Math.abs))
     slo = -m; shi = m
@@ -388,7 +400,7 @@ function KChart({ symbol, interval, now, ov, sub }: { symbol: string; interval: 
             )
           })}
 
-          {(['ma5', 'ma20', 'ma60'] as const).map((key) => ov[key] && <path key={key} d={line(ind[key], y)} fill="none" style={{ stroke: MA_COLOR[key] }} strokeWidth="1.2" />)}
+          {LINE_KEYS.map((key) => ov[key] && <path key={key} d={line(ind.lines[key], y)} fill="none" style={{ stroke: MA_COLOR[key] }} strokeWidth="1.2" />)}
 
           {/* 最新价线 */}
           {last && <>
@@ -413,6 +425,11 @@ function KChart({ symbol, interval, now, ov, sub }: { symbol: string; interval: 
             {[30, 70].map((v) => <text key={v} x={plotW + 6} y={sy(v) + 4} className="mk-axis">{v}</text>)}
             <path d={line(ind.rsi, sy)} fill="none" style={{ stroke: MA_COLOR.ma20 }} strokeWidth="1.2" />
           </>}
+          {sub === 'kdj' && <>
+            {[20, 50, 80].map((v) => <line key={v} x1={0} x2={plotW} y1={sy(v)} y2={sy(v)} className="mk-grid" strokeDasharray={v === 50 ? undefined : '3 3'} />)}
+            {[20, 80].map((v) => <text key={v} x={plotW + 6} y={sy(v) + 4} className="mk-axis">{v}</text>)}
+            {(['k', 'd', 'j'] as const).map((k) => <path key={k} d={line(ind.kdj[k], sy)} fill="none" style={{ stroke: KDJ_COLOR[k] }} strokeWidth="1.2" />)}
+          </>}
 
           {/* 图例 */}
           <text x={legendX} y={14} className="mk-legend">
@@ -425,13 +442,14 @@ function KChart({ symbol, interval, now, ov, sub }: { symbol: string; interval: 
             <tspan dx="8" className="mk-legend-k">量</tspan><tspan dx="3">{fmtVol(cur.v)}</tspan>
           </text>
           <text x={legendX} y={mTop + 12} className="mk-legend">
-            {(['ma5', 'ma20', 'ma60'] as const).filter((k) => ov[k]).map((k, n) => <tspan key={k} dx={n ? 10 : 0} style={{ fill: MA_COLOR[k] }}>{k.toUpperCase()} {Number.isFinite(ind[k][j]) ? fmtPrice(symbol, ind[k][j]) : '-'}</tspan>)}
+            {LINE_KEYS.filter((k) => ov[k]).map((k, n) => <tspan key={k} dx={n ? 10 : 0} style={{ fill: MA_COLOR[k] }}>{LINE_LABEL[k]} {Number.isFinite(ind.lines[k][j]) ? fmtPrice(symbol, ind.lines[k][j]) : '-'}</tspan>)}
             {ov.boll && Number.isFinite(ind.boll.up[j]) && <tspan dx="10" style={{ fill: BOLL_COLOR }}>BOLL {fmtPrice(symbol, ind.boll.mid[j])} / {fmtPrice(symbol, ind.boll.up[j])} / {fmtPrice(symbol, ind.boll.low[j])}</tspan>}
           </text>
           <text x={legendX} y={mainH + 14} className="mk-legend">
             {sub === 'vol' && <><tspan className="mk-legend-k">成交量</tspan><tspan dx="6">{fmtVol(cur.v)}</tspan><tspan dx="10" style={{ fill: MA_COLOR.ma5 }}>MA5 {fmtVol(ind.vma[j] || 0)}</tspan></>}
             {sub === 'macd' && <><tspan className="mk-legend-k">MACD(12,26,9)</tspan><tspan dx="8" style={{ fill: MA_COLOR.ma5 }}>DIF {fmtNum(ind.macd.dif[j])}</tspan><tspan dx="8" style={{ fill: MA_COLOR.ma20 }}>DEA {fmtNum(ind.macd.dea[j])}</tspan><tspan dx="8" style={{ fill: signColor(ind.macd.hist[j]) }}>柱 {fmtNum(ind.macd.hist[j])}</tspan></>}
             {sub === 'rsi' && <><tspan className="mk-legend-k">RSI(14)</tspan><tspan dx="8" style={{ fill: MA_COLOR.ma20 }}>{Number.isFinite(ind.rsi[j]) ? ind.rsi[j].toFixed(2) : '-'}</tspan></>}
+            {sub === 'kdj' && <><tspan className="mk-legend-k">KDJ(9,3,3)</tspan>{(['k', 'd', 'j'] as const).map((k) => <tspan key={k} dx="8" style={{ fill: KDJ_COLOR[k] }}>{k.toUpperCase()} {Number.isFinite(ind.kdj[k][j]) ? ind.kdj[k][j].toFixed(2) : '-'}</tspan>)}</>}
           </text>
 
           {/* 十字光标 */}
@@ -687,7 +705,7 @@ export function MarketsPage({ watchlists, onWatchlists, focus, onNewAlert, onTra
   const [wlId, setWlId] = useState(watchlists[0]?.id ?? '')
   const [symbol, setSymbol] = useState(() => watchlists[0]?.symbols[0] ?? INSTRUMENTS[0].symbol)
   const [interval, setInterval_] = useState<BarInterval>('15m')
-  const [ov, setOv] = useState<Overlay>({ ma5: true, ma20: true, ma60: false, boll: false })
+  const [ov, setOv] = useState<Overlay>({ ma5: true, ma20: true, ma60: false, ema12: false, ema26: false, boll: false })
   const [sub, setSub] = useState<SubKind>('vol')
   const [und, setUnd] = useState(OPTION_UNDERLYINGS[0])
   const [exp, setExp] = useState(OPTION_EXPIRIES[1])
@@ -748,19 +766,19 @@ export function MarketsPage({ watchlists, onWatchlists, focus, onNewAlert, onTra
             <SymbolHead i={inst} now={now} cut={cut} />
             <div className="mk-tools">
               <div className="seg seg-sm">
-                {(Object.keys(INTERVALS) as BarInterval[]).map((k) => <button key={k} className={cls(interval === k && 'on')} onClick={() => setInterval_(k)}>{INTERVALS[k].label}</button>)}
+                {CHART_INTERVALS.map((k) => <button key={k} className={cls(interval === k && 'on')} onClick={() => setInterval_(k)}>{INTERVALS[k].label}</button>)}
               </div>
               <div className="mk-toggles">
-                {(['ma5', 'ma20', 'ma60', 'boll'] as const).map((k) => (
+                {([...LINE_KEYS, 'boll'] as const).map((k) => (
                   <button key={k} className={cls('mk-tg', ov[k] && 'on')} onClick={() => setOv({ ...ov, [k]: !ov[k] })}
                     style={{ '--c': k === 'boll' ? BOLL_COLOR : MA_COLOR[k] } as React.CSSProperties}>
-                    <i />{k === 'boll' ? 'BOLL' : k.toUpperCase()}
+                    <i />{k === 'boll' ? 'BOLL' : LINE_LABEL[k]}
                   </button>
                 ))}
               </div>
               <span className="spacer" />
               <div className="seg seg-sm">
-                {([['vol', '成交量'], ['macd', 'MACD'], ['rsi', 'RSI']] as [SubKind, string][]).map(([k, l]) => <button key={k} className={cls(sub === k && 'on')} onClick={() => setSub(k)}>{l}</button>)}
+                {([['vol', '成交量'], ['macd', 'MACD'], ['rsi', 'RSI'], ['kdj', 'KDJ']] as [SubKind, string][]).map(([k, l]) => <button key={k} className={cls(sub === k && 'on')} onClick={() => setSub(k)}>{l}</button>)}
               </div>
             </div>
             {feedOf(inst)

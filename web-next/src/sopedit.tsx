@@ -6,6 +6,7 @@ import { DataView, triggerLabel } from './sop'
 import { NODE_GROUPS, NODE_TYPES, KindIcon, KindTag, claudeTimeout, defaultConfig, isBranching, loopRounds, missingFields, typeOf, type ConfigField, type FieldCtx } from './nodetypes'
 import { IM_RELEVANCES, IM_REL_LABEL, SOPS, SOP_FOLDERS, STEP_KIND, UNCATEGORIZED, folderOf, depsOf, emptyIM, imFilterText, imSops, stepLook, isManualDecide, ranks, upstreamOf, type Sop, type SopField, type SopIM, type SopRun, type SopStepDef, type StepKind } from './sopflow'
 import { SearchSelect } from './searchselect'
+import { layeredY } from './soplayout'
 import { IM_CONVERSATIONS } from './data'
 import { cls, timeAgo } from './ui'
 import { useEnum } from './enumdata'
@@ -405,20 +406,35 @@ const nodeH = (sop: Sop, key: string) => {
 }
 const caseY = (i: number) => 52 + i * 30 + 13
 
-/** 没摆过位置的节点按依赖分列排开；开始节点在最左 */
+/** 连线在节点上的纵向位置：入口和普通出口在顶部往下 30，分支出口按第几个出口（caseY） */
+const PORT_Y = 30
+
+/** 画布上的全部连线（开始节点连到没有上游的步骤；判断节点从分支对应的出口连出），排版和画线共用 */
+function canvasEdges(sop: Sop) {
+  const keys = new Set(sop.steps.map((s) => s.key))
+  return [
+    ...sop.steps.filter((s) => !(s.after ?? []).length).map((s) => ({ from: START, to: s.key, caseKey: undefined as string | undefined })),
+    ...sop.steps.flatMap((s) => (s.after ?? []).filter((k) => keys.has(k)).map((k) => ({ from: k, to: s.key, caseKey: s.branch?.of === k ? s.branch.case : undefined }))),
+  ]
+}
+
+/** 出口相对节点顶部的纵向位置 */
+function outY(sop: Sop, key: string, caseKey?: string) {
+  const ci = caseKey ? sop.steps.find((x) => x.key === key)?.cases?.findIndex((c) => c.key === caseKey) ?? -1 : -1
+  return ci >= 0 ? caseY(ci) : PORT_Y
+}
+
+/** 自动布局（SPEC-sop-8.15）：开始节点在最左，按依赖分列；列内顺序减少连线交叉、分支出口的上下顺序决定下游的上下顺序，
+ * 单线拉直、汇合放在几路上游中间（soplayout.ts 的 layeredY）。没摆过位置的节点都走这里 */
 function autoLayout(sop: Sop): Record<string, { x: number; y: number }> {
   const rk = ranks(sop)
-  const cols: string[][] = []
-  sop.steps.forEach((s, i) => { (cols[rk[i]] ??= []).push(s.key) })
-  const out: Record<string, { x: number; y: number }> = { [START]: { x: 60, y: 0 } }
-  const heights = cols.map((c) => c.reduce((a, k) => a + nodeH(sop, k) + 28, -28))
-  const tallest = Math.max(nodeH(sop, START), ...heights)
-  out[START].y = 80 + (tallest - nodeH(sop, START)) / 2
-  cols.forEach((col, c) => {
-    let y = 80 + (tallest - heights[c]) / 2
-    col.forEach((k) => { out[k] = { x: 60 + (c + 1) * (NW + 84), y }; y += nodeH(sop, k) + 28 })
-  })
-  return out
+  const nodes = [
+    { key: START, rank: 0, h: nodeH(sop, START) },
+    ...sop.steps.map((s, i) => ({ key: s.key, rank: rk[i] + 1, h: nodeH(sop, s.key) })),
+  ]
+  const edges = canvasEdges(sop).map((e) => ({ from: e.from, to: e.to, out: outY(sop, e.from, e.caseKey), in: PORT_Y }))
+  const ys = layeredY(nodes, edges, 28, { col: NW + 84, w: NW })
+  return Object.fromEntries(nodes.map((n) => [n.key, { x: 60 + n.rank * (NW + 84), y: 80 + ys[n.key] }]))
 }
 
 /** 改完连线后按依赖重新排步骤顺序（稳定），引擎和「上游只能选前面的」都靠这个顺序 */
@@ -1068,16 +1084,8 @@ export function SopEditor({ initial, creating, readOnly = initial.ownership === 
   }
 
   // 连线：开始节点连到所有没有上游的节点；判断节点从分支对应的出口连出
-  const edges = [
-    ...draft.steps.filter((s) => !(s.after ?? []).length).map((s) => ({ from: START, to: s.key, caseKey: undefined as string | undefined })),
-    ...draft.steps.flatMap((s) => (s.after ?? []).map((k) => ({ from: k, to: s.key, caseKey: s.branch?.of === k ? s.branch.case : undefined }))),
-  ]
-  const outPt = (key: string, caseKey?: string) => {
-    const p = lay[key]
-    const st = draft.steps.find((x) => x.key === key)
-    const ci = caseKey && st?.cases ? st.cases.findIndex((c) => c.key === caseKey) : -1
-    return { x: p.x + NW, y: p.y + (ci >= 0 ? caseY(ci) : 30) }
-  }
+  const edges = canvasEdges(draft)
+  const outPt = (key: string, caseKey?: string) => ({ x: lay[key].x + NW, y: lay[key].y + outY(draft, key, caseKey) })
   const curve = (a: { x: number; y: number }, b: { x: number; y: number }) => {
     const m = Math.max(40, Math.abs(b.x - a.x) / 2)
     return `M${a.x},${a.y} C${a.x + m},${a.y} ${b.x - m},${b.y} ${b.x},${b.y}`
@@ -1229,8 +1237,11 @@ export function SopEditor({ initial, creating, readOnly = initial.ownership === 
           <button className="icon-btn" title="添加节点" onClick={(e) => { const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); setPalette({ at: { x: r.right + 8, y: r.top }, from: sel ?? (draft.steps.length ? draft.steps[draft.steps.length - 1].key : START) }) }}>
             <svg viewBox="0 0 16 16" width="15" height="15"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M8 5v6M5 8h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
           </button>
-          <button className="icon-btn" title="自动整理" onClick={() => { commit({ ...draft, layout: undefined }); fitted.current = false }}>
+          {/* 自动布局（SPEC-sop-8.15）：清掉全部手动位置按新排法重排，进撤销历史，再适配视口；没摆过位置时只适配视口 */}
+          <button className="cv-autolayout" title="按连接关系重新排列全部节点，会覆盖手动拖过的位置；可撤销"
+            onClick={() => { if (!draft.layout) { fit(); return } commit({ ...draft, layout: undefined }); fitted.current = false }}>
             <svg viewBox="0 0 16 16" width="15" height="15"><rect x="2" y="2.5" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" /><rect x="10" y="2.5" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" /><rect x="10" y="9.5" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" /><path d="M6 4.5h4M8 4.5v7h2" fill="none" stroke="currentColor" strokeWidth="1.3" /></svg>
+            <span>自动布局</span>
           </button>
           <button className="icon-btn" title="适配视口" onClick={fit}>
             <svg viewBox="0 0 16 16" width="15" height="15"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>

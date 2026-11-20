@@ -23,6 +23,45 @@ export interface ProjectContext {
   docsLabel?: string
   /** rules 是在这个原型上改时要守的规则（多行，可空；SPEC-tasks-6.13） */
   prototypes: { name: string; dir: string; rules?: string }[]
+  /** 任务本身没挂项目、按这次的工作目录认定的（SPEC-tasks-6.13a）：label 是命中的目录种类，dir 是那个目录 */
+  byWorkdir?: { label: string; dir: string }
+}
+
+/** 按工作目录认定项目时比的四种目录（同正式产品 internal/api/projectbydir.go 的 projectDirLabel） */
+export const PROJECT_DIR_LABEL = {
+  workdir: '项目工作目录',
+  code: '项目档案的代码库目录',
+  proto: '项目档案的原型库目录',
+  prd: '项目档案的需求文档目录',
+} as const
+
+type DirProject = { id: string; root?: string; profile?: Partial<Pick<NonNullable<Project['profile']>, 'code_dir' | 'proto_dir' | 'prd_dir'>> }
+
+/**
+ * 没挂项目的任务按工作目录认定项目（TSK-0841 复盘，SPEC-tasks-6.13a）：拿这次的工作目录和所有项目的目录比
+ * （项目工作目录、档案的代码库、原型库、需求文档目录），等于或位于其下算命中，命中多个取路径最长的；
+ * 最长的有两个不同项目并列时不认定。正式产品两边先解析软链，原型没有文件系统，只去掉末尾的斜杠比
+ */
+export function projectByWorkdir<P extends DirProject>(workdir: string, projects: readonly P[]): { project: P; label: string; dir: string } | undefined {
+  const norm = (d: string) => d.trim().replace(/\/+$/, '') || (d.trim() ? '/' : '')
+  const wd = norm(workdir)
+  if (!wd.startsWith('/')) return undefined
+  let best: { project: P; label: string; dir: string; len: number } | undefined
+  let tie = false
+  for (const p of projects) {
+    const cands: [string, string | undefined][] = [
+      [PROJECT_DIR_LABEL.workdir, p.root], [PROJECT_DIR_LABEL.code, p.profile?.code_dir],
+      [PROJECT_DIR_LABEL.proto, p.profile?.proto_dir], [PROJECT_DIR_LABEL.prd, p.profile?.prd_dir],
+    ]
+    for (const [label, raw] of cands) {
+      const d = norm(raw ?? '')
+      if (!d.startsWith('/')) continue
+      if (!(wd === d || wd.startsWith(d === '/' ? '/' : `${d}/`))) continue
+      if (!best || d.length > best.len) { best = { project: p, label, dir: (raw ?? '').trim(), len: d.length }; tie = false }
+      else if (d.length === best.len && p.id !== best.project.id) tie = true
+    }
+  }
+  return best && !tie ? { project: best.project, label: best.label, dir: best.dir } : undefined
 }
 
 /** 项目档案原型库在提示词里的名字（同正式产品 internal/plugins/projects/prototypes.go 的 protoLibName） */
@@ -56,6 +95,10 @@ export function projectContext(p: Pick<Project, 'name' | 'root' | 'related' | 'p
   }
 }
 
+/** 按工作目录认定时名称下面那一行（同正式产品 prompt.go、prompt_agent.go） */
+export const byWorkdirLine = (p: ProjectContext) =>
+  `按工作目录认定为项目「${p.name}」（任务本身没挂项目）：工作目录在${p.byWorkdir ? `${p.byWorkdir.label} ${p.byWorkdir.dir}` : ''} 下。`
+
 /** 规则按行拆开、去掉首尾空行，给提示词逐行缩进用 */
 const ruleLines = (r?: string) => { const t = (r ?? '').trim(); return t ? t.split('\n').map((l) => l.trimEnd()) : [] }
 
@@ -79,6 +122,7 @@ export function buildPrompt(o: {
   if (t.acceptance?.trim()) lines.push('## 验收标准', t.acceptance.trim(), '')
   if (p) {
     lines.push('## 所属项目', `名称：${p.name}${p.ref ? `（${p.ref}）` : ''}`)
+    if (p.byWorkdir) lines.push(byWorkdirLine(p))
     if (p.workdir) lines.push(`项目工作目录：${p.workdir}`)
     lines.push(p.docsDir
       ? `文档在哪里操作：${p.docsDir}${p.docsLabel ? `（项目关联目录「${p.docsLabel}」）` : ''}`

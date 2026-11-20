@@ -1,6 +1,7 @@
 // powered by dsh - https://github.com/deepseek-ai/deepseek-harness
 
-import { ALERT_COND, bars, greeks, instOf, prevClose, priceAt, type AlertCond, type Instrument, type PriceAlert } from './tradedata'
+import { ALERT_COND, IND_SHORT, bars, greeks, instOf, isIndCond, prevClose, priceAt, type AlertCond, type AlertIndicatorSpec, type Bar, type BarInterval, type Instrument, type PriceAlert } from './tradedata'
+import { alertBars, alertSeries } from './ta'
 
 // 盯盘提醒的判定（纯函数，从 monitor.tsx 抽出来）。正式版的后端（internal/plugins/trade/alerts.go）逐行移植这里，
 // 用 internal/plugins/trade/testdata/gen-alert-golden.mjs 跑出的同一组夹具对拍；改了判定或文案要重跑生成脚本。
@@ -44,6 +45,27 @@ export interface AlertMarket {
   volumes: () => number[]
   funding: () => number
   iv: () => number
+  /** 指标条件（TRD-10）用：截至这一刻的最近 count 根 K 线，最后一根还没收盘 */
+  klines?: (interval: BarInterval, count: number) => Bar[]
+}
+
+/** 指标条件要的指标和周期 */
+export type AlertInd = { indicator: AlertIndicatorSpec; interval: BarInterval }
+export const alertIndOf = (a: Pick<PriceAlert, 'indicator' | 'interval'>): AlertInd | undefined =>
+  a.indicator && a.interval ? { indicator: a.indicator, interval: a.interval } : undefined
+
+/** 指标的短写法，如 RSI(14)、K(9,3,3) */
+export const indText = (x?: AlertIndicatorSpec) => (!x ? '指标' : x.params.length ? `${IND_SHORT[x.ind]}(${x.params.join(',')})` : IND_SHORT[x.ind])
+
+/** 和价格同量纲、按标的精度显示的指标 */
+const PRICE_SCALE = new Set(['ma', 'ema', 'boll_up', 'boll_low', 'boll_mid', 'bbi'])
+export const indPriceScale = (x?: AlertIndicatorSpec) => !!x && PRICE_SCALE.has(x.ind)
+
+/** 指标在所选周期 K 线上的上一根、最新一根（还没收盘）的值；算不出来是 NaN */
+export function indPair(m: AlertMarket, ind: AlertInd): [number, number] {
+  const bs = m.klines?.(ind.interval, alertBars(ind.indicator.ind, ind.indicator.params)) ?? []
+  const xs = alertSeries(ind.indicator.ind, ind.indicator.params, bs)
+  return [xs[xs.length - 2] ?? NaN, xs[xs.length - 1] ?? NaN]
 }
 
 /** 原型的模拟行情 */
@@ -56,13 +78,19 @@ export function simMarket(symbol: string, at: number): AlertMarket {
     volumes: () => bars(symbol, '1m', 21, at).map((b) => b.v),
     funding: () => fundingRate(symbol, at),
     iv: () => greeks(i!, at).iv * 100,
+    klines: (interval, count) => bars(symbol, interval, count, at),
   }
 }
 
-/** 按条件的单位算当前值：价格、涨跌幅 %、量比、资金费率 %、IV %、距涨跌停 % */
-export function condValueOn(cond: AlertCond, m: AlertMarket): number | null {
+/** 按条件的单位算当前值：价格、涨跌幅 %、量比、资金费率 %、IV %、距涨跌停 %；指标条件是所选指标最新一根的值（ind 不给时 null） */
+export function condValueOn(cond: AlertCond, m: AlertMarket, ind?: AlertInd): number | null {
   const i = m.inst
   if (!condFits(cond, i)) return null
+  if (isIndCond(cond)) {
+    if (!ind) return null
+    const v = indPair(m, ind)[1]
+    return Number.isFinite(v) ? v : null
+  }
   const last = m.last()
   switch (cond) {
     case 'price_above': case 'price_below': return last
@@ -84,29 +112,35 @@ export function condValueOn(cond: AlertCond, m: AlertMarket): number | null {
       const up = prev * (1 + i!.limit!), down = prev * (1 - i!.limit!)
       return (Math.min(up - last, last - down) / prev) * 100
     }
+    default: return null
   }
 }
 
-export function condValue(cond: AlertCond, symbol: string, at: number): number | null {
-  return condValueOn(cond, simMarket(symbol, at))
+export function condValue(cond: AlertCond, symbol: string, at: number, ind?: AlertInd): number | null {
+  return condValueOn(cond, simMarket(symbol, at), ind)
 }
 
-export function hit(cond: AlertCond, v: number, th: number) {
-  if (cond === 'price_below' || cond === 'limit_near') return v <= th
+/** 满足条件：穿越类要看上一根（prev），其余只看当前值 */
+export function hit(cond: AlertCond, v: number, th: number, prev = NaN) {
+  if (cond === 'ind_cross_up') return prev < th && v >= th
+  if (cond === 'ind_cross_down') return prev > th && v <= th
+  if (cond === 'price_below' || cond === 'limit_near' || cond === 'ind_below') return v <= th
   return v >= th
 }
 
 const fmtPx = (i: Instrument | undefined, p: number) =>
   p.toLocaleString('en-US', { minimumFractionDigits: i?.digits ?? 2, maximumFractionDigits: i?.digits ?? 2 })
 
-export function fmtCondValueOf(cond: AlertCond, i: Instrument | undefined, v: number) {
+export function fmtCondValueOf(cond: AlertCond, i: Instrument | undefined, v: number, ind?: AlertIndicatorSpec) {
   if (cond === 'price_above' || cond === 'price_below') return fmtPx(i, v)
+  // 指标条件：和价格同量纲的按标的精度，其余两位小数
+  if (isIndCond(cond)) return indPriceScale(ind) ? fmtPx(i, v) : v.toFixed(2)
   if (cond === 'volume_spike') return `${v.toFixed(2)} 倍`
   if (cond === 'funding_above') return `${v.toFixed(4)}%`
   return `${v.toFixed(2)}%`
 }
 
-export const fmtCondValue = (cond: AlertCond, symbol: string, v: number) => fmtCondValueOf(cond, instOf(symbol), v)
+export const fmtCondValue = (cond: AlertCond, symbol: string, v: number, ind?: AlertIndicatorSpec) => fmtCondValueOf(cond, instOf(symbol), v, ind)
 
 export function alertText(a: PriceAlert, i: Instrument | undefined, v: number) {
   const name = i?.name ?? a.symbol
@@ -120,6 +154,11 @@ export function alertText(a: PriceAlert, i: Instrument | undefined, v: number) {
     case 'funding_above': return `${name} 资金费率 ${v.toFixed(4)}%，高于 ${th}%`
     case 'iv_above': return `${name} 隐含波动率 ${v.toFixed(1)}%，高于 ${th}%`
     case 'limit_near': return `${name} 距涨跌停 ${v.toFixed(2)}%，在 ${th}% 以内`
+    default: {
+      // 指标条件（TRD-10），如「BTC 1h RSI(14) 71.20，上穿 70」
+      const what = { ind_above: '高于', ind_below: '低于', ind_cross_up: '上穿', ind_cross_down: '下穿' }[a.cond as 'ind_above'] ?? ''
+      return `${name} ${a.interval ?? ''} ${indText(a.indicator)} ${fmtCondValueOf(a.cond, i, v, a.indicator)}，${what} ${th}`
+    }
   }
 }
 
@@ -137,8 +176,13 @@ export function checkAlertsOn(alerts: PriceAlert[], at: number, marketOf: (symbo
       if (!a.repeat) continue
       if (at - new Date(a.last_fired_at).getTime() < Math.max(0, a.cooldown_min) * 60000) continue
     }
-    const v = condValueOn(a.cond, m)
-    if (v === null || !Number.isFinite(v) || !hit(a.cond, v, a.value)) continue
+    let v: number | null, prev = NaN
+    if (isIndCond(a.cond)) {
+      const ind = alertIndOf(a)
+      if (!ind) continue
+      ;[prev, v] = indPair(m, ind)
+    } else v = condValueOn(a.cond, m)
+    if (v === null || !Number.isFinite(v) || !hit(a.cond, v, a.value, prev)) continue
     out.push({ alert: a, text: alertText(a, m.inst, v), price: m.last() })
   }
   return out

@@ -4,6 +4,7 @@ import { Fragment, useEffect, useRef, useState, useSyncExternalStore } from 'rea
 import { Subnav } from './subnav'
 import { PageTitle } from './topbar'
 import { cls, timeAgo } from './ui'
+import { weightsOf } from './builtin'
 import {
   LIVE_CHECKS, MARKETS, ORDER_STATUS, ORDER_TYPE, RUN_STATUS, SESSION_LABEL, UP, DOWN,
   fmtPct, fmtPrice, instOf, positionPnl, prevClose, priceAt, round, seedLiveReview, seedRecons, sessionOf, useNow,
@@ -1437,6 +1438,8 @@ function RunDrawer({ initStrategy, strategies, accounts, risk, live, onClose, on
   else if (a && capUsd > availUsd) errors.push(`分配资金超过账户可用 ${num(a.available)} ${a.currency}`)
   if (Object.values(params).some((v) => v.trim() === '' || Number.isNaN(Number(v)))) errors.push('参数要填数字')
   if (a && !a.paper && !ack) errors.push('实盘要勾选确认用真实资金运行')
+  // 内置策略（TRD-09，SPEC-strategy-9.11）只能部署到模拟盘；正式产品是后端回 400，抽屉照常显示这句
+  if (s?.mode === 'builtin' && a && !a.paper) errors.push('内置策略只能部署到模拟盘账户，实盘部署还没开放')
 
   const create = () => {
     setTried(true)
@@ -1445,7 +1448,7 @@ function RunDrawer({ initStrategy, strategies, accounts, risk, live, onClose, on
     onCreate({
       id: newId('rn'), strategy_id: s.id, account_id: a.id, symbols: syms, params: Object.fromEntries(Object.entries(params).map(([k, v]) => [k, Number(v)])),
       capital: cap, status: 'running', pnl: 0, started_at: at,
-      logs: [{ at, level: 'info', text: `${a.paper ? '模拟盘' : '实盘'}启动：${syms.map(instName).join('、')}，分配 ${num(cap)} ${a.currency}` }],
+      logs: [{ at, level: 'info', text: `${a.paper ? '模拟盘' : '实盘'}启动：${syms.map(instName).join('、')}，分配 ${num(cap)} ${a.currency}${syms.length > 1 ? `，按资金权重分：${weightsOf(s, syms).map((w, i) => `${instName(syms[i])} ${Math.round(w * 100)}%`).join('、')}` : ''}` }],
     })
   }
 

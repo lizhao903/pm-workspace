@@ -10,7 +10,7 @@ import { useEnumView } from './enumdata'
 import { useOpenUrl } from './openurl'
 import { GrowArea, InfoTip, cls, timeAgo } from './ui'
 import { appendQuickNote, useRunQuickNotes } from './runnotes'
-import { buildPrompt, type HandoffMode, type ProjectContext } from './handoff'
+import { buildPrompt, byWorkdirLine, type HandoffMode, type ProjectContext } from './handoff'
 import { useRunPresets, type RunPreset } from './runpresets'
 import { WRITE_PROFILE_OPTIONS, allowRulesOf, useRunPerms, writeProfileHint, type RunPermission, type RunWriteProfile } from './runperms'
 import type { Agent } from './agentdata'
@@ -749,10 +749,12 @@ function QuickNotes({ value, onChange, onManage }: { value: string; onChange: (v
   )
 }
 
-export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onClose, onManagePresets, onManagePerms, onManageNotes, onManageRunners, agentRun, runners = DEMO_RUNNERS }: {
+export function RunDialog({ task, inheritDir, project: ownProject, projectByDir, terminalOn, onStart, onClose, onManagePresets, onManagePerms, onManageNotes, onManageRunners, agentRun, runners = DEMO_RUNNERS }: {
   task: Task; inheritDir?: string
   /** 任务所属项目的上下文，提示词里的「所属项目」一节 */
   project?: ProjectContext
+  /** 任务没挂项目时按工作目录认定项目（SPEC-tasks-6.13a），随弹窗里的工作目录实时变；认不出来回 undefined */
+  projectByDir?: (dir: string) => ProjectContext | undefined
   /** 终端插件在跑：「切换到终端」才能选 */
   terminalOn: boolean
   onStart: (o: RunStart) => void
@@ -812,6 +814,8 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
   const dirErr = ag ? (dir.trim() && !dir.trim().startsWith('/') ? '要写本机绝对路径' : '')
     : !dir.trim() ? '选一个工作目录，任务和所属项目都没设' : !dir.trim().startsWith('/') ? '要写本机绝对路径' : ''
   const term = !ag && !dsh && mode === 'terminal'
+  // 挂了项目就是它，不看工作目录；没挂时按这次的工作目录认定（SPEC-tasks-6.13a），只影响这一次执行
+  const project = ownProject ?? projectByDir?.(dir.trim())
   const prompt = buildPrompt({ task, workdir: dir.trim(), extra, mode, project, preset })
   // 工作台 Agent：Agent、服务商、模型（SPEC-tasks-6.21、6.22）、续跑（6.23）
   const enabledAgents = agentRun?.agents.filter((a) => a.enabled) ?? []
@@ -832,7 +836,7 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
     `\n## 任务\n编号：${task.ref}\n标题：${task.title}`,
     task.desc ? `\n## 任务描述\n${task.desc}` : '',
     task.acceptance ? `\n## 验收标准\n${task.acceptance}` : '',
-    project ? `\n## 所属项目\n名称：${project.name}` : '',
+    project ? `\n## 所属项目\n名称：${project.name}${project.byWorkdir ? `\n${byWorkdirLine(project)}` : ''}` : '',
     preset ? `\n## 执行要求（${preset.scene}）\n${preset.content}${preset.permission === 'read_only' ? '\n\n这个角色只读：这次只给你开了读的工具，不要尝试改任何东西，结论写在回复里。' : ''}` : '',
     extra.trim() ? `\n## 本次执行的补充要求\n${extra.trim()}` : '',
     `\n## 怎么做\n- 先用 get_object 读这条任务（${task.ref}），关联的对象需要时也读一下。\n- 做完一个关键步骤用 append_progress 记一句进展；拆子任务用 create_object 并带 parent_ref=${task.ref}。\n- 任务真的做完了，用 update_object 改成完成。\n- 这次没有人在旁边回答问题：不能向用户提问，拿不准的写进结论。\n- 有些写操作要用户确认，提出后会停下等；被拒绝了就换办法或收尾。${dir.trim() ? `\n- write_file 写进 ${dir.trim()}，只用相对路径。` : ''}`,
@@ -1000,7 +1004,7 @@ export function RunDialog({ task, inheritDir, project, terminalOn, onStart, onCl
         )}
         <div className="dev-preview">
           <button className="link-btn" aria-expanded={preview} onClick={() => setPreview(!preview)}>{preview ? '收起提示词预览' : '提示词预览'}</button>
-          {!preview && <span className="list-sub">{project ? `带上所属项目「${project.name}」的文档和原型位置` : '任务没挂在项目下，不带项目信息'}</span>}
+          {!preview && <span className="list-sub">{project?.byWorkdir ? `按工作目录认定为项目「${project.name}」，带上它的文档和原型位置` : project ? `带上所属项目「${project.name}」的文档和原型位置` : '任务没挂在项目下、工作目录也不在哪个项目的目录里，不带项目信息'}</span>}
           {preview && <pre className="dev-preview-body mono">{ag ? agentPrompt : prompt}</pre>}
         </div>
         {agentErr && <span className="field-err">{agentErr}</span>}

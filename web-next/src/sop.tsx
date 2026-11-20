@@ -18,6 +18,7 @@ import { ListSegHead, ListSegMore } from './tasks'
 import { describeRule, flowSchedule, nextRun, whenText, type Schedule } from './scheduledata'
 import './sopsync.css'
 import { checkSop } from './sopedit'
+import { layeredY } from './soplayout'
 import type { TodayItem } from './today'
 
 /**
@@ -872,17 +873,25 @@ export function FlowGraph({ sop, run, selected, onSelect }: {
   onSelect?: (i: number) => void
 }) {
   const rk = ranks(sop)
+  const idx = new Map(sop.steps.map((x, i) => [x.key, i]))
+  // 列内上下顺序和纵坐标同编排页的自动布局（SPEC-sop-5.9、8.15）：分支下游按出口顺序、单线拉直、汇合在几路上游中间；
+  // 连线都从节点右边中间连出，排序时分支出口按第几个出口算上下。不读编排页存的位置
+  const ys = layeredY(
+    sop.steps.map((s, i) => ({ key: s.key, rank: rk[i], h: H })),
+    sop.steps.flatMap((s, i) => depsOf(sop, i).filter((k) => idx.has(k)).map((k) => {
+      const cases = sop.steps[idx.get(k)!].cases ?? []
+      const ci = s.branch?.of === k ? cases.findIndex((c) => c.key === s.branch!.case) : -1
+      return { from: k, to: s.key, out: H / 2, in: H / 2, port: ci >= 0 ? (ci + 1) / (cases.length + 1) : 0.5 }
+    })),
+    ROW_GAP, { col: W + COL_GAP, w: W },
+  )
+  const pos = sop.steps.map((s, i) => ({ x: PAD + rk[i] * (W + COL_GAP), y: TOP + PAD + ys[s.key] }))
+  // 每列按从上到下
   const cols: number[][] = []
   rk.forEach((r, i) => { (cols[r] ??= []).push(i) })
-  const maxRows = Math.max(...cols.map((c) => c.length))
-  const pos = sop.steps.map((_, i) => {
-    const col = cols[rk[i]]
-    const off = ((maxRows - col.length) * (H + ROW_GAP)) / 2
-    return { x: PAD + rk[i] * (W + COL_GAP), y: TOP + PAD + off + col.indexOf(i) * (H + ROW_GAP) }
-  })
+  cols.forEach((c) => c?.sort((a, b) => pos[a].y - pos[b].y))
   const width = PAD * 2 + cols.length * W + (cols.length - 1) * COL_GAP
-  const height = TOP + PAD * 2 + maxRows * H + (maxRows - 1) * ROW_GAP
-  const idx = new Map(sop.steps.map((x, i) => [x.key, i]))
+  const height = sop.steps.length ? Math.max(...pos.map((p) => p.y)) + H + PAD : TOP + PAD * 2
   const st = (i: number) => run?.steps[i].status
   // 图比视口宽时，选中的步骤可能在右边看不见，切过去时滚到它
   const boxRef = useRef<HTMLDivElement>(null)

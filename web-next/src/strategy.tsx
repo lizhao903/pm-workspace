@@ -4,11 +4,12 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperti
 import { PageTitle } from './topbar'
 import { Subnav } from './subnav'
 import { cls, timeAgo } from './ui'
-import { CODE_KIND_LABEL, codeKindOf, sweep, sweepableParams } from './backtest'
+import { CODE_KIND_LABEL, builtinRange, codeKindOf, rangeDays, sweep, sweepableParams } from './backtest'
+import { BUILTIN_STRATEGIES, EXIT_KEYS, builtinOf, type BuiltinStrategy } from './builtin'
 import {
-  COMPARE, DOWN, INDICATORS, INSTRUMENTS, INST_KIND, INTERVALS, MARKETS, UP, fmtPct, fmtPrice, instOf,
+  CHART_INTERVALS, COMPARE, DOWN, INDICATORS, IND_DEFAULT, IND_SHORT, INSTRUMENTS, INST_KIND, INTERVALS, MARKETS, TDX_INDICATORS, UP, fmtPct, fmtPrice, instOf,
   type Backtest, type BacktestConfig, type BacktestStatus, type BarInterval, type Compare, type Indicator, type Operand, type Rule, type RuleGroup, type Strategy,
-  type StrategyRun, type TradeAccount,
+  type StrategyRun, type SweepPoint, type TradeAccount,
 } from './tradedata'
 import './strategy.css'
 import { StrategyRunsPanel } from './strategyruns'
@@ -22,13 +23,11 @@ export type StrategyView = 'list' | `st:${string}` | 'backtests' | `bt:${string}
 
 /* ---------- 小工具 ---------- */
 
-const MODE_LABEL: Record<Strategy['mode'], string> = { rules: '条件规则', code: '代码' }
+const MODE_LABEL: Record<Strategy['mode'], string> = { rules: '条件规则', code: '代码', builtin: '内置策略' }
 const DIR_LABEL: Record<Strategy['direction'], string> = { long: '只做多', short: '只做空', both: '多空双向' }
 export const BT_STATUS: Record<BacktestStatus, { label: string; color: string }> = {
   queued: { label: '排队中', color: '#a19d92' }, running: { label: '运行中', color: '#3d4fd6' }, done: { label: '已完成', color: '#2f7d43' }, failed: { label: '失败', color: '#c0352b' },
 }
-const IND_SHORT: Record<Indicator, string> = { price: '收盘价', ma: 'MA', ema: 'EMA', rsi: 'RSI', macd: 'MACD 柱', boll_up: '布林上轨', boll_low: '布林下轨', volume: '成交量', atr: 'ATR' }
-const IND_DEFAULT: Record<Indicator, number[]> = { price: [], ma: [20], ema: [20], rsi: [14], macd: [12, 26, 9], boll_up: [20, 2], boll_low: [20, 2], volume: [], atr: [14] }
 const LINE_COLORS = ['var(--accent)', '#e8590c', '#0c8599', '#9c4fd6']
 
 const tone = (x: number) => (x > 0 ? UP : x < 0 ? DOWN : undefined)
@@ -227,7 +226,11 @@ export function StrategyNav({ strategies, backtests, runs = [], view, onSelect, 
 
 /* ---------- 策略库 ---------- */
 
-export function StrategyListPage({ strategies, backtests, onOpen, onNew }: { strategies: Strategy[]; backtests: Backtest[]; onOpen: (id: string) => void; onNew: () => void }) {
+export function StrategyListPage({ strategies, backtests, onOpen, onNew, onNewBuiltin }: {
+  strategies: Strategy[]; backtests: Backtest[]; onOpen: (id: string) => void; onNew: () => void
+  /** 从内置策略新建（TRD-09，SPEC-strategy-9.1） */
+  onNewBuiltin?: (b: BuiltinStrategy) => void
+}) {
   const [mode, setMode] = useState<'' | Strategy['mode']>('')
   const [market, setMarket] = useState('')
   const [q, setQ] = useState('')
@@ -237,12 +240,13 @@ export function StrategyListPage({ strategies, backtests, onOpen, onNew }: { str
     .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
   return (
     <div className="page page-fill">
-      <PageTitle parent="策略" count={strategies.length} desc="条件规则或代码写的交易策略，回测通过后部署到实盘或模拟盘" actions={
+      <PageTitle parent="策略" count={strategies.length} desc="条件规则或代码写的交易策略，回测通过后部署到实盘或模拟盘" actions={<>
+        {onNewBuiltin && <NewFromBuiltin onPick={onNewBuiltin} />}
         <button className="btn btn-primary" onClick={onNew}><PlusIcon />新建策略</button>
-      }>策略库</PageTitle>
+      </>}>策略库</PageTitle>
       <div className="toolbar">
         <div className="seg">
-          {([['', '全部'], ['rules', '条件规则'], ['code', '代码']] as const).map(([k, l]) => (
+          {([['', '全部'], ['rules', '条件规则'], ['code', '代码'], ['builtin', '内置策略']] as const).map(([k, l]) => (
             <button key={k} className={cls(mode === k && 'on')} onClick={() => setMode(k)}>{l}<span className="seg-n">{strategies.filter((s) => !k || s.mode === k).length}</span></button>
           ))}
         </div>
@@ -276,7 +280,7 @@ export function StrategyListPage({ strategies, backtests, onOpen, onNew }: { str
                   <span className="task-title"><span className="ellipsis">{s.name || '未命名策略'}</span></span>
                   <span className="task-meta"><span className="ellipsis">{s.desc || '没有说明'}</span></span>
                 </span>
-                <span><span className={cls('tag', s.mode === 'code' && 'sg-tag-code')}>{MODE_LABEL[s.mode]}</span></span>
+                <span><span className={cls('tag', s.mode !== 'rules' && 'sg-tag-code')}>{MODE_LABEL[s.mode]}</span></span>
                 <SymTags symbols={s.symbols} empty="未选标的" />
                 <span className="run-muted">{INTERVALS[s.interval].label}</span>
                 <span className="run-muted">{DIR_LABEL[s.direction]}</span>
@@ -323,18 +327,25 @@ export function StrategyEditor(props: EditorProps) {
   return <Editor key={props.strategy.id} {...props} />
 }
 
-interface QuickCfg { bars: number; capital: number; fee_bp: number; slippage_ticks: number; over: Record<string, number> }
-const quickDefaults = (st: Strategy): QuickCfg => ({ bars: 1000, capital: 100000, fee_bp: instOf(st.symbols[0] ?? '')?.market === 'crypto' ? 5 : 3, slippage_ticks: 1, over: {} })
+/** start、end 是回测区间（UTC 日期，左闭右开）：内置策略（TRD-09）按区间回测，给了就不看 bars */
+interface QuickCfg { bars: number; capital: number; fee_bp: number; slippage_ticks: number; over: Record<string, number>; start?: string; end?: string }
+const quickDefaults = (st: Strategy): QuickCfg => ({
+  bars: 1000, capital: 100000, fee_bp: instOf(st.symbols[0] ?? '')?.market === 'crypto' ? 5 : 3, slippage_ticks: 1, over: {},
+  ...(st.mode === 'builtin' ? builtinRange() : {}),
+})
 
 function Editor({ strategy: st, onChange, onDelete, onBacktest, onDeploy, lastBacktest, onOpenBacktest, runs, accounts, onOpenRuns, delImpact }: EditorProps) {
   const [qc, setQc] = useState<QuickCfg>(() => quickDefaults(st))
   const [confirmDel, setConfirmDel] = useState(false)
   const set = (patch: Partial<Strategy>) => onChange({ ...st, ...patch, updated_at: new Date().toISOString() })
+  // 内置策略按日期区间回测（TRD-09），根数按区间算
+  const range = st.mode === 'builtin' && qc.start && qc.end ? { start: qc.start, end: qc.end } : {}
   const cfg: BacktestConfig = {
     strategy_id: st.id, symbols: st.symbols, interval: st.interval, bars: qc.bars, capital: qc.capital, fee_bp: qc.fee_bp, slippage_ticks: qc.slippage_ticks,
-    params: { ...st.params, ...Object.fromEntries(Object.entries(qc.over).filter(([k]) => k in st.params)) },
+    params: { ...st.params, ...Object.fromEntries(Object.entries(qc.over).filter(([k]) => k in st.params)) }, ...range,
   }
-  const blocker = !st.symbols.length ? '先选至少一个标的' : st.mode === 'rules' && !st.entry.rules.length ? '入场规则还是空的' : ''
+  const blocker = !st.symbols.length ? '先选至少一个标的' : st.mode === 'rules' && !st.entry.rules.length ? '入场规则还是空的'
+    : st.mode === 'builtin' && rangeDays(qc.start, qc.end) <= 0 ? '回测区间的开始要早于结束' : ''
 
   // 规则模式下改参数值，规则里引用旧值的周期、数值一起改，保证参数和规则对得上
   const setParam = (k: string, v: number) => {
@@ -363,7 +374,8 @@ function Editor({ strategy: st, onChange, onDelete, onBacktest, onDeploy, lastBa
               <span className="field-group-title">策略逻辑</span>
               <span className="spacer" />
               <div className="seg seg-sm">
-                {(['rules', 'code'] as const).map((m) => <button key={m} className={cls(st.mode === m && 'on')} onClick={() => set({ mode: m })}>{MODE_LABEL[m]}</button>)}
+                {/* 内置策略这档只有内置策略才有；切走后回不来，要重新从内置策略新建（SPEC-strategy-9.3） */}
+                {(st.mode === 'builtin' ? (['builtin', 'rules', 'code'] as const) : (['rules', 'code'] as const)).map((m) => <button key={m} className={cls(st.mode === m && 'on')} onClick={() => set({ mode: m })}>{MODE_LABEL[m]}</button>)}
               </div>
             </div>
             {st.mode === 'rules' ? (
@@ -371,6 +383,8 @@ function Editor({ strategy: st, onChange, onDelete, onBacktest, onDeploy, lastBa
                 <GroupEditor title="入场条件" hint={st.direction === 'both' ? '满足时做多，有空单先平' : st.direction === 'short' ? '满足时开空' : '满足时开多'} group={st.entry} onChange={(entry) => set({ entry })} />
                 <GroupEditor title="出场条件" hint={st.direction === 'both' ? '满足时做空，有多单先平' : '满足时平仓'} group={st.exit} onChange={(exit) => set({ exit })} />
               </>
+            ) : st.mode === 'builtin' ? (
+              <BuiltinLogic st={st} set={set} />
             ) : (
               <CodeEditor st={st} set={set} />
             )}
@@ -385,7 +399,7 @@ function Editor({ strategy: st, onChange, onDelete, onBacktest, onDeploy, lastBa
             </div>
           </section>
 
-          <ParamsTable st={st} setParams={(params) => set({ params })} setParam={setParam} />
+          {st.mode !== 'builtin' && <ParamsTable st={st} setParams={(params) => set({ params })} setParam={setParam} />}
         </div>
 
         <div className="hook-col sg-side">
@@ -439,11 +453,18 @@ function BasicInfo({ st, set }: { st: Strategy; set: (p: Partial<Strategy>) => v
         </div>
       </div>
       <SymbolPicker value={st.symbols} onChange={(symbols) => set({ symbols })} />
+      <SymbolWeights st={st} set={set} />
       {currencies.size > 1 && <div className="field-hint-line">选了不同币种的标的，回测按各自币种直接相加，不做汇率换算</div>}
+      {st.mode === 'builtin' ? (
+        <div className="field">
+          <span className="field-label">K 线周期和方向</span>
+          <span className="run-muted">{INTERVALS[st.interval].label} 入场 · {DIR_LABEL[st.direction]}（内置策略固定）</span>
+        </div>
+      ) : <>
       <div className="field">
         <span className="field-label">K 线周期</span>
         <div className="seg sg-seg-wrap">
-          {(Object.keys(INTERVALS) as BarInterval[]).map((k) => <button key={k} className={cls(st.interval === k && 'on')} onClick={() => set({ interval: k })}>{INTERVALS[k].label}</button>)}
+          {CHART_INTERVALS.map((k) => <button key={k} className={cls(st.interval === k && 'on')} onClick={() => set({ interval: k })}>{INTERVALS[k].label}</button>)}
         </div>
       </div>
       <div className="field">
@@ -452,6 +473,7 @@ function BasicInfo({ st, set }: { st: Strategy; set: (p: Partial<Strategy>) => v
           {(Object.keys(DIR_LABEL) as Strategy['direction'][]).map((k) => <button key={k} className={cls(st.direction === k && 'on')} onClick={() => set({ direction: k })}>{DIR_LABEL[k]}</button>)}
         </div>
       </div>
+      </>}
     </section>
   )
 }
@@ -506,7 +528,13 @@ function OperandEditor({ o, onChange, allowNum }: { o: Operand; onChange: (o: Op
         else onChange({ kind: 'ind', ind: v as Indicator, params: [...IND_DEFAULT[v as Indicator]] })
       }}>
         {allowNum && <option value="__num">数值</option>}
-        {(Object.keys(INDICATORS) as Indicator[]).map((k) => <option key={k} value={k}>{INDICATORS[k].label}</option>)}
+        {/* 指标分两组（TRD-10）：前九个是回测原型的口径，后一批按通达信口径 */}
+        <optgroup label="常用（回测原型口径）">
+          {(Object.keys(INDICATORS) as Indicator[]).filter((k) => !TDX_INDICATORS.has(k)).map((k) => <option key={k} value={k}>{INDICATORS[k].label}</option>)}
+        </optgroup>
+        <optgroup label="通达信口径">
+          {(Object.keys(INDICATORS) as Indicator[]).filter((k) => TDX_INDICATORS.has(k)).map((k) => <option key={k} value={k}>{INDICATORS[k].label}</option>)}
+        </optgroup>
       </select>
       {o.kind === 'num' ? (
         <NumInput className="sg-numin sg-numin-wide" value={o.value} onChange={(value) => onChange({ kind: 'num', value })} />
@@ -629,6 +657,12 @@ function QuickPanel({ st, qc, setQc, cfg, blocker, onRun }: { st: Strategy; qc: 
   return (
     <section className="hook-sec">
       <div className="field-group-title">快速回测<span className="field-hint">{st.symbols.length} 个标的 · {INTERVALS[st.interval].label}</span></div>
+      {st.mode === 'builtin' ? (
+        <>
+          <RangeFields qc={qc} setQc={setQc} />
+          <label className="field"><span className="field-label">初始资金<span className="field-hint">{currencyOf(st.symbols)}</span></span><NumInput min={1} value={qc.capital} onChange={(v) => setQc({ ...qc, capital: Math.max(1, v) })} /></label>
+        </>
+      ) : <>
       <div className="field">
         <span className="field-label">区间：最近 {qc.bars} 根<span className="field-hint">{spanText(qc.bars, st.interval)}</span></span>
         <div className="seg seg-full">
@@ -639,6 +673,7 @@ function QuickPanel({ st, qc, setQc, cfg, blocker, onRun }: { st: Strategy; qc: 
         <label className="field"><span className="field-label">初始资金<span className="field-hint">{currencyOf(st.symbols)}</span></span><NumInput min={1} value={qc.capital} onChange={(v) => setQc({ ...qc, capital: Math.max(1, v) })} /></label>
         <label className="field"><span className="field-label">K 线根数</span><NumInput min={50} value={qc.bars} onChange={(v) => setQc({ ...qc, bars: Math.max(50, Math.min(5000, Math.round(v))) })} /></label>
       </div>
+      </>}
       <div className="field-row">
         <label className="field"><span className="field-label">手续费<span className="field-hint">万分之</span></span><NumInput min={0} value={qc.fee_bp} onChange={(v) => setQc({ ...qc, fee_bp: Math.max(0, v) })} /></label>
         <label className="field"><span className="field-label">滑点<span className="field-hint">跳</span></span><NumInput min={0} value={qc.slippage_ticks} onChange={(v) => setQc({ ...qc, slippage_ticks: Math.max(0, v) })} /></label>
@@ -700,6 +735,131 @@ function LastPanel({ st, bt, onOpen }: { st: Strategy; bt?: Backtest; onOpen: (i
       )}
       {sig(bt.strategy_snapshot) !== sig(st) && <div className="field-hint-line">策略在这次回测之后改过，结果可能对不上</div>}
       <div className="act-row"><button className="act" onClick={() => onOpen(bt.id)}>查看报告</button></div>
+    </section>
+  )
+}
+
+/* ---------- 内置策略（TRD-09，SPEC-strategy-9） ---------- */
+
+const clampTo = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))
+
+/** 编辑页「策略逻辑」里内置策略那一块：说明 + 参数（按范围夹住，越界的正式产品后端也会拒） */
+function BuiltinLogic({ st, set }: { st: Strategy; set: (p: Partial<Strategy>) => void }) {
+  const b = builtinOf(st.builtin)
+  if (!b) return <div className="detail-alert"><span>这个版本不认识内置策略「{st.builtin}」，回测和部署会被拒；可以改成条件规则</span></div>
+  const changed = b.params.filter((p) => st.params[p.key] !== undefined && st.params[p.key] !== p.default)
+  const group = (exit: boolean) => b.params.filter((p) => EXIT_KEYS.has(p.key) === exit)
+  return (
+    <div className="sg-builtin">
+      <div className="sg-builtin-head">
+        <span className="tag">{INTERVALS[b.trend_interval].label} 定趋势 · {INTERVALS[b.entry_interval].label} 入场</span>
+        <span className="run-muted sg-small">{b.trend_mode === 'partial' ? '趋势周期用当前还没收盘的那根' : '趋势周期只用已收盘的'}，由 {INTERVALS[b.entry_interval].label} K 线聚合</span>
+      </div>
+      <p className="sg-builtin-desc">{b.desc}</p>
+      <div className="run-muted sg-small" title={b.source}>移植自 {b.source}</div>
+      {[false, true].map((exit) => (
+        <div key={String(exit)} className="field">
+          <span className="field-label">{exit ? '出场和仓位' : '信号参数'}
+            {!exit && changed.length > 0 && <button type="button" className="link-btn sg-reset" onClick={() => set({ params: Object.fromEntries(b.params.map((p) => [p.key, p.default])) })}>全部恢复默认</button>}
+          </span>
+          <div className="sg-over">
+            {group(exit).map((p) => {
+              const v = st.params[p.key] ?? p.default
+              return (
+                <label key={p.key} className={cls('sg-over-item', v !== p.default && 'on')} title={`${p.help ? p.help + '。' : ''}默认 ${p.default}，范围 ${p.min} 到 ${p.max}（${p.key}）`}>
+                  <span className="ellipsis">{p.label}{p.unit && <span className="faint"> {p.unit}</span>}</span>
+                  <NumInput className="mono-input sg-num" step={p.step || undefined} min={p.min} value={v}
+                    onChange={(x) => set({ params: { ...st.params, [p.key]: clampTo(x, p.min, p.max) } })} />
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** 按标的的资金权重：两个以上标的才有；没写的按 1 算（SPEC-strategy-9.6） */
+function SymbolWeights({ st, set }: { st: Strategy; set: (p: Partial<Strategy>) => void }) {
+  if (st.symbols.length < 2) return null
+  const w = st.symbol_weights ?? {}
+  const of = (s: string) => (w[s] > 0 ? w[s] : 1)
+  const sum = st.symbols.reduce((a, s) => a + of(s), 0)
+  const custom = st.symbols.some((s) => w[s] !== undefined && w[s] !== 1)
+  return (
+    <div className="field">
+      <span className="field-label">资金权重<span className="field-hint">回测和部署按权重把资金分给各标的</span>
+        {custom && <button type="button" className="link-btn sg-reset" onClick={() => set({ symbol_weights: {} })}>平均分</button>}
+      </span>
+      <div className="sg-over sg-weights">
+        {st.symbols.map((s) => (
+          <label key={s} className={cls('sg-over-item', w[s] !== undefined && w[s] !== 1 && 'on')} title={s}>
+            <span className="ellipsis">{instName(s)}<span className="faint"> {Math.round((of(s) / sum) * 100)}%</span></span>
+            <NumInput className="mono-input sg-num" min={0} value={of(s)} onChange={(x) => { if (x > 0) set({ symbol_weights: { ...w, [s]: Math.min(x, 1e6) } }) }} />
+          </label>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/** 快速回测的区间（UTC 日期，左闭右开）：内置策略用（SPEC-strategy-9.7） */
+function RangeFields({ qc, setQc }: { qc: QuickCfg; setQc: (q: QuickCfg) => void }) {
+  const days = rangeDays(qc.start, qc.end)
+  const bad = days <= 0
+  return (
+    <div className="field">
+      <span className="field-label">区间（UTC）<span className={cls('field-hint', bad && 'danger-text')}>{bad ? '开始要早于结束' : `${days} 天，含开始不含结束`}</span></span>
+      <div className="field-row">
+        <input className={cls(bad && 'bad')} type="date" aria-label="回测开始日期" aria-invalid={bad} value={qc.start ?? ''} onChange={(e) => setQc({ ...qc, start: e.target.value })} />
+        <input className={cls(bad && 'bad')} type="date" aria-label="回测结束日期" aria-invalid={bad} value={qc.end ?? ''} onChange={(e) => setQc({ ...qc, end: e.target.value })} />
+      </div>
+    </div>
+  )
+}
+
+/** 「从内置策略新建」：点开列出内置策略，选一个就建（SPEC-strategy-9.1）；原型目录是本地的，不会取不到 */
+function NewFromBuiltin({ onPick }: { onPick: (b: BuiltinStrategy) => void }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <span className="sg-builtin-new">
+      <button className="btn btn-outline" aria-expanded={open} onClick={() => setOpen(!open)}><PlusIcon />从内置策略新建</button>
+      {open && (
+        <div className="sg-pick-menu" role="menu" aria-label="内置策略">
+          {BUILTIN_STRATEGIES.map((b) => (
+            <button key={b.id} type="button" role="menuitem" className="sg-pick-opt sg-builtin-opt" onClick={() => { setOpen(false); onPick(b) }}>
+              <span className="ellipsis">{b.name}</span>
+              <span className="run-muted sg-small ellipsis">{INTERVALS[b.trend_interval].label} 定趋势 · {INTERVALS[b.entry_interval].label} 入场 · {b.params.length} 个参数</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  )
+}
+
+/** 回测报告里每个标的单独的统计（SPEC-strategy-9.8） */
+function PerSymbolTable({ rows }: { rows?: NonNullable<Backtest['result']>['per_symbol'] }) {
+  if (!rows?.length) return null
+  return (
+    <section className="hook-sec" aria-label="分标的统计">
+      <div className="field-group-title">分标的统计<span className="field-hint">按各自分到的资金算</span></div>
+      <table className="sg-per-symbol">
+        <thead><tr><th>标的</th><th>分到资金</th><th>收益</th><th>最大回撤</th><th>胜率</th><th>交易笔数</th></tr></thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.symbol}>
+              <td title={r.symbol}>{instName(r.symbol)}</td>
+              <td className="sg-num">{money(r.capital)}</td>
+              <td className="sg-num" style={{ color: tone(r.stats.total_return) }}>{pctRaw(r.stats.total_return)}</td>
+              <td className="sg-num">{pctRaw(r.stats.max_dd)}</td>
+              <td className="sg-num">{r.stats.trades ? pctRaw(r.stats.win_rate) : '—'}</td>
+              <td className="sg-num">{r.stats.trades}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </section>
   )
 }
@@ -838,7 +998,7 @@ export function BacktestReport({ backtest: b, onRerun, onDeploy, onOpenStrategy,
   const cur = currencyOf(b.config.symbols)
   return (
     <div className="page page-fill bt-page">
-      <PageTitle parent="回测记录" desc={`${snap.name} · ${b.config.symbols.map(instName).join('、')} · ${b.config.bars} 根 ${INTERVALS[b.config.interval].label}`} actions={<>
+      <PageTitle parent="回测记录" desc={`${snap.name} · ${b.config.symbols.map(instName).join('、')} · ${b.config.start && b.config.end ? `${b.config.start} 到 ${b.config.end}` : `${b.config.bars} 根`} ${INTERVALS[b.config.interval].label}`} actions={<>
         <button className="btn btn-ghost" onClick={() => onOpenStrategy(b.config.strategy_id)}>打开策略</button>
         <button className="btn btn-outline" disabled={b.status === 'running' || b.status === 'queued'} onClick={() => onRerun(b.config)}>重新回测</button>
         <button className="btn btn-primary" onClick={() => onDeploy(b.config.strategy_id)}>部署</button>
@@ -849,7 +1009,7 @@ export function BacktestReport({ backtest: b, onRerun, onDeploy, onOpenStrategy,
         <span>初始资金 <b className="sg-num">{money(b.config.capital)}</b> {cur}</span>
         <span>手续费 万分之 <b className="sg-num">{b.config.fee_bp}</b></span>
         <span>滑点 <b className="sg-num">{b.config.slippage_ticks}</b> 跳</span>
-        <span>{spanText(b.config.bars, b.config.interval)}</span>
+        <span>{b.config.start && b.config.end ? `${rangeDays(b.config.start, b.config.end)} 天` : spanText(b.config.bars, b.config.interval)}</span>
         {r && r.equity.length > 0 && <span title="实际回测区间第一根、最后一根 K 线的开盘时间">数据 {fmtT(r.equity[0].t, b.config.interval)} 到 {fmtT(r.equity[r.equity.length - 1].t, b.config.interval)}</span>}
         <span className="faint">{timeAgo(b.created_at)}发起{b.finished_at ? ` · ${timeAgo(b.finished_at)}完成` : ''}</span>
       </div>
@@ -877,6 +1037,8 @@ export function BacktestReport({ backtest: b, onRerun, onDeploy, onOpenStrategy,
               )
             })}
           </div>
+
+          <PerSymbolTable rows={r.per_symbol} />
 
           <section className="hook-sec">
             <div className="sg-sec-head">
@@ -1013,7 +1175,8 @@ function SweepPanel({ b, onRerun }: { b: Backtest; onRerun: (cfg: BacktestConfig
   const [param, setParam] = useState(opts[0]?.key ?? 'stop_loss')
   const curVal = b.config.params[param] ?? opts.find((o) => o.key === param)?.value ?? 0
   const [txt, setTxt] = useState(() => defaultValues(curVal, param).join(', '))
-  const [res, setRes] = useState<{ param: string; rows: ReturnType<typeof sweep> } | null>(null)
+  // 正式产品的扫描结果存在回测上（b.sweep）；网格扫描（TRD-09）只能经接口发起，页面没有入口，有结果时照样列出
+  const [res, setRes] = useState<{ param: string; grid?: string[]; rows: SweepPoint[] } | null>(() => (b.sweep ? { param: b.sweep.param, grid: b.sweep.grid, rows: b.sweep.points } : null))
   const values = [...new Set(txt.split(/[,，\s]+/).filter(Boolean).map(Number).filter(Number.isFinite))].slice(0, 20)
   const pick = (k: string) => {
     setParam(k)
@@ -1040,21 +1203,22 @@ function SweepPanel({ b, onRerun }: { b: Backtest; onRerun: (cfg: BacktestConfig
       </div>
       <div className="act-row">
         <button className="act act-primary" disabled={!values.length} onClick={() => setRes({ param, rows: sweep(b.config, b.strategy_snapshot, param, values) })}>开始扫描</button>
-        {res && <span className="list-sub">按夏普最高的是 {res.param} = {best?.value}</span>}
+        {res && best && <span className="list-sub">按夏普最高的是 {best.params ? Object.entries(best.params).map(([k, v]) => `${k}=${v}`).join(' ') : `${res.param} = ${best.value}`}</span>}
       </div>
       {res && (
         <div className="bt-sweep">
-          <div className="bt-sweep-row sg-th"><span>{res.param}</span><span>总收益</span><span>回撤</span><span>夏普</span><span /></div>
-          {rows.map((x) => (
-            <div key={x.value} className={cls('bt-sweep-row', x === best && 'best')}>
-              <span className="sg-num mono">{x.value}{x.value === (b.config.params[res.param] ?? opts.find((o) => o.key === res.param)?.value) && <span className="faint"> 当前</span>}</span>
+          <div className="bt-sweep-row sg-th"><span>{res.grid ? res.grid.join(' × ') : res.param}</span><span>总收益</span><span>回撤</span><span>夏普</span><span /></div>
+          {rows.map((x, i) => (
+            <div key={i} className={cls('bt-sweep-row', x === best && 'best')}>
+              {x.params ? <span className="mono sg-small" title={`胜率 ${pctRaw(x.win_rate)} · ${x.trades} 笔`}>{Object.entries(x.params).map(([k, v]) => `${k}=${v}`).join(' ')}</span>
+                : <span className="sg-num mono">{x.value}{x.value === (b.config.params[res.param] ?? opts.find((o) => o.key === res.param)?.value) && <span className="faint"> 当前</span>}</span>}
               <span className="bt-bar-cell">
                 <span className="bt-bar-track"><i style={{ width: `${(Math.abs(x.total_return) / max) * 50}%`, background: tone(x.total_return) ?? 'var(--line-2)', [x.total_return >= 0 ? 'left' : 'right']: '50%' } as CSSProperties} /></span>
                 <Signed x={x.total_return} />
               </span>
               <span className="sg-num run-muted">{pctRaw(x.max_dd)}</span>
               <span className="sg-num">{x.sharpe.toFixed(2)}</span>
-              <button className="act act-quiet" title="按这个值发起一次正式回测" onClick={() => onRerun({ ...b.config, params: { ...b.config.params, [res.param]: x.value } })}>回测</button>
+              <button className="act act-quiet" title="按这个值发起一次正式回测" onClick={() => onRerun({ ...b.config, params: { ...b.config.params, ...(x.params ?? { [res.param]: x.value }) } })}>回测</button>
             </div>
           ))}
         </div>
@@ -1104,7 +1268,8 @@ function Snapshot({ st, cfg }: { st: Strategy; cfg: BacktestConfig }) {
     <div className="bt-snap">
       <dl className="bt-kv">
         <div><dt>名称</dt><dd>{st.name}</dd></div>
-        <div><dt>模式</dt><dd>{MODE_LABEL[st.mode]}{st.mode === 'code' && <span className="faint"> · 按「{CODE_KIND_LABEL[codeKindOf(st)]}」近似</span>}</dd></div>
+        <div><dt>模式</dt><dd>{MODE_LABEL[st.mode]}{st.mode === 'code' && <span className="faint"> · 按「{CODE_KIND_LABEL[codeKindOf(st)]}」近似</span>}{st.mode === 'builtin' && <span className="faint mono"> · {st.builtin}</span>}</dd></div>
+        {cfg.start && cfg.end && <div><dt>区间</dt><dd className="sg-num">{cfg.start} 到 {cfg.end}（UTC，不含结束日）</dd></div>}
         <div><dt>标的</dt><dd>{cfg.symbols.map(instName).join('、') || '-'}</dd></div>
         <div><dt>周期 / 方向</dt><dd>{INTERVALS[cfg.interval].label} · {DIR_LABEL[st.direction]}</dd></div>
         <div><dt>止损 / 止盈</dt><dd className="sg-num">{st.stop_loss ? `${st.stop_loss}%` : '不设'} / {st.take_profit ? `${st.take_profit}%` : '不设'}</dd></div>
@@ -1124,7 +1289,7 @@ function Snapshot({ st, cfg }: { st: Strategy; cfg: BacktestConfig }) {
             </div>
           ))}
         </div>
-      ) : <CodeLines code={st.code} />}
+      ) : st.mode === 'builtin' ? <div className="faint">内置策略：信号写在后端，见上面的参数</div> : <CodeLines code={st.code} />}
     </div>
   )
 }
