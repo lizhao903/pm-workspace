@@ -435,7 +435,7 @@ const ev = {
 export const seedRuns: TaskRun[] = [
   {
     id: 'run_d1', task_id: 'tk_dev1', status: 'done', workdir: PMW, allow_writes: false, extra_prompt: '先别改，看看超时卡在哪', exit_code: 0,
-    error: '这次执行有 2 个工具调用被权限策略拒绝（Edit、Bash），其余步骤已执行，但被挡下的部分可能没有生效。被拒的命令：go test ./internal/export/...。本次为只读执行；要让它真正改文件，请在发起时勾选「允许修改文件」（选一个写入档位）。本次档位「只读」没放行这些调用；建议放行：`Bash(go test:*)`。到「设置 / 执行权限」把它们加进自定义白名单，发起时选「自定义白名单」档位。', session_id: SS_A, started_at: minsAgo(310), ended_at: minsAgo(306), pending: [],
+    error: '这次执行有 2 个工具调用被权限策略拒绝（Edit、Bash），其余步骤已执行，但被挡下的部分可能没有生效。被拒的命令：go test ./internal/export/...。本次为只读执行；要让它真正改文件，请在发起时勾选「允许修改文件」（选一个写入档位）。本次档位「只读」没放行这些调用；建议放行：`Bash(go test:*)`。到「设置 / 执行权限」把它们加进自定义白名单，发起时选「自定义白名单」或「自动审核」档位；只跟某个项目有关的，加进项目档案的「执行白名单」。也可以发起时选「自动审核」，白名单外的调用交给 Claude Code 按任务意图判断（硬拦截照样生效）。', session_id: SS_A, started_at: minsAgo(310), ended_at: minsAgo(306), pending: [],
     events: [ev.d('先读任务和验收标准。\n'), ev.t('t1', 'pmw_get_object', 'T-015'), ev.r('t1'), ev.t('t2', 'Grep', 'runExport'), ev.r('t2'), ev.t('t3', 'Read', 'internal/export/runner.go'), ev.r('t3'),
       ev.t('t4', 'Edit', 'internal/export/runner.go'), ev.r('t4', false, '只读运行，没有写入权限'),
       ev.t('t5', 'Bash', 'go test ./internal/export/...'), ev.r('t5', false, 'This command requires approval'),
@@ -471,6 +471,24 @@ export const seedRuns: TaskRun[] = [
     module_key: 'project:pj_perm', prefix_version: 3, cache_read_tokens: 6144, uncached_input_tokens: 223, output_tokens: 1180,
     events: [ev.t('t1', 'pmw_get_object', 'T-017'), ev.r('t1'), ev.t('t2', 'Read', 'server/authz/cache.go'), ev.r('t2'),
       ev.d('方案：按部门打版本号，权限变更只自增该部门版本；查询带版本做缓存键。已记一条进展。')],
+  },
+  {
+    // 被拒说明分三类（TSK-0499，SPEC-tasks-5.38）。命中硬拦截的：自动审核档也挡，只给「去看硬拦截清单」，不给建议放行
+    id: 'run_d7', task_id: 'tk_dev2', status: 'done', workdir: PMW, allow_writes: true, extra_prompt: '改完推到 feat/inline-errors', exit_code: 0,
+    error: '这次执行有 1 个工具调用被权限策略拒绝（Bash），其余步骤已执行，但被挡下的部分可能没有生效。被拒的命令：git push --force origin feat/inline-errors。其中 1 个命中硬拦截（`Bash(git push *--force*)`）：硬拦截优先于任何档位、白名单和自动审核，换档位、加白名单都放不开；这类操作（推 main、强推、reset --hard、rm -rf、杀进程、写工作台数据目录、调管理接口等）请你自己在终端做。内置的硬拦截删不掉，自己加的在「设置 / 执行权限」的「硬拦截」里改。',
+    session_id: SS_C, started_at: minsAgo(70), ended_at: minsAgo(62), pending: [],
+    events: [ev.t('t1', 'pmw_get_object', 'T-016'), ev.r('t1'), ev.t('t2', 'Edit', 'web/src/pages/Connectors.tsx'), ev.r('t2'),
+      ev.t('t3', 'Bash', 'git rebase main'), ev.r('t3'), ev.t('t4', 'Bash', 'git push --force origin feat/inline-errors'), ev.r('t4', false, 'Permission to use Bash has been denied by a deny rule'),
+      ev.d('连接器页改完、已 rebase 到 main；分支历史变了要强推，被硬拦截挡下，需要你在终端推。')],
+  },
+  {
+    // 被自动审核拒绝的：带上它给的理由，仍可加进自定义白名单（自动审核档也认白名单）
+    id: 'run_d8', task_id: 'tk_dev3', status: 'done', workdir: `${YC}/server`, allow_writes: true, extra_prompt: '压一下 p99', exit_code: 0,
+    error: '这次执行有 1 个工具调用被权限策略拒绝（Bash），其余步骤已执行，但被挡下的部分可能没有生效。被拒的命令：hey -c 500 -n 50000 https://staging.yuanchuan.example/authz/check。其中 1 个被 Claude Code 的自动审核拒绝（理由：对共享的预发环境发 5 万次请求，任务里没说要压预发环境）：自动审核按这次任务的意图判断，觉得越界或有风险就拦；确实是任务要做的，把它加进自定义白名单（白名单里的直接放行、不再送审），或在附加说明里写明要做这一步再发起。本次档位「自动审核」没放行这些调用；建议放行：`Bash(hey:*)`。到「设置 / 执行权限」把它们加进自定义白名单（自动审核档也认自定义白名单）；只跟某个项目有关的，加进项目档案的「执行白名单」。',
+    session_id: SS_D, started_at: minsAgo(215), ended_at: minsAgo(208), pending: [],
+    events: [ev.t('t1', 'pmw_get_object', 'T-017'), ev.r('t1'), ev.t('t2', 'Bash', 'go test ./authz/...'), ev.r('t2'),
+      ev.t('t3', 'Bash', 'hey -c 500 -n 50000 https://staging.yuanchuan.example/authz/check'), ev.r('t3', false, 'Denied by auto mode classifier'),
+      ev.d('用例通过；压预发环境被自动审核拦下，改成本地起服务再压。')],
   },
 ]
 

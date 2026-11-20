@@ -12,7 +12,7 @@ import { GrowArea, InfoTip, cls, timeAgo } from './ui'
 import { appendQuickNote, useRunQuickNotes } from './runnotes'
 import { buildPrompt, byWorkdirLine, type HandoffMode, type ProjectContext } from './handoff'
 import { useRunPresets, type RunPreset } from './runpresets'
-import { WRITE_PROFILE_OPTIONS, allowRulesOf, useRunPerms, writeProfileHint, type RunPermission, type RunWriteProfile } from './runperms'
+import { DSH_UNSUPPORTED, WRITE_PROFILE_OPTIONS, allowRulesOf, hardDenied, useRunPerms, writeProfileHint, type RunPermission, type RunWriteProfile } from './runperms'
 import type { Agent } from './agentdata'
 import { ownerNote } from './aiowner'
 import type { ModelConf, Provider } from './modeldata'
@@ -630,7 +630,24 @@ function FinishRunDialog({ onFinish, onClose }: { onFinish: (status: 'done' | 'f
   )
 }
 
-export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSession, agentName, onAllowRules }: {
+/**
+ * 被拒提示下面那行入口（TSK-0499，SPEC-tasks-5.38）：带「建议放行」规则的给去设置放行；
+ * 有命中硬拦截的再给看硬拦截清单（硬拦截放不开，只能看清是哪条、自定义的去删）
+ */
+function DenyLinks({ error, onAllowRules, onShowDeny }: { error: string; onAllowRules?: (rules: string[]) => void; onShowDeny?: () => void }) {
+  const rules = onAllowRules ? allowRulesOf(error) : []
+  const hard = !!onShowDeny && hardDenied(error)
+  if (!rules.length && !hard) return null
+  return (
+    <div className="dev-run-note muted">
+      {rules.length > 0 && <><button className="link-btn" onClick={() => onAllowRules?.(rules)}>去设置放行这 {rules.length} 项</button>（加进「执行权限」的自定义白名单，发起时选「自定义白名单」或「自动审核」档位）</>}
+      {rules.length > 0 && hard && '；'}
+      {hard && <><button className="link-btn" onClick={onShowDeny}>去看硬拦截清单</button>（硬拦截换档位、加白名单都放不开）</>}
+    </div>
+  )
+}
+
+export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSession, agentName, onAllowRules, onShowDeny }: {
   runs: TaskRun[]; onCancel: (id: string) => void
   /** 工作台 Agent 停下等确认时确认 / 拒绝（SPEC-tasks-5.34） */
   onDecide?: (id: string, approved: boolean) => void
@@ -644,6 +661,8 @@ export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSes
   focus?: string
   /** 被拒提示里「建议放行」的规则：去设置 > 执行权限预填（TSK-0499） */
   onAllowRules?: (rules: string[]) => void
+  /** 被拒提示里有命中硬拦截的：去设置 > 执行权限看硬拦截清单（TSK-0499，SPEC-settings-26.12） */
+  onShowDeny?: () => void
 }) {
   const [open, setOpen] = useState<string | null>(focus ?? null)
   useEffect(() => {
@@ -681,11 +700,7 @@ export function RunsBlock({ runs, onCancel, onFinish, focus, onDecide, onOpenSes
             </button>
             {r.summary && r.status !== 'running' && <div className="dev-run-note pre-line">结论：{r.summary}</div>}
             {r.error && r.status !== 'running' && <div className={cls('dev-run-note', r.status === 'failed' ? 'danger-text' : 'muted')}>{r.status === 'done' ? `保留意见：${r.error}` : r.error}</div>}
-            {r.error && r.status !== 'running' && onAllowRules && allowRulesOf(r.error).length > 0 && (
-              <div className="dev-run-note muted">
-                <button className="link-btn" onClick={() => onAllowRules(allowRulesOf(r.error ?? ''))}>去设置放行这 {allowRulesOf(r.error).length} 项</button>（加进「执行权限」的自定义白名单，发起时选「自定义白名单」档位）
-              </div>
-            )}
+            {r.error && r.status !== 'running' && <DenyLinks error={r.error} onAllowRules={onAllowRules} onShowDeny={onShowDeny} />}
             {expanded && (
               <div className="dev-run-body">
                 <div className="list-sub mono">{ag
@@ -801,8 +816,9 @@ export function RunDialog({ task, inheritDir, project: ownProject, projectByDir,
   // 写入档位（TSK-0499）：没选过跟设置「执行权限」的默认
   const perms = useRunPerms()
   const [profileChoice, setProfileChoice] = useState<RunWriteProfile | null>(null)
-  // DeepSeek 没有「自定义白名单」（dsh 没有命令白名单），设置里默认是它时退回「允许改文件」
-  const writeProfile = profileChoice ?? (dsh && perms.write_profile === 'custom' ? 'accept_edits' : perms.write_profile)
+  // DeepSeek 没有「自定义白名单」（dsh 没有命令白名单）和「自动审核」（没有分类器和硬拦截），设置里默认是它们时退回「允许改文件」
+  const pickedProfile = profileChoice ?? perms.write_profile
+  const writeProfile = dsh && DSH_UNSUPPORTED.includes(pickedProfile) ? 'accept_edits' : pickedProfile
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); onClose() } }
     window.addEventListener('keydown', onKey, true)
@@ -970,7 +986,10 @@ export function RunDialog({ task, inheritDir, project: ownProject, projectByDir,
                   {onManagePerms && <button className="link-btn" onClick={onManagePerms}>管理执行权限</button>}
                 </div>
                 <select id="ho-profile" className="select" value={writeProfile} onChange={(e) => setProfileChoice(e.target.value as RunWriteProfile)}>
-                  {WRITE_PROFILE_OPTIONS.map((o) => <option key={o.value} value={o.value} disabled={dsh && o.value === 'custom'}>{o.label}{dsh && o.value === 'custom' ? '（DeepSeek 没有）' : ''}</option>)}
+                  {WRITE_PROFILE_OPTIONS.map((o) => {
+                    const off = dsh && DSH_UNSUPPORTED.includes(o.value)
+                    return <option key={o.value} value={o.value} disabled={off}>{o.label}{off ? '（DeepSeek 没有，不可选）' : ''}</option>
+                  })}
                 </select>
                 <span className="list-sub">{dsh ? 'dsh 没有命令白名单：这一档是 workspace-write 沙箱，能写工作目录（和软链接进来的目录），命令（含测试构建）都在沙箱里跑，写不出工作目录'
                   : writeProfileHint(writeProfile, perms.custom)}</span>

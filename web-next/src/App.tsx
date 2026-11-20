@@ -178,6 +178,8 @@ export default function App() {
   const [section, setSection] = useState<Section>('connectors')
   // 执行记录「去设置放行」带过来的规则（TSK-0499），设置 > 执行权限预填
   const [permsPending, setPermsPending] = useState<string[]>([])
+  // 执行记录「去看硬拦截清单」过来：执行权限页滚到硬拦截、展开内置清单（TSK-0499）
+  const [permsDeny, setPermsDeny] = useState(false)
   // 版本更新（SYS-UPD）：原型里源码目录比正在运行的新几条提交，更新完才没有差异；有差异时设置二级菜单「版本更新」亮红点
   const [updateDone, setUpdateDone] = useState(false)
   // Agent 配置页有未保存的改动时，切二级菜单先让它确认
@@ -1689,10 +1691,11 @@ export default function App() {
             go('terminal')
           },
           onManagePresets: () => { setDrawer(null); go('settings'); setSection('run-prompts') },
-          onManagePerms: () => { setDrawer(null); go('settings'); setSection('run-permissions') },
+          onManagePerms: () => { setPermsDeny(false); setDrawer(null); go('settings'); setSection('run-permissions') },
           onManageNotes: () => { setDrawer(null); go('settings'); setSection('run-notes') },
           onManageRunners: () => { setDrawer(null); go('settings'); setSection('runners') },
-          onAllowRules: (rules) => { setPermsPending(rules); setDrawer(null); go('settings'); setSection('run-permissions') },
+          onAllowRules: (rules) => { setPermsPending(rules); setPermsDeny(false); setDrawer(null); go('settings'); setSection('run-permissions') },
+          onShowDeny: () => { setPermsPending([]); setPermsDeny(true); setDrawer(null); go('settings'); setSection('run-permissions') },
           // 交给工作台 Agent（SPEC-tasks-6.20）：Agent 默认取场景「执行任务」的；会话是全局的，来源标这次执行（SPEC-sessions-1.44）
           agentRun: { agents, defaultAgentId: taskRunAgent(agents, agentScenarios)?.id, providers, models },
           onAgentSession: ({ task: t, runId, agentId, prompt }) => {
@@ -2353,7 +2356,7 @@ export default function App() {
               onOpenTask={has('tasks') ? (id) => { setPage('tasks'); setDrawer({ kind: 'task', id }) } : undefined} />
           )}
           {page === 'settings' && section === 'run-prompts' && <RunPresetsPage />}
-          {page === 'settings' && section === 'run-permissions' && <RunPermsPage key={permsPending.join('\n')} pending={permsPending} />}
+          {page === 'settings' && section === 'run-permissions' && <RunPermsPage key={permsPending.join('\n') + (permsDeny ? '#deny' : '')} pending={permsPending} focusDeny={permsDeny} />}
           {page === 'settings' && section === 'run-notes' && <RunNotesPage />}
           {page === 'settings' && section === 'enums' && (
             <EnumsPage groups={enums} usage={enumUsage} onMigrate={migrateEnum}

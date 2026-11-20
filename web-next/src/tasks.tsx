@@ -479,6 +479,8 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], fromTh
     onManageRunners?: () => void
     /** 执行记录「去设置放行」（TSK-0499） */
     onAllowRules?: (rules: string[]) => void
+    /** 执行记录「去看硬拦截清单」（TSK-0499） */
+    onShowDeny?: () => void
     /** 交给工作台 Agent（SPEC-tasks-6.20）：Agent、服务商、模型；没给就只有 Claude Code */
     agentRun?: Omit<AgentRunOptions, 'lastSession'>
     /** 发起工作台 Agent 执行时建会话（全局会话，来源标这条任务的这次执行），回会话 id */
@@ -772,7 +774,7 @@ export function TaskDrawer({ task, initial, fromMessage, fromThread = [], fromTh
             {cur === 'sop' && sop && <TaskSopBlock task={task} runs={sop.runs} sops={sop.sops} onStart={sop.onStart} onOpenRun={sop.onOpenRun} focus={focus.sop} />}
             {cur === 'runs' && dev && <RunsBlock runs={mine(dev.runs)} onCancel={dev.cancel} onFinish={dev.finish} focus={focus.run}
               onDecide={dev.decide} onOpenSession={handoff?.onOpenSession} agentName={(id) => handoff?.agentRun?.agents.find((a) => a.id === id)?.name}
-              onAllowRules={handoff?.onAllowRules} />}
+              onAllowRules={handoff?.onAllowRules} onShowDeny={handoff?.onShowDeny} />}
           </>
         )}
       </div>
