@@ -101,7 +101,10 @@ func TestSOPSetProjectNode(t *testing.T) {
 		t.Fatal("消息要归到 Globex")
 	}
 
-	// 项目不存在、没填项目：这一步失败，原因写清楚
+	// 项目不存在、没填项目（消息本身也没归项目）：这一步失败，原因写清楚
+	e.push(t, `{"external_id":"C02:s2","connector_id":"cn_ok","conversation_id":"C02","conversation_name":"#misc","sender_id":"U1","sender_name":"林原","text":"没归项目的"}`)
+	_, all = list(t, e.h, "")
+	mid = all["C02:s2"]["id"].(string)
 	for _, c := range []struct{ cfg, want string }{
 		{`{"project":"Nope"}`, "项目「Nope」不存在"},
 		{`{"project":"{{empty}}"}`, "没有指定项目"},
@@ -114,5 +117,42 @@ func TestSOPSetProjectNode(t *testing.T) {
 		if err, _ := sopStep(run, "p")["error"].(string); !strings.Contains(err, c.want) {
 			t.Fatalf("%s：%q", c.cfg, err)
 		}
+	}
+}
+
+// TSK-0846：「IM:@我和私信（按项目归类）」的「归类消息到项目」配的是 {{project_id}}，
+// 而上游读取消息只带 message.project_id（消息自己归的或群组默认项目），顶层取不到，报「没有指定项目」。
+// 配置渲染为空时按消息本身已归的项目来；输出顶层带 project_id，下游「创建任务」的 {{project_id}} 也能取到。
+func TestSOPSetProjectNodeFallsBackToMessageProject(t *testing.T) {
+	e := setupSOP(t)
+	seedProjects(t, e)
+	e.push(t, `{"external_id":"D01:k1","connector_id":"cn_ok","conversation_id":"D01","conversation_name":"张云帆","sender_id":"U9","sender_name":"张云帆","text":"大概啥时间可以上线呢"}`)
+	_, all := list(t, e.h, "")
+	mid := all["D01:k1"]["id"].(string)
+	cid := all["D01:k1"]["conversation_id"].(string)
+	if code, out := call(t, e.h, "PUT", "/api/im/conversation-projects/"+cid, `{"project_id":"Acme"}`); code != 200 {
+		t.Fatalf("设会话默认项目：%d %v", code, out)
+	}
+
+	id := e.flow(t, `{"name":"按项目归类","fields":[{"key":"message_id","label":"消息","type":"text"}],"steps":[
+		{"key":"get","name":"读取消息","kind":"im_get_message","after":[],"config":{"message":"{{message_id}}"}},
+		{"key":"task_known","name":"归类消息到项目","kind":"im_set_project","after":["get"],"config":{"project":"{{project_id}}"}}]}`)
+	rid := e.start(t, id, `{"input":{"message_id":"`+mid+`"}}`)
+	run := e.until(t, rid, "跑完", func(r map[string]any) bool {
+		return r["status"] == "done" || sopStep(r, "task_known")["status"] == "failed"
+	})
+	step := sopStep(run, "task_known")
+	if step["status"] != "done" {
+		t.Fatalf("消息已能确定项目时要按它归类：%v", step["error"])
+	}
+	out := step["output"].(map[string]any)
+	if p := out["project"].(map[string]any); p["id"] != "obj_acme" || p["message_id"] != mid {
+		t.Fatalf("输出的 project：%v", p)
+	}
+	if out["project_id"] != "obj_acme" {
+		t.Fatalf("顶层 project_id 给下游用：%v", out["project_id"])
+	}
+	if _, got := list(t, e.h, "?project_id=obj_acme"); got["D01:k1"] == nil {
+		t.Fatal("消息要归到 Acme")
 	}
 }
