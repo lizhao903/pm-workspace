@@ -109,6 +109,18 @@ describe('交给谁', () => {
     expect(pickedWriteProfile('edits_and_tests', undefined, 'deepseek')).toBe('edits_and_tests')
     expect(writeProfileHint('accept_edits', [], 'deepseek')).toContain('workspace-write')
   })
+  it('自动审核（TSK-0499）：Claude Code 可选、DeepSeek 置灰退回允许改文件；说明写清白名单外交给自动审核、硬拦截照样挡', () => {
+    expect(writeProfileOptions('claude').find((o) => o.value === 'auto')).toMatchObject({ label: '自动审核' })
+    expect(writeProfileOptions('deepseek').find((o) => o.value === 'auto')?.disabled).toBe(true)
+    expect(pickedWriteProfile(null, { write_profile: 'auto' })).toBe('auto')
+    expect(pickedWriteProfile(null, { write_profile: 'auto' }, 'deepseek')).toBe('accept_edits')
+    expect(runRequest('/w', '', true, '', 'auto').permission).toBe('auto')
+    expect(runRequest('/w', '', false, '', 'auto').permission).toBe('read_only')
+    const hint = writeProfileHint('auto', ['Bash(git commit:*)'])
+    expect(hint).toContain('自动审核')
+    expect(hint).toContain('1 条')
+    expect(hint).toContain('硬拦截')
+  })
   it('服务商下拉只列 dsh 能接、启用的；默认那项写后端挑的', () => {
     const ps = [
       { id: 'a', name: 'DS', kind: 'openai', enabled: true }, { id: 'b', name: 'G', kind: 'gemini', enabled: true },

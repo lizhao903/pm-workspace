@@ -39,6 +39,30 @@ export function rulesIssue(rules: readonly string[]): string {
   return ''
 }
 
+/** 工作台 MCP 的 server 名（同后端 runner.MCPServer） */
+const WORKBENCH_MCP = 'mcp__pmw-run'
+
+/**
+ * 一条自定义硬拦截的问题（同后端 runner.CheckDenyRule）：写法同白名单，但收 Bash(*) 这类宽规则（只会收紧）；
+ * 不收挡掉整个工作台 MCP 的规则
+ */
+export function denyRuleIssue(r: string): string {
+  if (r === WORKBENCH_MCP || r === WORKBENCH_MCP + '__*') return `「${r}」会挡掉工作台 MCP 的全部工具，执行就没法读任务、回写结论；要挡具体工具写全名，如 ${WORKBENCH_MCP}__pmw_update_object`
+  if (r === 'Bash' || /^Bash\(.*[^\s].*\)$/.test(r) && r.length <= RULE_MAX_LEN) return ''
+  if (r === 'Bash()') return `「${r}」括号里是空的，写成 Bash(命令前缀:*)`
+  return ruleIssue(r)
+}
+
+/** 自定义硬拦截整组的第一个问题，没问题回空串 */
+export function denyRulesIssue(rules: readonly string[]): string {
+  if (rules.length > RULES_MAX) return `自定义硬拦截最多 ${RULES_MAX} 条`
+  for (const r of rules) {
+    const e = denyRuleIssue(r)
+    if (e) return e
+  }
+  return ''
+}
+
 /** 地址 ?add= 带来的规则（执行记录「去设置放行」），去掉已经在白名单里的 */
 export function pendingRules(add: string | null, have: readonly string[]): string[] {
   if (!add) return []

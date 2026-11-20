@@ -163,7 +163,22 @@ type claudeBox struct {
 	// presets 按 id 取预置提示词
 	presets   PresetLookup
 	executors func(context.Context, string) (runner.Request, error)
+	// perms 取后台执行的全局权限设置（TSK-0499）：放开写时用的档位、自定义白名单、自定义硬拦截
+	perms RunPermsLookup
 }
+
+// RunPerms 是后台执行的全局权限设置（设置「执行权限」，GET /api/run-permissions）里插件运行要用的三样。
+type RunPerms struct {
+	// WriteProfile 是放开写时用的档位：accept_edits、edits_and_tests、custom 或 auto
+	WriteProfile string
+	// Custom 是自定义白名单，custom、auto 档生效
+	Custom []string
+	// Deny 是用户自定义的硬拦截（不含内置的，内置的由 runner.BuiltinDeny 按本实例生成）
+	Deny []string
+}
+
+// RunPermsLookup 取当前的全局权限设置，取不到回错误。
+type RunPermsLookup func(ctx context.Context) (RunPerms, error)
 
 // PresetLookup 按 id 取一个角色（预置提示词），找不到回错误（文案给用户看）。
 type PresetLookup func(ctx context.Context, id string) (*runner.Preset, error)
@@ -198,9 +213,38 @@ func (r *Registry) SetRunPresets(f PresetLookup) {
 	r.updateClaude(func(b *claudeBox) { b.presets = f })
 }
 
+// SetRunPerms 接上全局权限设置的查询：插件交给 Claude Code 的运行（SOP 的 Claude Code 节点等）放开写时
+// 用设置里的写入档位，不再固定 acceptEdits；每次发起现取。
+func (r *Registry) SetRunPerms(f RunPermsLookup) {
+	r.updateClaude(func(b *claudeBox) { b.perms = f })
+}
+
 // SetRunExecutors 接入本地执行器查询；每次启动读取最新配置。
 func (r *Registry) SetRunExecutors(f func(context.Context, string) (runner.Request, error)) {
 	r.updateClaude(func(b *claudeBox) { b.executors = f })
+}
+
+// runPermsFor 定插件运行的档位和规则（TSK-0499）：不放开写是只读档；放开写时用全局设置的写入档位
+// （自动审核、自定义白名单也照用），没接上设置或取不到时按 accept_edits。放行的是这一档的白名单（只读命令，
+// custom / auto 再加自定义白名单）；硬拦截每一档都传：内置的按本实例（数据目录、对外地址）生成，再合上自定义的。
+// 取设置出错只记日志：内置硬拦截照传，不能因为设置读不出来就不拦。
+func (r *Registry) runPermsFor(ctx context.Context, box claudeBox, writes bool) (perm string, allowed, deny []string) {
+	perm = runner.PermReadOnly
+	if writes {
+		perm = runner.PermAcceptEdits
+	}
+	var p RunPerms
+	if box.perms != nil {
+		var err error
+		if p, err = box.perms(ctx); err != nil {
+			r.log.Warn("run permissions unavailable, using defaults", "err", err)
+			p = RunPerms{}
+		}
+	}
+	if writes && runner.ValidPerm(p.WriteProfile) && runner.PermWrites(p.WriteProfile) {
+		perm = p.WriteProfile
+	}
+	return perm, runner.PermAllowed(perm, p.Custom), runner.DenyWith(runner.DenyEnv{DataDir: r.DataDir, PublicURL: box.apiURL}, p.Deny)
 }
 
 // taskRunRecorder 是在任务上建、收尾执行记录的 store 方法，cmd/pmw 交的外层 store 满足它。
@@ -442,6 +486,7 @@ func (s runService) StartClaudeCode(ctx context.Context, q ClaudeCodeStart) (str
 	}
 	info.TaskRun = tr != nil
 	req.RunID, req.Workdir, req.AllowWrites, req.Timeout = info.ID, workdir, q.AllowWrites, q.Timeout
+	req.Permission, req.AllowedTools, req.DisallowedTools = r.runPermsFor(ctx, box, q.AllowWrites)
 	cleanup := func() {}
 	if q.ReportBack {
 		path, done, cbErr := writeCallbackMCP(box.mcpBin, box.apiURL)
@@ -449,7 +494,7 @@ func (s runService) StartClaudeCode(ctx context.Context, q ClaudeCodeStart) (str
 		if cbErr != nil {
 			s.c.log.Warn("claude code run has no write-back mcp", "run", info.ID, "err", cbErr)
 		} else {
-			req.MCPConfig, req.AllowedTools, cleanup = path, []string{"mcp__" + CallbackMCPServer}, done
+			req.MCPConfig, req.AllowedTools, cleanup = path, append([]string{"mcp__" + CallbackMCPServer}, req.AllowedTools...), done
 		}
 		prompt += reportBackSection(info.ID, q.ObjectID, cbErr == nil)
 	}

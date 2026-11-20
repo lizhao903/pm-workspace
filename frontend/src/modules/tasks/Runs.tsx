@@ -16,7 +16,7 @@ import { timeAgo } from './model'
 import { useLiveRun, useLiveRuns, type LiveRun } from './runLive'
 import { RunOutput, RunStream, type DecideProps } from './RunStream'
 import {
-  FINISH_OPTIONS, agentSessionOf, allowRulesLink, allowRulesOf, cacheHitLabel, cacheHitTitle, duration, extraOf, harnessLabel,
+  DENY_SETTINGS_LINK, FINISH_OPTIONS, agentSessionOf, allowRulesLink, allowRulesOf, hardDenied, cacheHitLabel, cacheHitTitle, duration, extraOf, harnessLabel,
   modeLabel, moduleLabel, parseOutput, runNote, runStatusOf,
 } from './runsModel'
 import './runs.css'
@@ -262,13 +262,19 @@ function StreamRunRow({ run, lit }: { run: TaskRun; lit: boolean }) {
   )
 }
 
-/** 被拒提示带了「建议放行」规则时（TSK-0499），给一个去设置放行的直达入口，预填这些规则 */
+/**
+ * 被拒提示带了「建议放行」规则时（TSK-0499），给一个去设置放行的直达入口，预填这些规则；
+ * 有命中硬拦截的，再给一个看硬拦截清单的入口（硬拦截放不开，只能看清是哪条、自定义的去删）
+ */
 function AllowRulesLink({ error }: { error: string }) {
   const rules = allowRulesOf(error)
-  if (!rules.length) return null
+  const hard = hardDenied(error)
+  if (!rules.length && !hard) return null
   return (
     <div className="run-note run-note-muted">
-      <Link to={allowRulesLink(rules)}>去设置放行这 {rules.length} 项</Link>（加进「执行权限」的自定义白名单，发起时选「自定义白名单」档位）
+      {rules.length > 0 && <><Link to={allowRulesLink(rules)}>去设置放行这 {rules.length} 项</Link>（加进「执行权限」的自定义白名单，发起时选「自定义白名单」或「自动审核」档位）</>}
+      {rules.length > 0 && hard && '；'}
+      {hard && <><Link to={DENY_SETTINGS_LINK}>去看硬拦截清单</Link>（硬拦截换档位、加白名单都放不开）</>}
     </div>
   )
 }

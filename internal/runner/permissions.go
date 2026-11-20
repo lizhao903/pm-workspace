@@ -24,9 +24,15 @@ import (
 //	accept_edits     允许改文件：--permission-mode acceptEdits
 //	edits_and_tests  允许改文件 + 跑测试构建：再加测试、构建、格式检查命令
 //	custom           自定义白名单：允许改文件 + 只读命令 + 设置里录的规则
+//	auto             自动审核：--permission-mode auto；只读命令、自定义白名单、项目执行白名单照旧直接放行，
+//	                 白名单之外的由 Claude Code 的自动审核（分类器）按这次任务的意图逐次决定放不放
 //
-// 任何档位都不传 --dangerously-skip-permissions，白名单之外的调用照旧被拒，
+// 任何档位都不传 --dangerously-skip-permissions。除自动审核档外，白名单之外的调用照旧被拒，
 // 被拒的会在结尾列出并给出放行的入口（denialReason）。
+//
+// 每一档都再传一份硬拦截清单（--disallowedTools，deny.go）：deny 优先于 allow 和自动审核，
+// 推 main、强推、reset --hard、rm -rf、杀进程、写工作台自己的数据目录这些，哪一档都放不开。
+// 自动审核档尤其要靠它：2.1.329 在 -p 下实测，用户提示词里明说要做的事（连推 main、强推）分类器都放行。
 //
 // Claude Code 对管道、&&、; 连起来的命令按每一段分别判定，白名单按段生效：
 // `sqlite3 -readonly -safe x.db ".tables" | head` 要两段都在白名单里（或是 Claude Code
@@ -44,10 +50,11 @@ const (
 	PermAcceptEdits   = "accept_edits"
 	PermEditsAndTests = "edits_and_tests"
 	PermCustom        = "custom"
+	PermAuto          = "auto"
 )
 
 // PermProfiles 是全部档位，按从低到高排。
-var PermProfiles = []string{PermReadOnly, PermAcceptEdits, PermEditsAndTests, PermCustom}
+var PermProfiles = []string{PermReadOnly, PermAcceptEdits, PermEditsAndTests, PermCustom, PermAuto}
 
 // PermLabel 是档位给人看的名字，界面和被拒提示里用同一套。
 func PermLabel(p string) string {
@@ -60,8 +67,22 @@ func PermLabel(p string) string {
 		return "允许改文件 + 跑测试构建"
 	case PermCustom:
 		return "自定义白名单"
+	case PermAuto:
+		return "自动审核"
 	}
 	return p
+}
+
+// PermMode 是这一档传给 claude 的 --permission-mode，空表示不传（只读）。
+// 自动审核是 auto，其余写入档位是 acceptEdits。
+func PermMode(p string) string {
+	switch p {
+	case PermReadOnly, "":
+		return ""
+	case PermAuto:
+		return "auto"
+	}
+	return "acceptEdits"
 }
 
 // ValidPerm 报告 p 是不是认识的档位。
@@ -120,13 +141,13 @@ var TestCommands = []string{
 func MCPAllowRule() string { return "mcp__" + MCPServer }
 
 // PermAllowed 是某一档要传给 --allowedTools 的全部规则（不含 MCP，MCP 只在接上时才加）。
-// custom 是自定义白名单，只在 custom 档生效。
+// custom 是自定义白名单，在 custom 档和 auto 档生效：auto 档里白名单内的直接放行、不送自动审核。
 func PermAllowed(p string, custom []string) []string {
 	out := append([]string(nil), ReadOnlyCommands...)
 	switch p {
 	case PermEditsAndTests:
 		out = append(out, TestCommands...)
-	case PermCustom:
+	case PermCustom, PermAuto:
 		out = append(out, custom...)
 	}
 	return dedupe(out)
@@ -134,7 +155,7 @@ func PermAllowed(p string, custom []string) []string {
 
 // ProjectAllowFor 是项目执行白名单（项目档案 run_allow，TSK-0837）在这一档实际合进去的规则。
 //
-// 写入档位（accept_edits / edits_and_tests / custom）全部合并：项目白名单是用户按项目录的，
+// 写入档位（accept_edits / edits_and_tests / custom / auto）全部合并：项目白名单是用户按项目录的，
 // 和自定义白名单同一口径，只是只在这个项目的任务上生效。
 // 只读档位只合并读规则（Read / Grep / Glob / LS，用来放行工作目录之外的目录）：只读是选角色、选档位时的明确承诺，
 // 不能因为任务挂在某个项目下就悄悄多出能执行脚本、调写操作 MCP 的口子。
@@ -186,7 +207,11 @@ const (
 //
 // 不收「整个 Bash」：Bash、Bash(*)、Bash(:*) 等于放开任意命令，和 --dangerously-skip-permissions
 // 只差文件编辑那一步，不能让它通过白名单的口子进来。
-func CheckRule(rule string) (string, error) {
+func CheckRule(rule string) (string, error) { return checkRule(rule, false) }
+
+// checkRule 是白名单（broad=false）和硬拦截（broad=true，CheckDenyRule）共用的写法校验。
+// broad 为真时收「整个 Bash」：硬拦截只会收紧，Bash(*) 等于不许跑任何命令，是用户自己的选择。
+func checkRule(rule string, broad bool) (string, error) {
 	r := strings.TrimSpace(rule)
 	if r == "" {
 		return "", fmt.Errorf("规则不能是空的")
@@ -197,8 +222,14 @@ func CheckRule(rule string) (string, error) {
 	if strings.ContainsAny(r, "\n\r\t") {
 		return "", fmt.Errorf("规则「%s」里不能有换行或制表符", r)
 	}
+	if r == "Bash()" {
+		return "", fmt.Errorf("「%s」括号里是空的，写成 Bash(命令前缀:*)", r)
+	}
 	switch r {
-	case "Bash", "Bash(*)", "Bash(:*)", "Bash()", "Bash(* :*)":
+	case "Bash", "Bash(*)", "Bash(:*)", "Bash(* :*)":
+		if broad {
+			return r, nil
+		}
 		return "", fmt.Errorf("「%s」等于放开任意命令，不收；按命令前缀写，如 Bash(git commit:*)", r)
 	}
 	if strings.HasPrefix(r, "Bash(") {
@@ -206,7 +237,13 @@ func CheckRule(rule string) (string, error) {
 			return "", fmt.Errorf("「%s」少了右括号，写成 Bash(命令前缀:*)", r)
 		}
 		inner := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(r, "Bash("), ")"))
-		if inner == "" || strings.HasPrefix(inner, "*") || strings.HasPrefix(inner, ":") {
+		if inner == "" {
+			return "", fmt.Errorf("「%s」括号里是空的，写成 Bash(命令前缀:*)", r)
+		}
+		if broad {
+			return r, nil
+		}
+		if strings.HasPrefix(inner, "*") || strings.HasPrefix(inner, ":") {
 			return "", fmt.Errorf("「%s」等于放开任意命令，不收；按命令前缀写，如 Bash(git commit:*)", r)
 		}
 		return r, nil

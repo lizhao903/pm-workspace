@@ -9,27 +9,34 @@ import { MemoryRouter } from 'react-router'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { RunPermissions } from '../../../core/data'
 import { RunPermsSection } from './RunPermsSection'
-import { parseRules, pendingRules, ruleIssue } from './permsModel'
+import { denyRuleIssue, parseRules, pendingRules, ruleIssue } from './permsModel'
 
 const seed: RunPermissions = {
   write_profile: 'accept_edits', custom: ['Bash(git add:*)'], mcp_server: 'pmw-run',
+  deny: ['Bash(git -C /p/web-next push:*)'],
+  builtin_deny: [
+    { key: 'push_main', label: '推送到 main / master', rules: ['Bash(git push * main)', 'Bash(git push *:main)'] },
+    { key: 'rm_rf', label: 'rm -rf / rm -fr', rules: ['Bash(rm -rf*)'] },
+  ],
   profiles: [
     { key: 'read_only', label: '只读', writes: false, allowed: ['Bash(git log:*)', 'Bash(sqlite3 -readonly -safe:*)'] },
     { key: 'accept_edits', label: '允许改文件', writes: true, allowed: ['Bash(git log:*)'] },
     { key: 'edits_and_tests', label: '允许改文件 + 跑测试构建', writes: true, allowed: ['Bash(git log:*)', 'Bash(go test:*)'] },
     { key: 'custom', label: '自定义白名单', writes: true, allowed: ['Bash(git log:*)', 'Bash(git add:*)'] },
+    { key: 'auto', label: '自动审核', writes: true, allowed: ['Bash(git log:*)', 'Bash(git add:*)'] },
   ],
 }
 
-function backend() {
+function backend(over: Partial<RunPermissions> = {}) {
+  const base = { ...seed, ...over }
   const bodies: unknown[] = []
   vi.stubGlobal('fetch', vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
     if (init?.method === 'PUT') {
-      const b = JSON.parse(String(init.body)) as { write_profile: RunPermissions['write_profile']; custom: string[] }
+      const b = JSON.parse(String(init.body)) as { write_profile: RunPermissions['write_profile']; custom: string[]; deny?: string[] }
       bodies.push(b)
-      return new Response(JSON.stringify({ data: { ...seed, ...b } }), { status: 200 })
+      return new Response(JSON.stringify({ data: { ...base, ...b } }), { status: 200 })
     }
-    return new Response(JSON.stringify({ data: seed }), { status: 200 })
+    return new Response(JSON.stringify({ data: base }), { status: 200 })
   }))
   return bodies
 }
@@ -48,6 +55,11 @@ describe('执行权限的纯函数', () => {
     for (const ok of ['Bash(git commit:*)', 'mcp__slack', 'WebFetch', 'WebFetch(domain:example.com)']) expect(ruleIssue(ok)).toBe('')
     expect(pendingRules('Bash(git add:*)\nBash(make x:*)', ['Bash(git add:*)'])).toEqual(['Bash(make x:*)'])
     expect(pendingRules(null, [])).toEqual([])
+  })
+
+  it('硬拦截收宽规则，不收挡掉整个工作台 MCP 的', () => {
+    for (const ok of ['Bash', 'Bash(*)', 'Bash(bash -c*)', 'Bash(git -C /p push:*)', 'mcp__pmw-run__pmw_update_object', 'WebFetch']) expect(denyRuleIssue(ok)).toBe('')
+    for (const bad of ['mcp__pmw-run', 'mcp__pmw-run__*', 'Bash()', 'Bash(git', 'rm -rf /']) expect(denyRuleIssue(bad)).not.toBe('')
   })
 })
 
@@ -69,7 +81,7 @@ describe('设置「执行权限」', () => {
     await user.type(box, 'Bash(git add:*)\nBash(git commit:*)')
     await user.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(bodies).toHaveLength(1))
-    expect(bodies[0]).toEqual({ write_profile: 'edits_and_tests', custom: ['Bash(git add:*)', 'Bash(git commit:*)'] })
+    expect(bodies[0]).toEqual({ write_profile: 'edits_and_tests', custom: ['Bash(git add:*)', 'Bash(git commit:*)'], deny: ['Bash(git -C /p/web-next push:*)'] })
     expect(await screen.findByRole('status')).toHaveTextContent('已保存')
   })
 
@@ -82,6 +94,34 @@ describe('设置「执行权限」', () => {
     expect(screen.getByRole('textbox', { name: '自定义白名单' })).toHaveValue('Bash(git add:*)\nBash(make deploy:*)')
     await user.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(bodies).toHaveLength(1))
-    expect(bodies[0]).toEqual({ write_profile: 'custom', custom: ['Bash(git add:*)', 'Bash(make deploy:*)'] })
+    expect(bodies[0]).toEqual({ write_profile: 'custom', custom: ['Bash(git add:*)', 'Bash(make deploy:*)'], deny: ['Bash(git -C /p/web-next push:*)'] })
+  })
+
+  it('已是自动审核时带来的规则不切档位', async () => {
+    backend({ write_profile: 'auto' })
+    renderIt('/settings/run-permissions?add=' + encodeURIComponent('Bash(make deploy:*)'))
+    expect(await screen.findByText(/档位不动/)).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: '默认写入档位' })).toHaveValue('auto')
+  })
+
+  it('选自动审核、编辑自定义硬拦截后整体保存；内置硬拦截只读列出；挡掉工作台 MCP 的不让存', async () => {
+    const bodies = backend()
+    renderIt('/settings/run-permissions#deny')
+    const user = userEvent.setup()
+    const sel = await screen.findByRole('combobox', { name: '默认写入档位' })
+    await user.selectOptions(sel, 'auto')
+    expect(screen.getByText('内置硬拦截', { exact: false, selector: 'summary' })).toBeInTheDocument()
+    expect(screen.getByText(/Bash\(git push \* main\)/)).toBeInTheDocument()
+    const deny = screen.getByRole('textbox', { name: '自定义硬拦截' })
+    expect(deny).toHaveValue('Bash(git -C /p/web-next push:*)')
+    await user.type(deny, '\nmcp__pmw-run')
+    expect(await screen.findByText(/会挡掉工作台 MCP 的全部工具/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '保存' })).toBeDisabled()
+    await user.clear(deny)
+    await user.type(deny, 'Bash(git -C /p/web-next push:*)\nBash(bash -c*)')
+    await user.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(bodies).toHaveLength(1))
+    expect(bodies[0]).toEqual({ write_profile: 'auto', custom: ['Bash(git add:*)'], deny: ['Bash(git -C /p/web-next push:*)', 'Bash(bash -c*)'] })
+    expect(await screen.findByRole('status')).toHaveTextContent('自定义硬拦截 2 条')
   })
 })

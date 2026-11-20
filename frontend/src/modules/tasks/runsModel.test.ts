@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { RunEvent } from '../../core/data'
-import { allowRulesLink, allowRulesOf, cacheHitLabel, cacheHitRatio, cacheHitTitle, duration, extraOf, foldEvents, moduleLabel, parseOutput, runNote, runStatusOf } from './runsModel'
+import { DENY_SETTINGS_LINK, allowRulesLink, allowRulesOf, cacheHitLabel, hardDenied, cacheHitRatio, cacheHitTitle, duration, extraOf, foldEvents, moduleLabel, parseOutput, runNote, runStatusOf } from './runsModel'
 
 describe('foldEvents', () => {
   it('delta 连续拼成一段，tool 和 tool_result 按 id 配对，交错到达也配得上', () => {
@@ -92,6 +92,14 @@ describe('建议放行', () => {
     expect(allowRulesOf(e)).toEqual(['Bash(git commit:*)', 'mcp__x'])
     expect(allowRulesOf('执行超时')).toEqual([])
     expect(allowRulesLink(['Bash(a:*)', 'mcp__x'])).toBe('/settings/run-permissions?add=' + encodeURIComponent('Bash(a:*)\nmcp__x'))
+  })
+  it('命中硬拦截的说明认得出来，给看硬拦截清单的入口；硬拦截的规则不当成建议放行', () => {
+    const e = '这次执行有 2 个工具调用被权限策略拒绝（Bash），任务没有真正完成。其中 1 个命中硬拦截（`Bash(git push * main)`）：硬拦截优先于任何档位。' +
+      '本次档位「自动审核」没放行这些调用；建议放行：`Bash(terraform:*)`。到「设置 / 执行权限」……'
+    expect(hardDenied(e)).toBe(true)
+    expect(allowRulesOf(e)).toEqual(['Bash(terraform:*)'])
+    expect(hardDenied('这次执行有 1 个工具调用被权限策略拒绝')).toBe(false)
+    expect(DENY_SETTINGS_LINK).toBe('/settings/run-permissions#deny')
   })
 })
 

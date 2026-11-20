@@ -751,7 +751,7 @@ func TestPartialDenialStaysDoneButKeepsTheWarning(t *testing.T) {
 // --- 命令行 ---
 
 func TestBuildArgs(t *testing.T) {
-	ro := buildArgs("做点什么", false)
+	ro := buildArgs("做点什么", "")
 	want := []string{"-p", "做点什么", "--output-format", "stream-json", "--verbose"}
 	if len(ro) != len(want) {
 		t.Fatalf("只读模式 argv = %q，want %q", ro, want)
@@ -762,7 +762,7 @@ func TestBuildArgs(t *testing.T) {
 		}
 	}
 
-	rw := strings.Join(buildArgs("做点什么", true), " ")
+	rw := strings.Join(buildArgs("做点什么", "acceptEdits"), " ")
 	// acceptEdits 只放开文件编辑；--dangerously-skip-permissions 连命令执行也放开，
 	// 而用户勾的是「允许修改文件」，不是「允许干任何事」。
 	if !strings.Contains(rw, "--permission-mode acceptEdits") {

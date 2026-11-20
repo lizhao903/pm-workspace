@@ -40,6 +40,34 @@ type Denial struct {
 	ToolUseID string `json:"tool_use_id"`
 	// ToolInput 是被拒那次调用的入参（Bash 的 command 在这里），被拒提示据此列出命令、推出放行规则（TSK-0499）。
 	ToolInput map[string]any `json:"tool_input"`
+
+	// DecisionType、DecisionMessage 取自同一次调用的 system / permission_denied 事件（decision_reason_type、message），
+	// 按 tool_use_id 对上（readStream）；被拒提示据此分「硬拦截 / 自动审核拒绝 / 白名单外」（DenialKind）。老版本 CLI 没有这个事件时为空。
+	DecisionType    string `json:"-"`
+	DecisionMessage string `json:"-"`
+}
+
+// deniedEvent 是 system / permission_denied 事件（2.1.329）：每次被拒在发生时就有一条，带拒绝的类别和说明。
+type deniedEvent struct {
+	Type         string `json:"type"`
+	Subtype      string `json:"subtype"`
+	ToolUseID    string `json:"tool_use_id"`
+	DecisionType string `json:"decision_reason_type"`
+	Reason       string `json:"decision_reason"`
+	Message      string `json:"message"`
+}
+
+// deniedOf 认 permission_denied 事件；不是时 ok 为 false。说明优先取 message（带命令原文），没有时取 decision_reason。
+func deniedOf(line []byte) (id, typ, msg string, ok bool) {
+	var e deniedEvent
+	if err := json.Unmarshal(line, &e); err != nil || e.Type != "system" || e.Subtype != "permission_denied" || e.ToolUseID == "" {
+		return "", "", "", false
+	}
+	msg = e.Message
+	if msg == "" {
+		msg = e.Reason
+	}
+	return e.ToolUseID, e.DecisionType, msg, true
 }
 
 type streamMessage struct {

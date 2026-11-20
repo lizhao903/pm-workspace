@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// TSK-0499：每一档都带只读白名单；测试构建命令只在 edits_and_tests；自定义白名单只在 custom。
+// TSK-0499：每一档都带只读白名单；测试构建命令只在 edits_and_tests；自定义白名单只在 custom 和 auto（自动审核档里白名单内的直接放行）。
 func TestPermAllowedProfiles(t *testing.T) {
 	custom := []string{"Bash(git commit:*)"}
 	for _, p := range PermProfiles {
@@ -22,7 +22,7 @@ func TestPermAllowedProfiles(t *testing.T) {
 		if slices.Contains(got, "Bash(go test:*)") != (p == PermEditsAndTests) {
 			t.Errorf("%s 档的测试命令放行不对：%v", p, got)
 		}
-		if slices.Contains(got, "Bash(git commit:*)") != (p == PermCustom) {
+		if slices.Contains(got, "Bash(git commit:*)") != (p == PermCustom || p == PermAuto) {
 			t.Errorf("%s 档的自定义白名单放行不对：%v", p, got)
 		}
 		// 反面：任何档位都不能把整个 Bash 或不带 -safe 的 sqlite3 放进来
@@ -32,7 +32,7 @@ func TestPermAllowedProfiles(t *testing.T) {
 			}
 		}
 	}
-	if PermWrites(PermReadOnly) || !PermWrites(PermAcceptEdits) || !PermWrites(PermEditsAndTests) || !PermWrites(PermCustom) {
+	if PermWrites(PermReadOnly) || !PermWrites(PermAcceptEdits) || !PermWrites(PermEditsAndTests) || !PermWrites(PermCustom) || !PermWrites(PermAuto) {
 		t.Fatal("只有只读档不放开文件编辑")
 	}
 }

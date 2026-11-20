@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -128,7 +129,10 @@ func TestClaudeRunReport(t *testing.T) {
 	}
 	cfg := <-g.mcp
 	req := <-g.got
-	if req.Timeout != 2*time.Hour || len(req.AllowedTools) != 1 || req.AllowedTools[0] != "mcp__"+plugin.CallbackMCPServer {
+	// 回写 MCP 排第一，后面是这一档的白名单；不放开写是只读档，内置硬拦截照传（TSK-0499）
+	if req.Timeout != 2*time.Hour || len(req.AllowedTools) < 2 || req.AllowedTools[0] != "mcp__"+plugin.CallbackMCPServer ||
+		!slices.Contains(req.AllowedTools, "Bash(git status:*)") || req.Permission != runner.PermReadOnly ||
+		!slices.Contains(req.DisallowedTools, "Bash(git push * main)") {
 		t.Fatalf("请求 = %+v", req)
 	}
 	if !strings.Contains(req.Prompt, "评审 PRD") || !strings.Contains(req.Prompt, "执行要求（研发开发）") || !strings.Contains(req.Prompt, "输出要求：\n回报 result") ||

@@ -260,7 +260,7 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 交给 Claude Code 的按档位放行命令（TSK-0499）；dsh 没有命令白名单，档位翻成它的沙箱档位（TSK-0722），
-	// 没有对应的档位（自定义白名单）在开流之前就回 400。两边都接工作台 MCP 回写。
+	// 没有对应的档位（自定义白名单、自动审核）在开流之前就回 400。两边都接工作台 MCP 回写。
 	claude := harness != runner.HarnessDeepSeek
 	if !claude {
 		if _, err := runner.DSHSandboxMode(perm, req.AllowWrites); err != nil {
@@ -268,7 +268,7 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	var allowed, projAllow []string
+	var allowed, projAllow, deny []string
 	if claude {
 		perms, err := s.runPerms(ctx)
 		if err != nil {
@@ -279,6 +279,8 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 		// 没挂项目但工作目录在某个项目的目录里时按那个项目合（TSK-0841 复盘，同提示词的「所属项目」）
 		projAllow = runner.ProjectAllowFor(perm, s.projectAllowOf(ctx, obj, workdir))
 		allowed = runner.PermAllowedWith(perm, perms.Custom, projAllow)
+		// 硬拦截每一档都传（内置 + 自定义），优先于白名单、项目执行白名单和自动审核
+		deny = runner.DenyWith(s.denyEnv(), perms.Deny)
 	}
 	wb := &runner.WriteBack{RunID: previewRunID, ObjectID: obj.ID, Stream: true, DSH: !claude, ProjectAllow: projAllow}
 	var dsRoute *runner.DeepSeekRoute
@@ -397,17 +399,18 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 	before := runner.TakeSnapshot(workdir)
 
 	res, err := s.run.Start(bg, runner.Request{
-		RunID:        run.ID,
-		Workdir:      workdir,
-		Prompt:       prompt,
-		AllowWrites:  req.AllowWrites,
-		Harness:      harness,
-		DeepSeek:     dsRoute,
-		SessionID:    sessionID,
-		MCPConfig:    mcpPath,
-		MCP:          dshMCP,
-		AllowedTools: allowed,
-		Permission:   perm,
+		RunID:           run.ID,
+		Workdir:         workdir,
+		Prompt:          prompt,
+		AllowWrites:     req.AllowWrites,
+		Harness:         harness,
+		DeepSeek:        dsRoute,
+		SessionID:       sessionID,
+		MCPConfig:       mcpPath,
+		MCP:             dshMCP,
+		AllowedTools:    allowed,
+		DisallowedTools: deny,
+		Permission:      perm,
 	}, emit)
 	// 经 MCP 回报的结论（pmw_finish_run）取走合进收尾结果；进程没起来时也要取，免得留在内存里。
 	rep, reported := s.streamReports.take(run.ID)

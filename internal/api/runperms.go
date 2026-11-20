@@ -18,21 +18,27 @@ import (
 )
 
 // 后台执行的权限（TSK-0499）：任务交给 Claude Code 流式执行（claude -p，没人值守）时，
-// 放行工作台 MCP 和一份只读命令白名单，按档位再放开文件编辑、测试构建命令或自定义白名单。
-// 档位和白名单的定义在 internal/runner/permissions.go，这里管三件事：
+// 放行工作台 MCP 和一份只读命令白名单，按档位再放开文件编辑、测试构建命令、自定义白名单，或交给自动审核（auto）；
+// 每一档都传硬拦截清单（内置 + 自定义，--disallowedTools）。
+// 档位和白名单的定义在 internal/runner/permissions.go、硬拦截在 deny.go，这里管三件事：
 //   - 设置：GET / PUT /api/run-permissions，存在 agent_settings 的 run_permissions 下
-//     （{write_profile, custom}）；没设过时写入档位是 accept_edits、自定义白名单为空；
-//   - 发起时把请求里的 permission / allow_writes 和角色解析成实际档位、拼 --allowedTools；
+//     （{write_profile, custom, deny}）；没设过时写入档位是 accept_edits、自定义白名单和自定义硬拦截为空；
+//   - 发起时把请求里的 permission / allow_writes 和角色解析成实际档位、拼 --allowedTools 和 --disallowedTools；
 //   - 后台执行经 MCP 回报的结论（pmw_finish_run）先记在内存里，进程退出收尾时放到输出最前面。
 
 const runPermsKey = "run_permissions"
 
 // RunPermissions 是 GET / PUT /api/run-permissions 的响应。
 type RunPermissions struct {
-	// WriteProfile 是勾「允许写入」时默认选的档位：accept_edits、edits_and_tests 或 custom。
+	// WriteProfile 是勾「允许写入」时默认选的档位：accept_edits、edits_and_tests、custom 或 auto。
+	// SOP 的 Claude Code 节点「可写」时也用它（plugin.RunPerms）。
 	WriteProfile string `json:"write_profile"`
-	// Custom 是自定义白名单（Claude Code 的权限规则，如 Bash(git commit:*)），只在 custom 档生效。
+	// Custom 是自定义白名单（Claude Code 的权限规则，如 Bash(git commit:*)），在 custom 和 auto 档生效。
 	Custom []string `json:"custom"`
+	// Deny 是用户自定义的硬拦截（--disallowedTools），每一档都生效，优先于白名单和自动审核。
+	Deny []string `json:"deny"`
+	// BuiltinDeny 是内置的硬拦截（只读，按组），本实例的数据目录和对外地址已代入；设置里删不掉。
+	BuiltinDeny []runner.DenyGroup `json:"builtin_deny"`
 	// Profiles 是全部档位和各自实际放行的规则（只读），界面照着展示，不在前端另抄一份。
 	Profiles []RunPermProfile `json:"profiles"`
 	// MCPServer 是工作台注入的 MCP server 名，每一档都放行它的全部工具。
@@ -50,6 +56,7 @@ type RunPermProfile struct {
 type runPermsStored struct {
 	WriteProfile string   `json:"write_profile"`
 	Custom       []string `json:"custom"`
+	Deny         []string `json:"deny,omitempty"`
 }
 
 func (s *Server) runPerms(ctx context.Context) (runPermsStored, error) {
@@ -69,14 +76,32 @@ func (s *Server) runPerms(ctx context.Context) (runPermsStored, error) {
 	if runner.ValidPerm(v.WriteProfile) && runner.PermWrites(v.WriteProfile) {
 		out.WriteProfile = v.WriteProfile
 	}
-	out.Custom = v.Custom
+	out.Custom, out.Deny = v.Custom, v.Deny
 	return out, nil
 }
 
-func runPermsView(v runPermsStored) RunPermissions {
-	out := RunPermissions{WriteProfile: v.WriteProfile, Custom: v.Custom, MCPServer: runner.MCPServer}
+// denyEnv 是生成内置硬拦截要的本实例信息：数据目录、对外地址。
+func (s *Server) denyEnv() runner.DenyEnv {
+	return runner.DenyEnv{DataDir: s.opt.DataDir, PublicURL: s.opt.PublicURL}
+}
+
+// pluginRunPerms 给插件交给 Claude Code 的运行取全局设置（plugin.SetRunPerms）。
+func (s *Server) pluginRunPerms(ctx context.Context) (plugin.RunPerms, error) {
+	v, err := s.runPerms(ctx)
+	if err != nil {
+		return plugin.RunPerms{}, err
+	}
+	return plugin.RunPerms{WriteProfile: v.WriteProfile, Custom: v.Custom, Deny: v.Deny}, nil
+}
+
+func (s *Server) runPermsView(v runPermsStored) RunPermissions {
+	out := RunPermissions{WriteProfile: v.WriteProfile, Custom: v.Custom, Deny: v.Deny, MCPServer: runner.MCPServer,
+		BuiltinDeny: runner.BuiltinDenyGroups(s.denyEnv())}
 	if out.Custom == nil {
 		out.Custom = []string{}
+	}
+	if out.Deny == nil {
+		out.Deny = []string{}
 	}
 	for _, p := range runner.PermProfiles {
 		out.Profiles = append(out.Profiles, RunPermProfile{Key: p, Label: runner.PermLabel(p), Writes: runner.PermWrites(p),
@@ -91,13 +116,15 @@ func (s *Server) handleGetRunPermissions(w http.ResponseWriter, r *http.Request)
 		s.fail(w, r, err)
 		return
 	}
-	respondData(w, http.StatusOK, runPermsView(v))
+	respondData(w, http.StatusOK, s.runPermsView(v))
 }
 
 func (s *Server) handlePutRunPermissions(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		WriteProfile string   `json:"write_profile"`
 		Custom       []string `json:"custom"`
+		// Deny 不传（null）时保留原来的自定义硬拦截：旧前端不认这个字段，整体替换会把它清掉
+		Deny *[]string `json:"deny"`
 	}
 	if err := decodeBody(r, &body); err != nil {
 		s.fail(w, r, err)
@@ -108,7 +135,7 @@ func (s *Server) handlePutRunPermissions(w http.ResponseWriter, r *http.Request)
 		wp = runner.PermAcceptEdits
 	}
 	if !runner.ValidPerm(wp) || !runner.PermWrites(wp) {
-		s.fail(w, r, validationf("write_profile 只能是 accept_edits、edits_and_tests 或 custom"))
+		s.fail(w, r, validationf("write_profile 只能是 accept_edits、edits_and_tests、custom 或 auto"))
 		return
 	}
 	custom, err := runner.CleanRules(body.Custom)
@@ -116,15 +143,29 @@ func (s *Server) handlePutRunPermissions(w http.ResponseWriter, r *http.Request)
 		s.fail(w, r, validationf("%s", err.Error()))
 		return
 	}
-	v := runPermsStored{WriteProfile: wp, Custom: custom}
+	var deny []string
+	if body.Deny != nil {
+		if deny, err = runner.CleanDenyRules(*body.Deny); err != nil {
+			s.fail(w, r, validationf("硬拦截：%s", err.Error()))
+			return
+		}
+	} else {
+		old, err := s.runPerms(r.Context())
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		deny = old.Deny
+	}
+	v := runPermsStored{WriteProfile: wp, Custom: custom, Deny: deny}
 	raw, _ := json.Marshal(v)
 	if err := s.st.SetAgentSetting(r.Context(), runPermsKey, raw); err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	s.auditConfig(r, "update", "run_permissions", runPermsKey, "修改交给 Claude Code 的执行权限",
-		map[string]any{"write_profile": wp, "custom": custom})
-	respondData(w, http.StatusOK, runPermsView(v))
+		map[string]any{"write_profile": wp, "custom": custom, "deny": nonNil(deny)})
+	respondData(w, http.StatusOK, s.runPermsView(v))
 }
 
 // projectAllowOf 是任务所属项目的执行白名单（项目档案 run_allow，TSK-0837），经插件钩子问项目插件。
@@ -154,7 +195,7 @@ func (s *Server) projectAllowOf(ctx context.Context, o *domain.Object, workdir s
 func effectivePerm(permission string, allowWrites, roleReadOnly bool) (string, error) {
 	p := strings.TrimSpace(permission)
 	if p != "" && !runner.ValidPerm(p) {
-		return "", validationf("permission 只能是 read_only、accept_edits、edits_and_tests 或 custom")
+		return "", validationf("permission 只能是 read_only、accept_edits、edits_and_tests、custom 或 auto")
 	}
 	if p == "" {
 		p = runner.PermReadOnly

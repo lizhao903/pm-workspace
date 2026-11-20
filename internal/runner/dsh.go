@@ -77,7 +77,8 @@ const (
 //   - accept_edits、edits_and_tests → workspace-write：能写工作目录（和软链接进来的目录），
 //     命令在沙箱里都能跑——测试、构建也在内，所以这两档在 dsh 里是同一档；
 //   - custom → 没有对应：自定义白名单是 Claude Code 的权限规则，dsh 没有逐条放行命令的能力，
-//     与其悄悄当成 workspace-write（比用户写的白名单宽得多），不如拒绝并说清。
+//     与其悄悄当成 workspace-write（比用户写的白名单宽得多），不如拒绝并说清；
+//   - auto → 同样没有对应：自动审核是 Claude Code 的分类器，硬拦截清单（--disallowedTools）dsh 也不认。
 //
 // 不会给出 danger-full-access：那一档连沙箱都没有，工作台不替用户开。
 // perm 为空时按 allowWrites 推（同 claude 那边的旧口径）。
@@ -94,6 +95,8 @@ func DSHSandboxMode(perm string, allowWrites bool) (string, error) {
 		return DSHWorkspaceWrite, nil
 	case PermCustom:
 		return "", validationErr("DeepSeek（dsh）没有命令白名单，不支持「自定义白名单」档位；换「允许改文件」（dsh 的 workspace-write 沙箱）或改用 Claude Code")
+	case PermAuto:
+		return "", validationErr("DeepSeek（dsh）没有自动审核和硬拦截清单，不支持「自动审核」档位；换「允许改文件」（dsh 的 workspace-write 沙箱）或改用 Claude Code")
 	}
 	return "", validationErr("不认识权限档位「" + perm + "」")
 }

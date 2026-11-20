@@ -86,11 +86,14 @@ func TestRunObjectPermissionProfiles(t *testing.T) {
 		{"自定义", `{"permission":"custom"}`, []string{"--permission-mode acceptEdits", "Bash(git commit:*)"}, []string{"Bash(go test:*)"}},
 		{"旧客户端只给 allow_writes", `{"allow_writes":true}`, []string{"--permission-mode acceptEdits", "Bash(ls:*)"}, []string{"Bash(go test:*)", "Bash(git commit:*)"}},
 		{"只读角色压成只读", `{"permission":"custom","preset_id":"rp_review"}`, []string{"Bash(ls:*)"}, []string{"--permission-mode", "Bash(git commit:*)"}},
+		// 自动审核：--permission-mode auto，只读白名单 + 自定义白名单照旧直接放行
+		{"自动审核", `{"permission":"auto"}`, []string{"--permission-mode auto", "Bash(git commit:*)", "Bash(ls:*)"}, []string{"acceptEdits", "Bash(go test:*)"}},
+		{"只读角色压掉自动审核", `{"permission":"auto","preset_id":"rp_review"}`, []string{"Bash(ls:*)"}, []string{"--permission-mode", "Bash(git commit:*)"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			s, f, obj, _, _ := mcpRunFixture(t, argvEcho)
-			if w := do(s, "PUT", "/api/run-permissions", `{"write_profile":"accept_edits","custom":["Bash(git commit:*)"]}`); w.Code != http.StatusOK {
+			if w := do(s, "PUT", "/api/run-permissions", `{"write_profile":"accept_edits","custom":["Bash(git commit:*)"],"deny":["Bash(git -C /p/web-next push:*)"]}`); w.Code != http.StatusOK {
 				t.Fatalf("存设置：%d %s", w.Code, w.Body.String())
 			}
 			if w := do(s, "POST", "/api/objects/"+obj.ID+"/run", c.body); w.Code != http.StatusOK {
@@ -110,10 +113,19 @@ func TestRunObjectPermissionProfiles(t *testing.T) {
 			if strings.Contains(argv, "dangerously") {
 				t.Fatalf("任何档位都不传 --dangerously-skip-permissions：%s", argv)
 			}
+			// 硬拦截每一档都传：内置的（数据目录按本实例代入）和自定义的
+			for _, x := range []string{"--disallowedTools Bash(git push * main)", "--disallowedTools Bash(rm -rf*)", "--disallowedTools Bash(git -C /p/web-next push:*)",
+				"--disallowedTools Edit(/" + s.opt.DataDir + "/**)"} {
+				if !strings.Contains(argv, x) {
+					t.Errorf("缺硬拦截 %q：%s", x, argv)
+				}
+			}
 		})
 	}
 	s, _, obj, _, _ := mcpRunFixture(t, argvEcho)
 	assertError(t, do(s, "POST", "/api/objects/"+obj.ID+"/run", `{"permission":"yolo"}`), http.StatusBadRequest, "validation")
+	// dsh 没有自动审核和硬拦截，auto 档同 custom 在开流前回 400
+	assertError(t, do(s, "POST", "/api/objects/"+obj.ID+"/run", `{"permission":"auto","harness":"deepseek"}`), http.StatusBadRequest, "validation")
 }
 
 // 没配 MCP 程序时照跑：不传 --mcp-config，提示词写明没接上，只读白名单照旧。
@@ -180,7 +192,8 @@ echo '{"type":"result","subtype":"success","is_error":false,"result":"ok","permi
 func TestRunPermissionsSettings(t *testing.T) {
 	s, _, _, _ := runFixture(t, "exit 0")
 	d := decodeEnvelope(t, do(s, "GET", "/api/run-permissions", ""))["data"].(map[string]any)
-	if d["write_profile"] != "accept_edits" || d["mcp_server"] != "pmw-run" || len(d["custom"].([]any)) != 0 || len(d["profiles"].([]any)) != 4 {
+	if d["write_profile"] != "accept_edits" || d["mcp_server"] != "pmw-run" || len(d["custom"].([]any)) != 0 || len(d["profiles"].([]any)) != 5 ||
+		len(d["deny"].([]any)) != 0 || len(d["builtin_deny"].([]any)) == 0 {
 		t.Fatalf("默认值不对：%v", d)
 	}
 	w := do(s, "PUT", "/api/run-permissions", `{"write_profile":"edits_and_tests","custom":["Bash(git commit:*)","","Bash(git commit:*)"]}`)
@@ -194,11 +207,27 @@ func TestRunPermissionsSettings(t *testing.T) {
 		for _, r := range m["allowed"].([]any) {
 			has = has || r == "Bash(git commit:*)"
 		}
-		if has != (m["key"] == "custom") {
-			t.Fatalf("自定义白名单只在 custom 档：%v", m)
+		if has != (m["key"] == "custom" || m["key"] == "auto") {
+			t.Fatalf("自定义白名单只在 custom、auto 档：%v", m)
 		}
 	}
-	for _, body := range []string{`{"write_profile":"read_only"}`, `{"write_profile":"yolo"}`, `{"custom":["Bash(*)"]}`, `{"custom":["Bash"]}`} {
+	for _, body := range []string{`{"write_profile":"read_only"}`, `{"write_profile":"yolo"}`, `{"custom":["Bash(*)"]}`, `{"custom":["Bash"]}`,
+		`{"deny":["mcp__pmw-run"]}`, `{"deny":["Bash("]}`} {
 		assertError(t, do(s, "PUT", "/api/run-permissions", body), http.StatusBadRequest, "validation")
+	}
+
+	// write_profile 可以是 auto；硬拦截收宽规则；不带 deny 时保留原来的
+	w = do(s, "PUT", "/api/run-permissions", `{"write_profile":"auto","custom":[],"deny":["Bash(*)","Bash(git -C /p/web-next push:*)"]}`)
+	d = decodeEnvelope(t, w)["data"].(map[string]any)
+	if d["write_profile"] != "auto" || len(d["deny"].([]any)) != 2 {
+		t.Fatalf("auto + 硬拦截：%v", d)
+	}
+	d = decodeEnvelope(t, do(s, "PUT", "/api/run-permissions", `{"write_profile":"auto","custom":[]}`))["data"].(map[string]any)
+	if len(d["deny"].([]any)) != 2 {
+		t.Fatalf("不带 deny 应保留原来的：%v", d)
+	}
+	d = decodeEnvelope(t, do(s, "PUT", "/api/run-permissions", `{"write_profile":"auto","custom":[],"deny":[]}`))["data"].(map[string]any)
+	if len(d["deny"].([]any)) != 0 {
+		t.Fatalf("deny 给空数组是清空：%v", d)
 	}
 }

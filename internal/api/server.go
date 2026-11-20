@@ -162,6 +162,8 @@ func New(st store.Store, opts Options) *Server {
 		opts.Plugins.SetRunCallback(opts.MCPBin, opts.PublicURL)
 		opts.Plugins.SetRunPresets(s.presetLookup)
 		opts.Plugins.SetRunExecutors(s.executorRequest)
+		// 插件运行放开写时用全局写入档位、自定义白名单和硬拦截（TSK-0499），同任务执行
+		opts.Plugins.SetRunPerms(s.pluginRunPerms)
 		// 插件同步知识库（TSK-0721）：读文件的拦截、和目录同步互斥都走这个 Server 的
 		opts.Plugins.SetKnowledge(pluginKB{s})
 	}

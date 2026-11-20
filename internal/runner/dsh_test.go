@@ -207,7 +207,7 @@ func TestWriteDSHPatch(t *testing.T) {
 }
 
 // TestDSHSandboxMode 钉住权限档位到 dsh 沙箱档位的对应（TSK-0722）：两档写入同为 workspace-write，
-// 自定义白名单没有对应、必须拒绝而不是悄悄放宽；永远不给 danger-full-access。
+// 自定义白名单、自动审核没有对应、必须拒绝而不是悄悄放宽；永远不给 danger-full-access。
 func TestDSHSandboxMode(t *testing.T) {
 	cases := []struct {
 		perm  string
@@ -221,6 +221,7 @@ func TestDSHSandboxMode(t *testing.T) {
 		{PermAcceptEdits, false, DSHWorkspaceWrite, false},
 		{PermEditsAndTests, false, DSHWorkspaceWrite, false},
 		{PermCustom, true, "", true},
+		{PermAuto, true, "", true},
 		{"danger", true, "", true},
 	}
 	for _, c := range cases {

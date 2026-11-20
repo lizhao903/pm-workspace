@@ -234,7 +234,7 @@ export type RunRequest = {
   extra_prompt?: string
   allow_writes?: boolean
   /** 权限档位（TSK-0499）：给了以它为准，不给按 allow_writes；只读角色后端压成 read_only */
-  permission?: 'read_only' | 'accept_edits' | 'edits_and_tests' | 'custom'
+  permission?: 'read_only' | 'accept_edits' | 'edits_and_tests' | 'custom' | 'auto'
   preset_id?: string
   /** 执行器，空是 claude（TSK-0460 加 agent） */
   harness?: 'claude' | 'deepseek' | 'agent'

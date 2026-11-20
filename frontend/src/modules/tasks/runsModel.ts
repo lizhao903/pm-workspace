@@ -160,6 +160,14 @@ export function allowRulesOf(error: string): string[] {
   return out
 }
 
+/** 被拒提示里有命中硬拦截的那一句（TSK-0499，后端 denialReason 的「命中硬拦截」） */
+export function hardDenied(error: string): boolean {
+  return error.includes('命中硬拦截')
+}
+
+/** 设置「执行权限」的硬拦截那一块 */
+export const DENY_SETTINGS_LINK = '/settings/run-permissions#deny'
+
 /** 去设置「执行权限」并预填这些规则的地址 */
 export function allowRulesLink(rules: readonly string[]): string {
   return '/settings/run-permissions?add=' + encodeURIComponent(rules.join('\n'))

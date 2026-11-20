@@ -184,9 +184,13 @@ type Request struct {
 	// AllowedTools 是不用确认就能调的工具（--allowedTools）：工作台 MCP 加上档位的命令白名单（permissions.go）。
 	MCPConfig    string
 	AllowedTools []string
+	// DisallowedTools 是硬拦截清单（--disallowedTools，deny.go）：内置的加用户自定义的，每一档都传，
+	// 优先于 AllowedTools 和自动审核。
+	DisallowedTools []string
 
-	// Permission 是这次的权限档位（permissions.go），只用在被拒提示里说「这次是哪一档」；
-	// 真正生效的是 AllowWrites 和 AllowedTools。空按 AllowWrites 推（只读 / 允许改文件）。
+	// Permission 是这次的权限档位（permissions.go）：被拒提示里说「这次是哪一档」，
+	// 以及 AllowWrites 为真时选 --permission-mode（auto 档传 auto，其余 acceptEdits，PermMode）。
+	// 放行什么由 AllowWrites、AllowedTools 定。空按 AllowWrites 推（只读 / 允许改文件）。
 	Permission string
 
 	// Harness 指定这次交给谁跑，空由 Runner.Harness 决定，两者都空是 claude。
@@ -504,14 +508,29 @@ type cmdSpec struct {
 
 // claudeArgs 拼 claude 的命令行，含请求里的可选参数。
 func claudeArgs(req Request, prompt, workdir string) []string {
-	args := buildArgs(prompt, req.AllowWrites, LinkedDirs(workdir)...)
+	args := buildArgs(prompt, claudeMode(req), LinkedDirs(workdir)...)
 	if req.MCPConfig != "" {
 		args = append(args, "--mcp-config", req.MCPConfig)
 	}
 	for _, t := range req.AllowedTools {
 		args = append(args, "--allowedTools", t)
 	}
+	for _, t := range req.DisallowedTools {
+		args = append(args, "--disallowedTools", t)
+	}
 	return args
+}
+
+// claudeMode 是这次传给 --permission-mode 的值：不放开写一律不传（只读），放开写时按档位（PermMode），
+// 没给档位的旧调用方按 acceptEdits。
+func claudeMode(req Request) string {
+	if !req.AllowWrites {
+		return ""
+	}
+	if m := PermMode(req.Permission); m != "" {
+		return m
+	}
+	return "acceptEdits"
 }
 
 // buildArgs 拼实际执行的命令行。抽成函数是为了让「生产参数长什么样」
@@ -520,17 +539,18 @@ func claudeArgs(req Request, prompt, workdir string) []string {
 // 默认不传任何放宽权限的参数：claude 用它自己的权限策略，用户的
 // ~/.claude/settings.json 说了算，我们不替用户放宽安全边界。
 //
-// allowWrites 为 true 时传 --permission-mode acceptEdits，只放开文件编辑。
+// mode 非空时传 --permission-mode：acceptEdits 只放开文件编辑；auto 是自动审核档，白名单外的调用交给
+// Claude Code 的分类器按意图判（硬拦截另由 --disallowedTools 兜底，见 deny.go）。
 // 不用 --dangerously-skip-permissions：那个连命令执行也一起放开，
 // 而用户在界面上勾的是「允许修改文件」，不是「允许干任何事」。
 //
 // addDirs 是工作目录里软链接指向的外部目录（LinkedDirs）：claude 只许访问工作目录，
 // 软链接进来的目录实际路径在外面，不加 --add-dir 读不到（SPEC-tasks-6.19）。每个目录单独一个 --add-dir，
 // 不写成一个 --add-dir 跟多个值：它是可变参数，后面的参数会被吞进去。
-func buildArgs(prompt string, allowWrites bool, addDirs ...string) []string {
+func buildArgs(prompt string, mode string, addDirs ...string) []string {
 	args := []string{"-p", prompt, "--output-format", "stream-json", "--verbose"}
-	if allowWrites {
-		args = append(args, "--permission-mode", "acceptEdits")
+	if mode != "" {
+		args = append(args, "--permission-mode", mode)
 	}
 	for _, d := range addDirs {
 		args = append(args, "--add-dir", d)
@@ -629,9 +649,12 @@ func (r *Runner) finish(in finishInput) *Result {
 // 不能只说「有工具调用被拒绝」——用户看不懂那是什么意思，也不知道下一步做什么。
 // 这句话是他唯一能看到的指引，必须自带解法（TSK-0499）：
 //   - 列出被拒的工具，Bash 带上命令原文（截短），一眼看出是哪条命令；
+//   - 分三类说（DenialKind）：命中硬拦截的（换档位、加白名单都放不开，说清是哪条规则、去哪改）、
+//     被自动审核拒绝的（带上它给的理由）、白名单外的（非自动审核档的常态）；
 //   - 文件编辑被拒且这次是只读：叫用户勾「允许修改文件」（选一个写入档位）；
 //   - 其余能靠白名单放行的：给出规则，固定写成「建议放行：`规则`、`规则`。」——
 //     前端认这个格式，渲染成「去设置放行」的直达入口（设置 / 执行权限，预填这些规则）。
+//     硬拦截的不进建议：加进白名单也放不开。
 func denialReason(denials []Denial, req Request, partial bool) string {
 	names := uniqueToolNames(denials)
 	tail := "任务没有真正完成。"
@@ -654,8 +677,36 @@ func denialReason(denials []Denial, req Request, partial bool) string {
 			b.WriteString("查库要写成 sqlite3 -readonly -safe（已在只读白名单里）；不带 -safe 时 .shell 能跑任意命令，不放行。")
 		}
 	}
-	edits := false
+	// soft 是能靠白名单放行的（自动审核拒绝的 + 白名单外的），appr 只是白名单外的：
+	// 「每一段都已放行仍被拒」的说法只对白名单外的成立，自动审核拒绝的不是白名单的事。
+	var hard, cls, soft, appr []Denial
 	for _, d := range denials {
+		switch DenialKind(d, req.DisallowedTools) {
+		case DenyByRule:
+			hard = append(hard, d)
+		case DenyByClassifier:
+			cls = append(cls, d)
+			soft = append(soft, d)
+		default:
+			soft = append(soft, d)
+			appr = append(appr, d)
+		}
+	}
+	if len(hard) > 0 {
+		b.WriteString(hardDenyHint(hard, req.DisallowedTools))
+	}
+	if len(cls) > 0 {
+		fmt.Fprintf(&b, "其中 %d 个被 Claude Code 的自动审核拒绝", len(cls))
+		if why := classifierReasons(cls); why != "" {
+			b.WriteString("（" + why + "）")
+		}
+		b.WriteString("：自动审核按这次任务的意图判断，觉得越界或有风险就拦；确实是任务要做的，把它加进自定义白名单（白名单里的直接放行、不再送审），或在附加说明里写明要做这一步再发起。")
+	}
+	if len(soft) == 0 {
+		return b.String()
+	}
+	edits := false
+	for _, d := range soft {
 		if editTools[d.ToolName] {
 			edits = true
 		}
@@ -663,23 +714,87 @@ func denialReason(denials []Denial, req Request, partial bool) string {
 	if edits && !req.AllowWrites {
 		b.WriteString("本次为只读执行；要让它真正改文件，请在发起时勾选「允许修改文件」（选一个写入档位）。")
 	}
-	if rules := SuggestRules(denials, req.AllowedTools); len(rules) > 0 {
+	if rules := SuggestRules(soft, req.AllowedTools); len(rules) > 0 {
 		quoted := make([]string, len(rules))
 		for i, r := range rules {
 			quoted[i] = "`" + r + "`"
 		}
-		fmt.Fprintf(&b, "本次档位「%s」没放行这些调用；建议放行：%s。到「设置 / 执行权限」把它们加进自定义白名单，发起时选「%s」档位；只跟某个项目有关的，加进项目档案的「执行白名单」。",
-			PermLabel(perm), strings.Join(quoted, "、"), PermLabel(PermCustom))
-		if unexplainedBash(denials, req.AllowedTools) {
+		if perm == PermAuto {
+			fmt.Fprintf(&b, "本次档位「%s」没放行这些调用；建议放行：%s。到「设置 / 执行权限」把它们加进自定义白名单（自动审核档也认自定义白名单）；只跟某个项目有关的，加进项目档案的「执行白名单」。",
+				PermLabel(perm), strings.Join(quoted, "、"))
+		} else {
+			fmt.Fprintf(&b, "本次档位「%s」没放行这些调用；建议放行：%s。到「设置 / 执行权限」把它们加进自定义白名单，发起时选「%s」或「%s」档位；只跟某个项目有关的，加进项目档案的「执行白名单」。"+
+				"也可以发起时选「%s」，白名单外的调用交给 Claude Code 按任务意图判断（硬拦截照样生效）。",
+				PermLabel(perm), strings.Join(quoted, "、"), PermLabel(PermCustom), PermLabel(PermAuto), PermLabel(PermAuto))
+		}
+		if unexplainedBash(appr, req.AllowedTools) {
 			b.WriteString(bashLimitsHint)
 		}
-	} else if unexplainedBash(denials, req.AllowedTools) {
+	} else if unexplainedBash(appr, req.AllowedTools) {
 		b.WriteString(bashLimitsHint)
-	} else if !edits || req.AllowWrites {
-		// 推不出规则、又不是只读挡了编辑：多半是用户自己的 deny 规则。
+	} else if len(cls) == 0 && (!edits || req.AllowWrites) {
+		// 推不出规则、又不是只读挡了编辑：不在工作台的放行范围内（如工作目录外的路径）。
 		b.WriteString("本次档位是「" + PermLabel(perm) + "」，这些调用不在工作台的放行范围内，或被你自己的权限配置挡下，请检查 ~/.claude/settings.json 和项目的 .claude/settings*.json。")
 	}
 	return b.String()
+}
+
+// hardDenyHint 是命中 deny 规则的那几次怎么说：命中哪条（对得上工作台清单的列出来），为什么换档位、加白名单都没用，去哪改。
+func hardDenyHint(hard []Denial, deny []string) string {
+	var rules []string
+	seen := map[string]bool{}
+	other := 0
+	for _, d := range hard {
+		r := MatchAny(deny, d.ToolName, d.ToolInput)
+		if r == "" {
+			other++
+			continue
+		}
+		if !seen[r] {
+			seen[r] = true
+			rules = append(rules, "`"+r+"`")
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "其中 %d 个命中硬拦截", len(hard))
+	if len(rules) > 0 {
+		b.WriteString("（" + strings.Join(rules, "、") + "）")
+	}
+	b.WriteString("：硬拦截优先于任何档位、白名单和自动审核，换档位、加白名单都放不开；这类操作（推 main、强推、reset --hard、rm -rf、杀进程、写工作台数据目录、调管理接口等）请你自己在终端做。" +
+		"内置的硬拦截删不掉，自己加的在「设置 / 执行权限」的「硬拦截」里改。")
+	if other > 0 {
+		fmt.Fprintf(&b, "有 %d 个没对上工作台的硬拦截清单，多半是 ~/.claude/settings.json 或项目 .claude/settings*.json 里的 deny 规则。", other)
+	}
+	return b.String()
+}
+
+// classifierReasons 是自动审核给的拒绝理由（去重、截短，最多 3 条）；只有「被拒」这种没信息量的说明时回空。
+func classifierReasons(cls []Denial) string {
+	seen := map[string]bool{}
+	var out []string
+	for _, d := range cls {
+		m := d.DecisionMessage
+		if i := strings.Index(m, "Reason:"); i >= 0 {
+			m = m[i+len("Reason:"):]
+		}
+		// 说明后面跟着给模型看的话（「If you have other tasks …」），不是给人的理由
+		if i := strings.Index(m, "If you have other tasks"); i >= 0 {
+			m = m[:i]
+		}
+		m = oneLine(m, 160)
+		if m == "" || seen[m] {
+			continue
+		}
+		seen[m] = true
+		if len(out) == 3 {
+			break
+		}
+		out = append(out, m)
+	}
+	if len(out) == 0 {
+		return ""
+	}
+	return "理由：" + strings.Join(out, "；")
 }
 
 // bashLimitsHint 是被拒的命令每一段都已放行时的说法：原因在白名单管不到的地方（2.1.328 实测，见 permissions.go 文件头）。
@@ -834,6 +949,8 @@ func (so *streamOutcome) noteToolError(msg string) {
 func readStream(stdout io.Reader, out io.Writer, on func(Event)) streamOutcome {
 	var so streamOutcome
 	toolNames := map[string]string{}
+	// 被拒的类别和说明（system / permission_denied），收尾时按 tool_use_id 补进 result 行的被拒清单
+	why := map[string][2]string{}
 
 	br := bufio.NewReaderSize(stdout, 64<<10)
 	for {
@@ -852,12 +969,20 @@ func readStream(stdout io.Reader, out io.Writer, on func(Event)) streamOutcome {
 				render(out, ev)
 				on(ev)
 			}
+			if id, typ, msg, ok := deniedOf(line); ok {
+				why[id] = [2]string{typ, msg}
+			}
 			if text, isErr, denials, ok := finalOf(line); ok {
 				so.finalText, so.finalErr = text, isErr
 				so.denials = append(so.denials, denials...)
 			}
 		}
 		if err != nil {
+			for i := range so.denials {
+				if w, ok := why[so.denials[i].ToolUseID]; ok {
+					so.denials[i].DecisionType, so.denials[i].DecisionMessage = w[0], w[1]
+				}
+			}
 			return so
 		}
 	}

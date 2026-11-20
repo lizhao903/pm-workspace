@@ -88,24 +88,28 @@ export const WRITE_PROFILE_OPTIONS: { value: RunWriteProfile; label: string }[] 
   { value: 'accept_edits', label: '允许改文件' },
   { value: 'edits_and_tests', label: '允许改文件 + 跑测试构建' },
   { value: 'custom', label: '自定义白名单' },
+  { value: 'auto', label: '自动审核' },
 ]
 
+/** DeepSeek（dsh）没有对应的写入档位：自定义白名单（没有命令白名单）、自动审核（没有分类器和硬拦截） */
+const DSH_UNSUPPORTED: readonly RunWriteProfile[] = ['custom', 'auto']
+
 /**
- * 写入档位的选项按执行器给（TSK-0722）：DeepSeek（dsh）没有命令白名单，「自定义白名单」置灰；
+ * 写入档位的选项按执行器给（TSK-0722）：DeepSeek（dsh）没有命令白名单和自动审核，「自定义白名单」「自动审核」置灰；
  * 另两档在 dsh 里都是 workspace-write 沙箱
  */
 export function writeProfileOptions(who: Who): { value: RunWriteProfile; label: string; disabled?: boolean }[] {
   if (who !== 'deepseek') return WRITE_PROFILE_OPTIONS
-  return WRITE_PROFILE_OPTIONS.map((o) => (o.value === 'custom' ? { ...o, label: `${o.label}（DeepSeek 没有，不可选）`, disabled: true } : o))
+  return WRITE_PROFILE_OPTIONS.map((o) => (DSH_UNSUPPORTED.includes(o.value) ? { ...o, label: `${o.label}（DeepSeek 没有，不可选）`, disabled: true } : o))
 }
 
 /**
  * 弹窗里实际用的写入档位：用户选过的优先，没选过跟设置里的默认，设置还没到用 accept_edits。
- * 交给 DeepSeek 时「自定义白名单」没有对应，退回「允许改文件」
+ * 交给 DeepSeek 时「自定义白名单」「自动审核」没有对应，退回「允许改文件」
  */
 export function pickedWriteProfile(chosen: RunWriteProfile | null, settings?: Pick<RunPermissions, 'write_profile'>, who: Who = 'claude'): RunWriteProfile {
   const p = chosen ?? settings?.write_profile ?? 'accept_edits'
-  return who === 'deepseek' && p === 'custom' ? 'accept_edits' : p
+  return who === 'deepseek' && DSH_UNSUPPORTED.includes(p) ? 'accept_edits' : p
 }
 
 /** 写入档位下面那行说明：每档额外放开什么；DeepSeek 说 dsh 沙箱的口径 */
@@ -113,6 +117,7 @@ export function writeProfileHint(p: RunWriteProfile, custom: readonly string[] =
   if (who === 'deepseek') return 'dsh 没有命令白名单：这一档是 workspace-write 沙箱，能写工作目录（和软链接进来的目录），命令（含测试构建）都在沙箱里跑，写不出工作目录'
   if (p === 'edits_and_tests') return '再放行测试、构建命令（go test、npm test、make test 等）：会执行项目自己的代码'
   if (p === 'custom') return custom.length ? `再放行设置里的自定义白名单（${custom.length} 条）` : '自定义白名单还是空的，等同「允许改文件」；到设置「执行权限」里加'
+  if (p === 'auto') return `白名单外的命令不再一律被拒，由 Claude Code 自动审核按这次任务的意图决定放不放${custom.length ? `；自定义白名单（${custom.length} 条）直接放行` : ''}。推 main、强推、rm -rf 等硬拦截照样挡`
   return '只放开文件编辑；命令只放行只读的'
 }
 

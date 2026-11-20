@@ -508,22 +508,29 @@ export type RunPreset = {
   id: string; scene: string; content: string; default: boolean
   permission?: RolePermission; output?: string; dir_kind?: RoleDirKind
 }
-/** 后台执行的权限档位（TSK-0499）：只读 / 允许改文件 / 允许改文件 + 跑测试构建 / 自定义白名单 */
-export type RunPermission = 'read_only' | 'accept_edits' | 'edits_and_tests' | 'custom'
-/** 写入档位：勾「允许写入」时可选的三档 */
+/** 后台执行的权限档位（TSK-0499）：只读 / 允许改文件 / 允许改文件 + 跑测试构建 / 自定义白名单 / 自动审核 */
+export type RunPermission = 'read_only' | 'accept_edits' | 'edits_and_tests' | 'custom' | 'auto'
+/** 写入档位：勾「允许写入」时可选的四档 */
 export type RunWriteProfile = Exclude<RunPermission, 'read_only'>
 /** 一个档位：是否放开文件编辑、实际传给 --allowedTools 的规则（不含 MCP） */
 export type RunPermProfile = { key: RunPermission; label: string; writes: boolean; allowed: string[] }
 /** GET / PUT /api/run-permissions（TSK-0499） */
+/** 内置硬拦截的一组（只读，设置里删不掉）：key 见契约「硬拦截」 */
+export type RunDenyGroup = { key: string; label: string; rules: string[] }
 export type RunPermissions = {
   write_profile: RunWriteProfile
-  /** 自定义白名单，只在 custom 档生效 */
+  /** 自定义白名单，在 custom 和 auto 档生效 */
   custom: string[]
+  /** 自定义硬拦截（--disallowedTools），每一档都生效，优先于白名单和自动审核 */
+  deny: string[]
+  /** 内置硬拦截，按组；本实例的数据目录和对外地址已代入 */
+  builtin_deny: RunDenyGroup[]
   profiles: RunPermProfile[]
   /** 工作台注入的 MCP server 名（pmw-run），每一档都放行它的全部工具 */
   mcp_server: string
 }
-export type RunPermissionsInput = { write_profile: RunWriteProfile; custom: string[] }
+/** deny 不传时后端保留原来的自定义硬拦截 */
+export type RunPermissionsInput = { write_profile: RunWriteProfile; custom: string[]; deny?: string[] }
 /**
  * 交给执行的快捷附加说明（SPEC-tasks-6.40、SPEC-settings-32），GET / PUT /api/run-quick-notes：
  * label 是弹窗里芯片上的短名，text 是点了追加进附加说明的文字。没设过时后端回内置的一组

@@ -42,7 +42,7 @@ func TestLinkedDirs(t *testing.T) {
 	if LinkedDirs(filepath.Join(base, "不存在")) != nil {
 		t.Error("目录不存在时应回 nil")
 	}
-	args := strings.Join(buildArgs("p", false, got...), " ")
+	args := strings.Join(buildArgs("p", "", got...), " ")
 	if !strings.Contains(args, "--add-dir "+outA+" --add-dir "+outB) {
 		t.Errorf("每个目录单独一个 --add-dir：%q", args)
 	}
