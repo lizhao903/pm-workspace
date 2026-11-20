@@ -8,6 +8,7 @@ import type { SopDraft, SopField, SopIssue, SopNodeType, SopStepDef } from '../.
 import { blankCond, condProblems, legacyCond } from './cond'
 import { depsOf, isManualDecide, ranks } from './model'
 import { defaultConfig, nodeInfo } from './nodes'
+import { layeredY } from './layout'
 
 export type Draft = SopDraft
 export type Pos = { x: number; y: number }
@@ -194,22 +195,35 @@ export function nodeH(d: Draft, cat: Catalog, key: string) {
 /** 第 i 个分支出口的纵向位置（相对节点顶部） */
 export const caseY = (i: number) => 52 + i * 30 + 13
 
-/** 按依赖分列排开；开始节点在最左 */
+/** 连线在节点上的纵向位置：入口和普通出口在顶部往下 30，分支出口按第几个出口（caseY） */
+export const PORT_Y = 30
+
+/** 画布上的全部连线（开始节点连到没有上游的步骤；判断节点从分支对应的出口连出），排版和画线共用 */
+export function canvasEdges(d: Pick<Draft, 'steps'>) {
+  const keys = new Set(d.steps.map((s) => s.key))
+  return [
+    ...d.steps.filter((_, i) => !depsOf(d, i).length).map((s) => ({ from: START, to: s.key, caseKey: undefined as string | undefined })),
+    ...d.steps.flatMap((s, i) => depsOf(d, i).filter((k) => keys.has(k)).map((k) => ({ from: k, to: s.key, caseKey: s.branch?.of === k ? s.branch.case : undefined }))),
+  ]
+}
+
+/** 出口相对节点顶部的纵向位置 */
+export function outY(d: Pick<Draft, 'steps'>, key: string, caseKey?: string) {
+  const ci = caseKey ? d.steps.find((x) => x.key === key)?.cases?.findIndex((c) => c.key === caseKey) ?? -1 : -1
+  return ci >= 0 ? caseY(ci) : PORT_Y
+}
+
+/** 自动布局（SPEC-sop-8.15）：开始节点在最左，按依赖分列；列内顺序减少连线交叉、分支出口的上下顺序决定下游的上下顺序，
+ * 单线拉直、汇合放在几路上游中间（layeredY） */
 export function autoLayout(d: Draft, cat: Catalog): Layout {
   const rk = ranks(d)
-  const cols: string[][] = []
-  d.steps.forEach((s, i) => { (cols[rk[i]] ??= []).push(s.key) })
-  // 有环时可能空出某一列（数组的洞），map 会跳过洞，用 Array.from 补成空列
-  const filled = Array.from(cols, (c) => c ?? [])
-  const out: Layout = { [START]: { x: 60, y: 0 } }
-  const heights = filled.map((c) => c.reduce((a, k) => a + nodeH(d, cat, k) + 28, -28))
-  const tallest = Math.max(nodeH(d, cat, START), ...heights)
-  out[START].y = 80 + (tallest - nodeH(d, cat, START)) / 2
-  filled.forEach((col, c) => {
-    let y = 80 + (tallest - heights[c]) / 2
-    col.forEach((k) => { out[k] = { x: 60 + (c + 1) * (NW + COL_GAP), y }; y += nodeH(d, cat, k) + 28 })
-  })
-  return out
+  const nodes = [
+    { key: START, rank: 0, h: nodeH(d, cat, START) },
+    ...d.steps.map((s, i) => ({ key: s.key, rank: rk[i] + 1, h: nodeH(d, cat, s.key) })),
+  ]
+  const edges = canvasEdges(d).map((e) => ({ from: e.from, to: e.to, out: outY(d, e.from, e.caseKey), in: PORT_Y }))
+  const ys = layeredY(nodes, edges)
+  return Object.fromEntries(nodes.map((n) => [n.key, { x: 60 + n.rank * (NW + COL_GAP), y: 80 + ys[n.key] }]))
 }
 
 /** 画布用的位置：手动摆过的优先，其余自动排 */

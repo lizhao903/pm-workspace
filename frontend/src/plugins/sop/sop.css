@@ -328,7 +328,9 @@ button.sop-run-row:hover { background: var(--panel-2); }
 .sop-issue-dot.dot-error { background: var(--danger); }
 .sop-issue-dot.dot-warn { background: var(--warn); }
 .sop-cv-error { top: 60px; right: 12px; max-width: 420px; padding: 8px 12px; border-radius: var(--r); background: var(--danger-soft); color: color-mix(in srgb, var(--danger) 75%, var(--text)); font-size: var(--fs-sm); border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent); }
-.sop-cv-tools { left: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 2px; padding: 4px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+.sop-cv-tools { left: 12px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
+/* 自动布局：工具条里唯一带字的按钮，图标在上、字在下（SPEC-sop-8.15） */
+.sop-cv-tools .sop-cv-autolayout { flex-direction: column; gap: 2px; height: auto; padding: 5px 4px 4px; font-size: var(--fs-2xs); line-height: 1.2; }
 .sop-cv-bottom-left { left: 12px; bottom: 12px; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }
 .sop-cv-hint { font-size: var(--fs-2xs); color: var(--faint); padding: 0 8px; white-space: nowrap; }
 .sop-cv-bottom-right { right: 12px; bottom: 12px; display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-sm); }

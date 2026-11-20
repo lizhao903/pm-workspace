@@ -8,7 +8,7 @@ import { errorText, isApiError, sopIssuesOf, useConversations, useSaveSopFlow, t
 import { Button, ConfirmDialog, IconButton, PageTitle, cls, describeScheduleRule } from '../../core/ui'
 import { AiPanel } from './AiPanel'
 import {
-  COL_GAP, NW, START, caseY, checkDraft, childrenOf, connect, explicit, fitView, isBranching, layoutOf, makeStep, mergeIssues,
+  COL_GAP, NW, PORT_Y, START, canvasEdges, checkDraft, childrenOf, connect, explicit, fitView, isBranching, layoutOf, makeStep, mergeIssues, outY,
   paletteItems, removeEdge as dropEdge, removeStep, sameDraft, serverIssuesOf, topo, type Catalog, type Draft, type Issue, type PaletteItem,
   type Pos, type ServerIssue,
 } from './edit'
@@ -220,6 +220,12 @@ export function Editor({ initial, readOnly = false, issues: initialIssues, flowI
     return () => window.removeEventListener('keydown', onKey)
   })
 
+  // 自动布局（SPEC-sop-8.15）：清掉手动位置，全部按新排法重排（layoutOf 兜底走 autoLayout），进撤销历史，再适配视口
+  const autoArrange = () => {
+    if (!draft.layout) { fit(); return }
+    commit({ ...draft, layout: undefined })
+    fitted.current = false
+  }
   const fit = () => {
     const el = canvasRef.current
     if (!el) return
@@ -227,7 +233,7 @@ export function Editor({ initial, readOnly = false, issues: initialIssues, flowI
     setZoom(v.zoom)
     setPan(v.pan)
   }
-  // 打开时适配一次；AI 整体替换、自动整理后再适配一次
+  // 打开时适配一次；AI 整体替换、自动布局后再适配一次
   useEffect(() => {
     if (fitted.current) return
     fitted.current = true
@@ -320,16 +326,8 @@ export function Editor({ initial, readOnly = false, issues: initialIssues, flowI
   }
 
   // 连线：开始节点连到所有没有上游的节点；判断节点从分支对应的出口连出
-  const edges = [
-    ...draft.steps.filter((s) => !(s.after ?? []).length).map((s) => ({ from: START, to: s.key, caseKey: undefined as string | undefined })),
-    ...draft.steps.flatMap((s) => (s.after ?? []).filter((k) => lay[k]).map((k) => ({ from: k, to: s.key, caseKey: s.branch?.of === k ? s.branch.case : undefined }))),
-  ]
-  const outPt = (key: string, caseKey?: string): Pos => {
-    const p = lay[key]
-    const st = draft.steps.find((x) => x.key === key)
-    const ci = caseKey && st?.cases ? st.cases.findIndex((c) => c.key === caseKey) : -1
-    return { x: p.x + NW, y: p.y + (ci >= 0 ? caseY(ci) : 30) }
-  }
+  const edges = canvasEdges(draft)
+  const outPt = (key: string, caseKey?: string): Pos => ({ x: lay[key].x + NW, y: lay[key].y + outY(draft, key, caseKey) })
   const curve = (a: Pos, b: Pos) => {
     const m = Math.max(40, Math.abs(b.x - a.x) / 2)
     return `M${a.x},${a.y} C${a.x + m},${a.y} ${b.x - m},${b.y} ${b.x},${b.y}`
@@ -400,7 +398,7 @@ export function Editor({ initial, readOnly = false, issues: initialIssues, flowI
         <div className="sop-cv-world" style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}>
           <svg className="sop-cv-edges" aria-hidden="true">
             {edges.map((ed) => {
-              const d = curve(outPt(ed.from, ed.caseKey), { x: lay[ed.to].x, y: lay[ed.to].y + 30 })
+              const d = curve(outPt(ed.from, ed.caseKey), { x: lay[ed.to].x, y: lay[ed.to].y + PORT_Y })
               const on = selEdge?.from === ed.from && selEdge.to === ed.to
               // 调试时走过的连线高亮、没走的变淡（TSK-0491）
               const walked = dbg && (() => {
@@ -494,9 +492,10 @@ export function Editor({ initial, readOnly = false, issues: initialIssues, flowI
           }}>
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" strokeWidth="1.4" /><path d="M8 5v6M5 8h6" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" /></svg>
           </IconButton>
-          <IconButton label="自动整理" onClick={() => { commit({ ...draft, layout: undefined }); fitted.current = false }}>
+          <Button size="sm" className="sop-cv-autolayout" title="按连接关系重新排列全部节点，会覆盖手动拖过的位置；可撤销" onClick={autoArrange}>
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><rect x="2" y="2.5" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" /><rect x="10" y="2.5" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" /><rect x="10" y="9.5" width="4" height="4" rx="1" fill="none" stroke="currentColor" strokeWidth="1.3" /><path d="M6 4.5h4M8 4.5v7h2" fill="none" stroke="currentColor" strokeWidth="1.3" /></svg>
-          </IconButton>
+            <span>自动布局</span>
+          </Button>
           </>}
           <IconButton label="适配视口" onClick={fit}>
             <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" /></svg>

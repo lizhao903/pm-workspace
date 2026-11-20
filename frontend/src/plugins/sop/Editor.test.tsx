@@ -87,7 +87,7 @@ describe('SOP 编排页', () => {
     await waitFor(() => expect(router.state.location.pathname).toBe('/sop/flows/sop_fb/edit'))
     expect(await screen.findByText('只读')).toBeInTheDocument()
     expect(screen.getByRole('textbox', { name: 'SOP 名称' })).toHaveAttribute('readonly')
-    for (const name of ['保存', '测试运行', '添加节点', '自动整理', '撤销', '重做', 'AI 协助']) {
+    for (const name of ['保存', '测试运行', '添加节点', '自动布局', '撤销', '重做', 'AI 协助']) {
       expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
     }
     await user.click(screen.getByRole('button', { name: '节点 复核' }))
@@ -149,6 +149,30 @@ describe('SOP 编排页', () => {
     await user.click(await screen.findByRole('option', { name: /产品经理/ }))
     await user.click(screen.getByRole('button', { name: '保存' }))
     await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')?.body).toMatchObject({ folder_id: 'sfd_pm', version: 3 }))
+  })
+
+  it('自动布局：覆盖手动位置、按连接关系重排，能撤销；保存时存新位置（SPEC-sop-8.15）', async () => {
+    const user = userEvent.setup()
+    const { calls } = fakeBackend()
+    renderPage('/sop/flows/sop_fb/edit')
+    const b = await screen.findByRole('button', { name: '节点 复核' })
+    // 打开时用保存的位置：b 比 a 低 40
+    expect(b.style.top).toBe('120px')
+    const btn = screen.getByRole('button', { name: '自动布局' })
+    expect(btn).toHaveAttribute('title', '按连接关系重新排列全部节点，会覆盖手动拖过的位置；可撤销')
+    await user.click(btn)
+    // 单线拉直：a、b 同高，往右一列一个
+    const a = screen.getByRole('button', { name: '节点 整理' })
+    expect(screen.getByRole('button', { name: '节点 复核' }).style.top).toBe(a.style.top)
+    expect(a.style.left).toBe('376px')
+    await user.click(screen.getByRole('button', { name: '撤销' }))
+    expect(screen.getByRole('button', { name: '节点 复核' }).style.top).toBe('120px')
+    await user.click(screen.getByRole('button', { name: '重做' }))
+    await user.click(screen.getByRole('button', { name: '保存' }))
+    await waitFor(() => expect(calls.find((c) => c.method === 'PATCH')).toBeTruthy())
+    const lay = calls.find((c) => c.method === 'PATCH')!.body!.layout as Record<string, { x: number; y: number }>
+    expect(lay.b.y).toBe(lay.a.y)
+    expect(lay.b.x).toBe(692)
   })
 
   it('在文件夹里新建：草稿带上那个文件夹', async () => {

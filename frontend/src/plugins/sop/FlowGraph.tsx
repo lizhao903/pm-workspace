@@ -1,12 +1,14 @@
 // powered by dsh - https://github.com/deepseek-ai/deepseek-harness
 
 // 流程图（SPEC-sop-5.9、7.7）：按依赖分列，同一列的步骤互不依赖；判断后的分支也落在同一列，连线上写分支名。
+// 列内上下顺序和纵坐标同编排页的自动布局（layeredY）：分支下游按出口顺序、单线拉直、汇合在几路上游中间。
 // 给了 run 就按步骤状态着色、标「人」、高亮走过的连线；给了 onSelect 节点可点。照原型 sop.tsx FlowGraph
 import { useEffect, useRef } from 'react'
 import { isSopProviderWait, type SopFlow, type SopRun, type SopStepDef } from '../../core/data'
 import { cls } from '../../core/ui'
 import { EDITED_LABEL, depsOf, isFinished, isManualDecide, isQueued, ranks, runStepLook } from './model'
 import { KindTag } from './parts'
+import { layeredY } from './layout'
 
 const W = 184
 const H = 74
@@ -32,18 +34,24 @@ export function FlowGraph({ flow, run, selected, onSelect, branching }: {
 
   if (!flow.steps.length) return null
   const rk = ranks(flow)
+  const idx = new Map(flow.steps.map((x, i) => [x.key, i]))
+  // 连线都从节点右边中间连出；排序时分支出口按第几个出口算上下
+  const ys = layeredY(
+    flow.steps.map((s, i) => ({ key: s.key, rank: rk[i], h: H })),
+    flow.steps.flatMap((s, i) => depsOf(flow, i).filter((k) => idx.has(k)).map((k) => {
+      const cases = flow.steps[idx.get(k)!].cases ?? []
+      const ci = s.branch?.of === k ? cases.findIndex((c) => c.key === s.branch!.case) : -1
+      return { from: k, to: s.key, out: H / 2, in: H / 2, port: ci >= 0 ? (ci + 1) / (cases.length + 1) : 0.5 }
+    })),
+    ROW_GAP, { col: W + COL_GAP, w: W },
+  )
+  const pos = flow.steps.map((s, i) => ({ x: PAD + rk[i] * (W + COL_GAP), y: TOP + PAD + ys[s.key] }))
+  // 每列按从上到下
   const cols: number[][] = []
   rk.forEach((r, i) => { (cols[r] ??= []).push(i) })
-  const filled = cols.filter(Boolean)
-  const maxRows = Math.max(...filled.map((c) => c.length))
-  const pos = flow.steps.map((_, i) => {
-    const col = cols[rk[i]]
-    const off = ((maxRows - col.length) * (H + ROW_GAP)) / 2
-    return { x: PAD + rk[i] * (W + COL_GAP), y: TOP + PAD + off + col.indexOf(i) * (H + ROW_GAP) }
-  })
+  cols.forEach((c) => c?.sort((a, b) => pos[a].y - pos[b].y))
   const width = PAD * 2 + cols.length * W + (cols.length - 1) * COL_GAP
-  const height = TOP + PAD * 2 + maxRows * H + (maxRows - 1) * ROW_GAP
-  const idx = new Map(flow.steps.map((x, i) => [x.key, i]))
+  const height = Math.max(...pos.map((p) => p.y)) + H + PAD
   const st = (i: number) => run?.steps[i]?.status
 
   const edges = flow.steps.flatMap((def, i) => depsOf(flow, i).flatMap((k) => {
