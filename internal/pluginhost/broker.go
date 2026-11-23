@@ -45,6 +45,8 @@ func (p *pluginProcess) handleHostCall(ctx context.Context, method string, param
 		return p.host.handleWSClose(p.id, params)
 	case "host.http.request":
 		return p.httpRequest(ctx, params)
+	case "host.agent.run":
+		return p.agentRun(ctx, params)
 	case "host.secrets.get":
 		return p.secretsGet(ctx, params)
 	case "host.secrets.set":

@@ -170,6 +170,8 @@ func (r *runner) startClaude(ctx context.Context, i int, release func()) {
 		Workdir: workdir, Prompt: p.prompt, AllowWrites: writes, ObjectID: task, RecordOnTask: task != "",
 		ExecutorID: p.executor, ReportBack: true, PresetID: preset, FollowPreset: follow, Timeout: timeout,
 		ReadDirs: p.readDirs,
+		// 执行任务成功完成后任务改待验收（TSK-0861，0.24.0）；claude_code 节点关联任务多是只读评审，不推进状态
+		ReviewOnDone: def.Kind == taskRunKind,
 	})
 	if err != nil {
 		r.claudeFail(i, t, "交给 Claude Code 失败："+claudeStartErr(err))

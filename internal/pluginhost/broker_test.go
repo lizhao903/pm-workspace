@@ -246,6 +246,7 @@ func TestBrokerNotify(t *testing.T) {
 
 func TestBrokerUnknownMethod(t *testing.T) {
 	p := newBrokerProcess(t, nil, nil)
-	_, err := callBroker(t, p, "host.agent.run", `{}`)
+	// host.agent.run 已实现（2026-11-23），换一个确实没有的方法
+	_, err := callBroker(t, p, "host.nope.call", `{}`)
 	assertRPCError(t, err, "method_not_found")
 }

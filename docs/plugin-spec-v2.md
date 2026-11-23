@@ -617,7 +617,7 @@ D. 握手成功后宿主发 `plugin.activate`，插件初始化和注册完成�
 | `host.fs.read` | `{ path, offset?, length? }` | `{ data_b64, eof }` | 对应 `fs:read:*`，路径必须在允许目录内 |
 | `host.fs.list` | `{ path }` | `{ entries: [{ name, type, size? }] }` | `fs:read:*` |
 | `host.fs.write` | `{ path, data_b64, mode? }` | `{ bytes }` | `fs:write:*`；`fs:write:any` 才允许任意路径 |
-| `host.agent.run` | `{ prompt, preset_id?, tools?, timeout_ms? }` | `{ run_id, status, summary, result }` | `agent:run`；超时另配（7.8） |
+| `host.agent.run` | `{ prompt, preset_id?, tools?, timeout_ms? }` | `{ run_id, status, summary, result }` | `agent:run`；超时另配（7.8）。2026-11-23 实现第一版：不带工具的单轮补全，另认 `system`（系统提示词）、`thinking`（思考档位）；`preset_id` 是宿主 Agent 的 id 或名称（用它的服务商、模型、指令），不给用默认服务商；`tools` 暂不支持、给了忽略；`timeout_ms` 默认 120 秒、最长 300 秒；同步返回 `status: done` |
 | `host.notify` | `{ kind, title, body, level? }` | `{ id }` | `notify` |
 | `host.schedules.enqueue` | `{ action, at, payload }` | `{ schedule_id }` | `schedule` |
 | `host.artifacts.add` | `{ path, title, run_id? }` | `{ artifact_id }` | `artifacts:write` |

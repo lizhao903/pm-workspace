@@ -18,6 +18,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/idgen"
 	"github.com/lizhao903/pm-workspace/internal/incident"
 	"github.com/lizhao903/pm-workspace/internal/runner"
+	"github.com/lizhao903/pm-workspace/internal/store"
 )
 
 // 插件发起运行的句柄（VID-03a），见 docs/plugin-api.md 2.0「发起运行」。
@@ -107,6 +108,10 @@ type ClaudeCodeStart struct {
 	// RecordOnTask 为真且给了 ObjectID 时，在那条任务上建一条执行记录（任务抽屉「执行记录」里能看到、能取消），
 	// 运行 id 就是那条记录的 id（AUTO-01）
 	RecordOnTask bool
+	// ReviewOnDone 为真且在任务上留了执行记录（RecordOnTask）时，执行成功完成后把任务改成待验收（TSK-0861）：
+	// 判断规则同内核任务执行（store.RunReviewStatus，expect 是发起那一刻任务的状态），失败、取消不改。
+	// SOP 的执行任务节点 task_run 用；只读评审一类的 Claude Code 节点不该推进任务状态，不传
+	ReviewOnDone bool
 	// ReportBack 为真时要 Claude Code 结束前经工作台 MCP 的 pmw_finish_run 回报结论（summary、结构化 result），
 	// 内核在提示词末尾加「回写到工作台」一节，并给这次执行接上回写用的 MCP（AUTO-01）
 	ReportBack bool
@@ -512,6 +517,16 @@ func (s runService) StartClaudeCode(ctx context.Context, q ClaudeCodeStart) (str
 			tr, id = rec, run.ID
 		}
 	}
+	// 执行完成改待验收要比对的「发起时的状态」：执行记录建好后读一次，读不到不改（reviewer 为 nil）
+	var reviewer store.RunReviewStore
+	expect := ""
+	if q.ReviewOnDone && tr != nil {
+		if rs, ok := r.objectCreator().(store.RunReviewStore); ok {
+			if o, err := rs.GetObject(ctx, q.ObjectID); err == nil {
+				reviewer, expect = rs, o.Status
+			}
+		}
+	}
 	info, err := s.begin(ctx, id, RunKindClaudeCode, "交给 Claude Code："+workdir,
 		map[string]any{"workdir": workdir, "allow_writes": q.AllowWrites, "object_id": q.ObjectID, "preset_id": q.PresetID, "executor_id": q.ExecutorID})
 	if err != nil {
@@ -586,8 +601,20 @@ func (s runService) StartClaudeCode(ctx context.Context, q ClaudeCodeStart) (str
 				out = final.Summary + "\n\n---\n\n" + out
 			}
 			fctx, fcancel := context.WithTimeout(domain.WithRunOrigin(context.Background(), "plugin:"+s.c.id), 10*time.Second)
-			if _, ferr := tr.FinishTaskRun(fctx, final.ID, final.Status, final.ExitCode, out, final.Error); ferr != nil {
+			_, ferr := tr.FinishTaskRun(fctx, final.ID, final.Status, final.ExitCode, out, final.Error)
+			if ferr != nil {
 				s.c.log.Warn("task run not finished", "run", final.ID, "err", ferr)
+			}
+			// 成功完成改待验收（TSK-0861）：进程正常结束但回报 failed 的已经按失败收尾，不改
+			if ferr == nil && reviewer != nil && final.Status == RunDone {
+				changed, why, rerr := store.MarkRunReview(fctx, reviewer, q.ObjectID, final.ID, expect,
+					store.RunReviewNote(harnessName(req.Harness), final.ID), store.Actor{Name: s.c.id, Source: ActorSourcePlugin})
+				switch {
+				case rerr != nil:
+					s.c.log.Warn("mark task review after run failed", "run", final.ID, "object", q.ObjectID, "err", rerr)
+				case !changed:
+					s.c.log.Info("task not moved to review after run", "run", final.ID, "object", q.ObjectID, "reason", why)
+				}
 			}
 			fcancel()
 		}
@@ -934,4 +961,12 @@ func (s runService) noteClaudeFailed(c incident.ClaudeRun) {
 	if _, err := b.r.Record(ctx, incident.ClaudeRunReport(c)); err != nil {
 		s.c.log.Warn("claude code run incident not recorded", "run", c.RunID, "err", err)
 	}
+}
+
+// harnessName 是进展里写的执行者名字：DeepSeek 执行器写 DeepSeek，其余是 Claude Code。
+func harnessName(h runner.Harness) string {
+	if h == runner.HarnessDeepSeek {
+		return "DeepSeek"
+	}
+	return "Claude Code"
 }

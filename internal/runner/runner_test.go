@@ -330,6 +330,32 @@ func TestContextCancelStopsRun(t *testing.T) {
 
 // --- 超时 ---
 
+// TestTimeoutForDefaultFitsLongTasks 锁住任务执行的默认上限（TSK-0859）：
+// 不给超时时用 DefaultTimeout，而它要容得下一次「写 PRD + 改原型 + 拍截图」（实测 15～30 分钟），
+// 退回 10 分钟会让这类执行再次做到一半被杀。请求和 Runner 上显式给的超时照旧优先。
+func TestTimeoutForDefaultFitsLongTasks(t *testing.T) {
+	if DefaultTimeout < 45*time.Minute {
+		t.Fatalf("DefaultTimeout = %s，容不下一次正经需求（同类执行实测要到 30 分钟）", DefaultTimeout)
+	}
+	cases := []struct {
+		name   string
+		runner time.Duration
+		req    time.Duration
+		want   time.Duration
+	}{
+		{"都没给用默认", 0, 0, DefaultTimeout},
+		{"Runner 给了用 Runner 的", 3 * time.Minute, 0, 3 * time.Minute},
+		{"请求给了优先", 3 * time.Minute, 5 * time.Second, 5 * time.Second},
+		{"负数当没给", -1, -1, DefaultTimeout},
+	}
+	for _, c := range cases {
+		r := &Runner{Timeout: c.runner}
+		if got := r.timeoutFor(Request{Timeout: c.req}); got != c.want {
+			t.Errorf("%s：timeoutFor = %s，want %s", c.name, got, c.want)
+		}
+	}
+}
+
 func TestTimeoutFinishesAsFailed(t *testing.T) {
 	r, req := newRun(t, "sleep 600")
 	r.Timeout = 300 * time.Millisecond

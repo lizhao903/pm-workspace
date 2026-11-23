@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -46,6 +47,9 @@ type Host struct {
 
 	// busCancel 取消 Start 时挂上的事件订阅。
 	busCancel func()
+
+	// agent 是 host.agent.run 用的模型服务，SetAgent 晚绑定。
+	agent atomic.Pointer[agentBox]
 }
 
 // New 建一个宿主。此时不碰磁盘、不拉起任何进程；Start 才读状态并恢复 enabled 插件。

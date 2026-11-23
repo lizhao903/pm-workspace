@@ -624,7 +624,8 @@ func (s *Server) settleAgentRun(bg context.Context, x *agentTaskExec, status, re
 	mu.Lock()
 	output := out.String()
 	mu.Unlock()
-	if ferr := s.finishRun(bg, x.run.ID, status, exit, output, reason); ferr != nil {
+	ferr := s.finishRun(bg, x.run.ID, status, exit, output, reason)
+	if ferr != nil {
 		x.emit(runner.Event{Type: runner.EventError, Message: "执行已结束，但记录落库失败：" + ferr.Error()})
 	} else if reason != "" {
 		x.emit(runner.Event{Type: runner.EventError, Message: reason})
@@ -645,9 +646,30 @@ func (s *Server) settleAgentRun(bg context.Context, x *agentTaskExec, status, re
 	case domain.RunFailed:
 		text = fmt.Sprintf("工作台 Agent「%s」执行失败（执行记录 %s）：%s", x.ag.Name, short, reason)
 	}
+	// 成功完成改待验收（TSK-0861）：和这条进展一次写；判断规则见 store.RunReviewStatus，判断出错只记日志、照记进展
+	review := ""
+	if status == domain.RunDone && ferr == nil {
+		key, why, err := store.RunReviewStatus(bg, s.st, x.obj.ID, x.run.ID, taskDoing)
+		switch {
+		case err != nil:
+			s.log.Warn("check task review after agent run failed", "run", x.run.ID, "object", x.obj.ID, "err", err)
+		case key == "":
+			s.log.Info("task not moved to review after run", "run", x.run.ID, "object", x.obj.ID, "reason", why)
+		default:
+			review = key
+			text += "\n\n状态改为待验收。"
+		}
+	}
 	if text != "" {
 		actor := store.Actor{Name: "agent", Source: "agent", Session: x.sess.ID}
-		if _, err := s.st.AppendProgress(bg, x.obj.ID, domain.ProgressInput{Kind: domain.ProgressNote, Text: text}, actor); err != nil {
+		_, err := s.st.AppendProgress(bg, x.obj.ID, domain.ProgressInput{Kind: domain.ProgressNote, Text: text, Status: review}, actor)
+		if err != nil && review != "" {
+			// 改状态那半失败了：结论不能跟着丢，去掉状态再记一次
+			s.log.Warn("mark task review after agent run failed", "run", x.run.ID, "object", x.obj.ID, "err", err)
+			_, err = s.st.AppendProgress(bg, x.obj.ID, domain.ProgressInput{Kind: domain.ProgressNote,
+				Text: strings.TrimSuffix(text, "\n\n状态改为待验收。")}, actor)
+		}
+		if err != nil {
 			s.log.Warn("append agent run progress failed", "run", x.run.ID, "object", x.obj.ID, "err", err)
 		}
 	}

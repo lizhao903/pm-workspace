@@ -41,9 +41,13 @@ const (
 	// DefaultBin 走 PATH 查找，用户装在哪都行。
 	DefaultBin = "claude"
 
-	// DefaultTimeout 是单次执行的上限。十分钟足够 claude 做完一件正经事，
-	// 又不至于让一次跑飞的执行占着资源到天亮。
-	DefaultTimeout = 10 * time.Minute
+	// DefaultTimeout 是单次执行（任务「交给 Claude Code / dsh 后台执行」）的上限，
+	// 只防一次跑飞的执行占着资源到天亮；正常要停用户有「停止」。
+	//
+	// 原来是 10 分钟（TSK-0859）：产品经理角色的提示词要求交给子代理写 PRD、在原型仓拉分支改原型、
+	// 起 dev server 拍截图，一次正经需求就要 15～30 分钟（同类终端执行实测 16～28 分钟），
+	// 10 分钟硬上限让它做到一半被杀、产出不登记。SOP「Claude Code」节点默认 2 小时，这里取 1 小时。
+	DefaultTimeout = 60 * time.Minute
 
 	// DefaultMaxOutput 是落库输出的上限。超过它就截断，完整输出写进工作区。
 	DefaultMaxOutput = 1 << 20 // 1 MiB
@@ -346,13 +350,7 @@ func (r *Runner) Start(ctx context.Context, req Request, on func(Event)) (*Resul
 		return nil, err
 	}
 
-	timeout := req.Timeout
-	if timeout <= 0 {
-		timeout = r.Timeout
-	}
-	if timeout <= 0 {
-		timeout = DefaultTimeout
-	}
+	timeout := r.timeoutFor(req)
 	bin := req.ClaudeBin
 	if bin == "" {
 		bin = r.Bin
@@ -570,6 +568,17 @@ type finishInput struct {
 	timedOut       bool
 	stream         streamOutcome
 	name           string // 执行器名字，只用在失败文案里
+}
+
+// timeoutFor 是这次执行生效的超时：请求里的优先，其次 Runner 的，都没有用 DefaultTimeout。
+func (r *Runner) timeoutFor(req Request) time.Duration {
+	if req.Timeout > 0 {
+		return req.Timeout
+	}
+	if r.Timeout > 0 {
+		return r.Timeout
+	}
+	return DefaultTimeout
 }
 
 // finish 把进程的死法翻译成一条可以落库的记录。

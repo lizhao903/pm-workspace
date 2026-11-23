@@ -269,7 +269,7 @@ AUTO-05。阶段和状态是两套：状态是负责人的工作状态，阶段�
 
 开发任务闭环（领取 → 记进展 → 提交验收）的两个接口。没有为它建表：进展和会话标识落在 `revisions`，
 验收标准和关联仓库落在 `objects.props`，代码类产物落在 `artifacts`（见「输出产物」）。
-任务类型的「待验收」状态（`review`，非终态）由 0013 加上。
+任务类型的「待验收」状态（`review`，非终态）由 0013 加上。任务交给执行器成功完成后内核自动改到这个状态，见「任务执行」下「执行完成改待验收」（TSK-0861）。
 
 **为什么是服务端追加。** 进展如果写在正文里，调用方只能「读出正文、拼一段、整体 PATCH 回去」，
 两个会话同时写，后写的会把先写的那段覆盖掉，而且不报错。`POST /progress` 只插入不更新，
@@ -1215,7 +1215,7 @@ git 只跑只读命令（`rev-parse`、`show`、`log`、`diff`、`rev-list`、`m
 | GET | `/api/runs/all` | 统一运行中心（P0-O1）：Agent 触发执行 + 任务执行聚合成一页，见下面「统一运行中心（P0-O1）」 |
 | GET | `/api/objects/{id}/run/prompt?mode=&workdir=&extra_prompt=&preset_id=&harness=&resume=&permission=` | 提示词预览 `{prompt, workdir}`，和发起时同一套拼法；`permission` 是这次要用的档位（TSK-0837，可省，同 `POST /run` 的 `permission`，不认识的 400），只影响流式（Claude Code）提示词里列出的项目执行白名单，省略时按 `accept_edits` 算、只读角色按 `read_only`；`preset_id` 是角色 id（接口沿用旧名），不存在 400；`mode` 是 `stream`（默认）或 `terminal`，其他值 400；`harness=agent` 时预览交给工作台 Agent 的那一份（`mode` 不看），`resume=true` 是续跑的说法（TSK-0460）；`harness=deepseek` 时带后台执行口径的「回写到工作台」一节，权限说法换成 dsh 沙箱（TSK-0722，见下面「DeepSeek（dsh）的权限与回写」）；`workdir` 不传时按任务、所属项目继承，不校验目录；终端方式里执行 id 写成「<发起时生成的执行 id>」；对象不存在 404 |
 | POST | `/api/objects/{id}/run/terminal` | `{workdir?, extra_prompt?, preset_id?}`，切换到终端（0048）：建一条 `mode=terminal`、`status=running` 的执行记录，把提示词和 MCP 配置写到数据目录 `tmp/handoff/<执行 id>/prompt.md`、`mcp.json`（0600），不起进程；回 201 `{run, workdir, prompt_file, mcp_config}`。工作目录规则同 `/run`；找不到 MCP 程序（`--mcp-bin`，缺省按本程序位置推：`pmw`→`pmw-mcp`，`pmw-dev`→`pmw-mcp-dev`，退回同目录 `pmw-mcp`）或没有 `--public-url` 时 409 |
-| POST | `/api/runs/{id}/finish` | `{status, summary?, result?}`（MCP `pmw_finish_run` 和界面「标记结束」）。`status` 是 `done`、`failed`、`canceled`，否则 400。`result` 可选，要是 JSON 对象（否则 400「result 要是 JSON 对象」），最多 64 KB（超了 400「result 最多 64 KB」）；约定形状 `{verdict: "pass" \| "reject", issues?: [...], artifacts?: [...]}`，内核不校验里面的字段。**插件交给 Claude Code 的运行**（SOP「Claude Code 执行」节点发起的，AUTO-01）：先按插件运行认，只记下回报不收尾，`status`、`summary`、`result` 存进那次运行，进程退出时由内核按回报和退出码收尾（进程正常结束但回报 `failed` / `canceled` 时整条按回报算，`error` 为「Claude Code 回报做不下去：摘要前 300 字」）；回 200 + `TaskRun`（在任务上留了执行记录的回那条记录，状态仍是 `running`；没有的回同形状的 `{id, status, mode: "stream", output: summary, started_at}`）；已经结束或已经回报过 409；不是 Claude Code 的插件运行 409。**任务的流式执行（后台执行，TSK-0499）**：还在本工作台进程里跑时只记下回报、不收尾，回 200 + 那条 `TaskRun`（状态仍是 `running`）；进程退出收尾时 `summary` 放在 `output` 最前面（「摘要 + `---` + 过程记录」），进程正常结束但回报 `failed` / `canceled` 时按回报算（`error` 同插件运行的写法）；同一次执行只收一次回报，再报 409「这次执行已经回报过结论了」；已经结束、或进程不在本工作台手上的 409；`result` 不落库；`harness=deepseek` 的后台执行同这一条（TSK-0722）。**执行器集成检查里的执行**（id 形如 `smk_…_main`，TSK-0722，见「执行器」）：不在 `task_runs` 里，结论记到正在跑的那次检查上，回 200 + `{id, status: "running", mode: "stream", output: summary, started_at}`；同一次再报 409。**终端执行**：`summary` 最多 200 KB 写进 `output`；`failed` 没写 summary 时 `error` 记「标记为失败，没写原因」；已收尾的 409；不存在 404；收尾后删掉临时目录；照常投 `run.finished`；`result` 不落库（`task_runs` 没有这一列）。超过 7 天的临时目录在下次发起时清掉 |
+| POST | `/api/runs/{id}/finish` | `{status, summary?, result?}`（MCP `pmw_finish_run` 和界面「标记结束」）。`status` 是 `done`、`failed`、`canceled`，否则 400。`result` 可选，要是 JSON 对象（否则 400「result 要是 JSON 对象」），最多 64 KB（超了 400「result 最多 64 KB」）；约定形状 `{verdict: "pass" \| "reject", issues?: [...], artifacts?: [...]}`，内核不校验里面的字段。**插件交给 Claude Code 的运行**（SOP「Claude Code 执行」节点发起的，AUTO-01）：先按插件运行认，只记下回报不收尾，`status`、`summary`、`result` 存进那次运行，进程退出时由内核按回报和退出码收尾（进程正常结束但回报 `failed` / `canceled` 时整条按回报算，`error` 为「Claude Code 回报做不下去：摘要前 300 字」）；回 200 + `TaskRun`（在任务上留了执行记录的回那条记录，状态仍是 `running`；没有的回同形状的 `{id, status, mode: "stream", output: summary, started_at}`）；已经结束或已经回报过 409；不是 Claude Code 的插件运行 409。**任务的流式执行（后台执行，TSK-0499）**：还在本工作台进程里跑时只记下回报、不收尾，回 200 + 那条 `TaskRun`（状态仍是 `running`）；进程退出收尾时 `summary` 放在 `output` 最前面（「摘要 + `---` + 过程记录」），进程正常结束但回报 `failed` / `canceled` 时按回报算（`error` 同插件运行的写法）；同一次执行只收一次回报，再报 409「这次执行已经回报过结论了」；已经结束、或进程不在本工作台手上的 409；`result` 不落库；`harness=deepseek` 的后台执行同这一条（TSK-0722）。**执行器集成检查里的执行**（id 形如 `smk_…_main`，TSK-0722，见「执行器」）：不在 `task_runs` 里，结论记到正在跑的那次检查上，回 200 + `{id, status: "running", mode: "stream", output: summary, started_at}`；同一次再报 409。**终端执行**：`summary` 最多 200 KB 写进 `output`；`failed` 没写 summary 时 `error` 记「标记为失败，没写原因」；已收尾的 409；不存在 404；收尾后删掉临时目录；`status` 为 `done` 时按「执行完成改待验收」改任务状态（TSK-0861）；照常投 `run.finished`；`result` 不落库（`task_runs` 没有这一列）。超过 7 天的临时目录在下次发起时清掉 |
 | POST | `/api/objects/{id}/run` | `{workdir?, extra_prompt?, allow_writes?, permission?, preset_id?, harness?, provider_id?, resume_session?, agent_id?, model?, max_steps?, max_minutes?, confirm_wait_minutes?}`，**SSE 流式响应**；`permission` 是权限档位（TSK-0499，见下面「后台执行的权限」），不认识的 400；`harness=deepseek` 时 `custom`、`auto` 400（TSK-0722）；`model` 对 `agent` 和 `deepseek` 都认（只改这一次用的模型）；`agent_id`、`max_steps`、`max_minutes`、`confirm_wait_minutes` 只对 `harness=agent`，见下面「交给工作台 Agent」 |
 | GET | `/api/run-prompts` | 角色（原预置提示词，SPEC-tasks-6.18、SPEC-settings-24，AUTO-03）`[{id, scene, content, default, permission, output, dir_kind}]`，存在 `agent_settings.run_prompts`。`permission` 是 `read_only` 或 `accept_edits`，`output` 是输出要求（可空），`dir_kind` 是 `code` / `prototype` / `prd` / `any`（项目档案落地前只存不用）；读出来三项总是补齐，旧数据没带的按 `accept_edits`、空串、`any` 补（旧内置 `rp_research` 按 `read_only`）。没设过回内置六个：`rp_classify` 分类（只读）、`rp_pm` 产品经理工作台（默认）、`rp_review` 研发评审（只读，输出要求回报 `{verdict, issues}`）、`rp_dev` 研发、`rp_testdesign` 测试设计、`rp_protosync` 原型同步。设过的：把用户没见过的内置角色（按 id）补在末尾，不抢默认，和已有场景名重复的不补，满 30 个不补；见过哪些记在 `agent_settings.run_prompts_builtins`（id 数组，没有时按 `rp_pm`、`rp_dev`、`rp_research` 算） |
 | PUT | `/api/run-prompts` | `{items: [{id?, scene, content, default?, permission?, output?, dir_kind?}]}` 整组替换，回替换后的列表（新字段补齐）。`id` 空的补 `rp_` 开头的新 id；`scene` 去首尾空白后 1 到 40 字、不能重复，`content` 1 到 4000 字，`output` 最多 2000 字，`permission` 只认 `read_only` / `accept_edits`（空按 `accept_edits`），`dir_kind` 只认 `code` / `prototype` / `prd` / `any`（空按 `any`），最多 30 个，`default` 最多一个，违反任一条 400 整组不生效；空数组表示不要角色。保存成功后 `run_prompts_builtins` 写成当时全部内置 id（用户删掉的内置角色以后不再补回）。记一条 `config` 审计（`target_type` 为 `run_prompts`，`detail.scenes`） |
@@ -1293,6 +1293,27 @@ dsh 子进程的环境另加 `DSH_TELEMETRY_MODE=DISABLED`（关掉 dsh 的会�
 交给 Claude Code（流式发起、切换到终端）和交给工作台 Agent 时，任务（`type_id=task`）状态不是进行中、已完成、已取消的改成进行中（`doing`，SPEC-tasks-6.17），
 操作者是发起的人，照常记修订、发 `object.status_changed`；改不成只记日志，不挡执行。
 
+**执行完成改待验收（TSK-0861，SPEC-tasks-6.42）。** 任务交给执行器、执行**成功完成**（`task_runs.status` 收尾成 `done`）后，内核把任务状态改成「待验收」（`review`），和一条进展（`kind=note`）一次写，照常记修订、发 `object.status_changed`。四条入口同一套判断（`store.RunReviewStatus`）：
+
+| 入口 | 什么时候算成功完成 | 进展正文 | 操作者 |
+|---|---|---|---|
+| 后台执行（`POST /api/objects/{id}/run`，`harness` 为 `claude` / `deepseek`） | 进程退出、收尾落库成功、状态 `done`（进程正常结束但经 `pmw_finish_run` 回报 `failed` / `canceled` 的按回报算，不改）；在发 `done` 事件之前改 | 「Claude Code 执行完成（执行记录 <id 后 8 位>），状态改为待验收」（DeepSeek 写「DeepSeek」） | 发起的人 |
+| 终端交接（`/run/terminal` → `POST /api/runs/{id}/finish`） | `finish` 的 `status` 为 `done`（终端里的 claude 经 `pmw_finish_run` 回报，或界面「标记结束」选完成） | 同上 | 调 `finish` 的一方 |
+| 工作台 Agent（`harness: "agent"`） | 收尾成 `done` | 不另记：「工作台 Agent「名称」执行完成……」那条进展末尾加「状态改为待验收。」并带上状态（改状态失败时去掉这句再记一次，结论不丢） | `agent`（会话标识是这次的会话 id） |
+| SOP 执行任务节点 `task_run`（SOP 0.24.0） | 插件运行收尾成 `done`（同后台执行的回报口径） | 「Claude Code 执行完成（执行记录 <id 后 8 位>），状态改为待验收」 | 插件（`sop`，来源 `plugin`） |
+
+不改的情况（只记日志，执行照常收尾）：
+- 执行失败、取消、超时；还停在等人确认（`waiting`，没收尾）；
+- 不是任务（`type_id` 不是 `task`）、已删除；
+- 已经是 `review`；当前是终态（`done`、`cancelled`，或类型状态集里 `terminal: true` 的自定义状态），**不倒退**；
+- 类型状态集里没有 `review`（用户在设置里删了），不新造状态；
+- **执行期间状态被改过**：当前状态不等于交出去时的状态就不改，以那次改动为准。内核路径交出去时已改成进行中（见上），比的是 `doing`；`task_run` 比的是发起那一刻读到的状态。所以人在执行中把任务改成受阻、未开工、已完成，或执行者经 MCP 自己 `pmw_submit_review` / `pmw_update_object` 改了状态，收尾时都不覆盖；
+- 同一任务还有别的执行没结束（在跑、等人确认，看最近 20 条执行记录）：先完成的不改，等最后一个收尾时再判断。
+
+取舍：只在「交出去之后没人动过状态」时才自动推进，人改过的一律以人为准；收尾之后人再改状态不受影响（只在收尾那一刻判断一次）。SOP 的「Claude Code 执行」节点（`claude_code`）配了关联任务也**不改**：它多用于只读评审，不该推进任务状态。提示词相应改成「做完不要自己改成已完成，执行正常结束后工作台改成待验收」（后台执行、终端交接、工作台 Agent 三份）。
+
+**升级说明（TSK-0861）。** 内核行为变化，没有新迁移：换新二进制即生效（后台执行、终端交接、工作台 Agent）。SOP 执行任务节点要 SOP 插件 0.24.0：已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；不加迁移的版本升级不会让插件不加载。没升级前 `task_run` 跑完也会改待验收（改状态的判断在内核，节点传的开关随二进制生效），升级只是把插件记录的版本对齐。
+
 **负责人设为执行者（TSK-0500，SPEC-tasks-6.33）。** 同一时机（开流之前、执行记录建好之后），没完成、没取消的任务负责人改成这次执行者在名册里的 AI 成员（见「干系人名册」下「AI 成员」）：
 后台执行和切换到终端是「Claude Code」（`cli` / `claude`），`harness=deepseek` 是「DeepSeek」（`cli` / `deepseek`），交给工作台 Agent 是那个 Agent（`agent` / Agent id）。
 原负责人是谁都覆盖（人也覆盖，不另存「指派人」），和改状态同一次写（一条修订）；负责人确实变了时再记一条进展（`kind=note`，操作者是发起的人）：
@@ -1305,7 +1326,7 @@ dsh 子进程的环境另加 `DSH_TELEMETRY_MODE=DISABLED`（关掉 dsh 的会�
 `run.finished` 事件（内核）载荷是 `{run_id, object_id, ok, status, summary, origin}`：`summary` 是结论：执行输出里最后一次工具调用（`[工具] …`、`[工具失败] …` 行）之后的那段文字，没有就退回最后一段非工具文字，去首尾空白后的前 1500 字，不带执行过程（终端执行是回写的结论）；`origin` 是发起方，插件流程里发起的执行（SOP「Claude Code 执行」节点在任务上留的执行记录）为 `plugin:<插件 id>`，人交给 CLI 的为空串。IM 任务回执只认 `origin` 为空的执行（流程里的一步跑完不算任务做完）。
 
 插件发起的运行结束时投给发起插件的 `run.finished`（不上总线）载荷是 `{run_id, kind, source, status, ok, ref, summary, result}`：`summary` 是 Claude Code 经 `pmw_finish_run` 回报的摘要（前 1500 字，没回报为空串），`result` 是回报的结构化结论（没回报为 `null`）；Agent、SOP 运行这两项总是空。
-SOP「Claude Code 执行」节点填了关联任务时，内核在那条任务上建一条 `task_runs` 记录（`mode: stream`，提示词是实际交给 Claude Code 的全文），插件运行 id 就是这条记录的 id：任务抽屉「执行记录」里看得到、能取消（插件运行和任务执行共用同一个 Claude Code 执行器）；跑完由内核收尾，`output` 是「回报的摘要 + `---` + 过程记录」，收尾照常投总线上的 `run.finished`（带 `origin`，不带 `result`）。产物同时挂到这条执行记录。
+SOP「Claude Code 执行」节点填了关联任务时，内核在那条任务上建一条 `task_runs` 记录（`mode: stream`，提示词是实际交给 Claude Code 的全文），插件运行 id 就是这条记录的 id：任务抽屉「执行记录」里看得到、能取消（插件运行和任务执行共用同一个 Claude Code 执行器）；跑完由内核收尾，`output` 是「回报的摘要 + `---` + 过程记录」，收尾照常投总线上的 `run.finished`（带 `origin`，不带 `result`）。产物同时挂到这条执行记录。插件传了 `ReviewOnDone`（SOP 的执行任务节点 `task_run` 传，`claude_code` 节点不传）时，收尾成 `done` 后按「执行完成改待验收」改任务状态（TSK-0861）。
 
 SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`）：
 
@@ -1338,12 +1359,12 @@ SSE 事件（形状的唯一真相是 `internal/runner` 的 `Event.MarshalJSON`�
 不起外部进程：在工作台进程里跑 `internal/agent` 的工具循环（和会话里同一套工具、工具授权、要确认的调用、技能），模型客户端经 `agent.Service`，和插件 `Complete` 同一套服务商熔断、瞬时失败自动重试（2 次）、「失败时改用」（`extra.fallback_id`，只改一跳）。
 
 - **请求**（`POST /api/objects/{id}/run`，`harness: "agent"`）：`agent_id?` 交给哪个 Agent，不给用场景默认 Agent `task_run`（「执行任务」）选的，没选、选的删了或停用了用第一个启用的 Agent，一个都没有 400「还没有可用的 Agent……」；给了但不存在 404，停用、删了 409。`provider_id?`、`model?` 这次用的服务商和模型，不给用 Agent 设置的（给了服务商没给模型用服务商设置的模型）；服务商不存在 404，停用、没设模型 400。`preset_id?` 角色同 Claude Code（只读角色 `permission=read_only` 时只给读的工具：写能力的授权去掉、会改对方数据的连接器工具关掉）；`extra_prompt?` 补充说明；`allow_writes` 不看。`workdir?` 可选：给了要能用（同 Claude Code 校验，不能用 400），不给按任务、所属项目继承，继承来的不能用就当没有；有目录时是 `write_file` 的产物目录，没有时 Agent 写文件失败。预算：`max_steps?`（默认 30，1 到 100）步数上限，调一次模型算一步，确认前后合起来算；`max_minutes?`（默认 10，1 到 60）时长上限，不含等确认的时间；`confirm_wait_minutes?`（默认 10，1 到 60）等人确认多久后按拒绝处理；超范围 400。这些错误都在开流之前。
-- **提示词**：第一条用户消息由任务编号、类型、标题、状态、优先级、到期、关联仓库、关联对象、正文（「任务描述」）、验收标准、所属项目（名称、编号、文档目录）、角色（「执行要求」，只读角色写明只给了读的工具）、补充说明拼成，再写怎么做（先 `get_object` 读任务；关键步骤 `append_progress`；拆子任务 `create_object` 带 `parent_ref`；做完了才 `update_object` 改状态；不能提问；要确认的写操作会停下等、被拒绝不要再提）和结束时写一段结论。`GET /api/objects/{id}/run/prompt?harness=agent` 预览这一份，`resume=true` 是续跑的说法（开头写「接着上次的执行继续处理这条任务」）。无人值守：给模型的工具里没有 `ask_user`，硬调回「不能提问」。
+- **提示词**：第一条用户消息由任务编号、类型、标题、状态、优先级、到期、关联仓库、关联对象、正文（「任务描述」）、验收标准、所属项目（名称、编号、文档目录）、角色（「执行要求」，只读角色写明只给了读的工具）、补充说明拼成，再写怎么做（先 `get_object` 读任务；关键步骤 `append_progress`；拆子任务 `create_object` 带 `parent_ref`；做完了不要自己改成完成，执行正常结束后工作台改成待验收（TSK-0861）；不能提问；要确认的写操作会停下等、被拒绝不要再提）和结束时写一段结论。`GET /api/objects/{id}/run/prompt?harness=agent` 预览这一份，`resume=true` 是续跑的说法（开头写「接着上次的执行继续处理这条任务」）。无人值守：给模型的工具里没有 `ask_user`，硬调回「不能提问」。
 - **会话**：每次执行建一个挂这个 Agent 的**全局**会话（`object_id` 为 null，会话列表 `?unscoped=true` 里有），标题是「任务编号 标题」（截到 40 字），`provider_id`、`model` 是这次用的，`workdir` 是这次的产物目录，`source_ref` 是 `{kind: "task_run", label: "任务 <编号> <标题> 的执行", object_id, ref, run_id, project_id?}`（Agent 在会话里新建的对象缺省记这个来源、挂到任务所属的项目，同「会话来源」）。执行记录的 `harness_session` 是会话 id，开流时 `start` 事件带 `session_id`。会话之后能照常在会话页接着聊（按 Agent 当前的服务商和模型）。
 - **续跑**：`resume_session: true` 时续用这个任务最近 20 条执行里最近一条 `harness=agent` 且有会话的那条的会话（不新建），用会话挂的 Agent（`agent_id` 忽略）；没有、会话已删、会话没挂 Agent 都回 400「这个任务还没有可续的工作台 Agent 会话……」；Agent 停用、删了 409；会话里还有一轮在跑 409「上次的会话里还有一轮在跑……」。
 - **要确认的写操作**：Agent 的工具授权是「需确认」的调用照会话里的口径记一条 `agent_tool_calls`（`session_id` 是这次的会话，`run_id` 为空），执行停下：执行记录状态改成 `waiting`（没结束，`finished_at` 为空），流里发 `confirm`。人点确认、拒绝走 `POST /api/agent/tool-calls/{id}/confirm` / `reject`（执行面板和会话页都行）：这次调用有在途的执行在等时，那两个接口只记下决定、记审计，把决定交给执行，SSE 里只回一个 `done`（`{type, session_id}`），后面的过程在执行自己的流里接着出；执行发 `decision`，状态回到 `running`，确认的执行这次调用、拒绝的不执行，模型接着跑（换办法或收尾）。到 `confirm_wait_minutes` 没人决定按拒绝处理：调用记 `rejected`，`result` 为「等待确认超时，按拒绝处理：<操作>，没有执行」，审计 `agent` / `reject`，摘要「等待确认超时，按拒绝处理 Agent「名称」的调用 <工具>」，`detail` 多 `run_id`。工作台重启后在途执行没了，还在等的调用照常可以在会话里确认、拒绝（按会话口径接着跑）。
 - **取消**：`POST /api/runs/{id}/cancel` 停掉在途执行（等确认时也行），记录收尾成 `canceled`、`error`「已取消」，还在等的调用拒掉（`result`「执行已取消，没有执行」）；会话页「停止」（`POST /api/agent/sessions/{id}/stop`）也停得下正在跑模型的那一段，同样收尾成 `canceled`、`error`「在会话里手动停止了」。
-- **收尾**：完成 `done`、`exit_code` 0；失败 `failed`、`exit_code` 1，`error` 写原因：步数超限「超过步数上限（N 步）还没做完，已停下。已经执行的操作不会撤回；可以调大步数上限后续跑，或者把任务拆小」，时长超限「超过时长上限（N 分钟）还没做完，已停下……」，服务商不可用「服务商不可用，执行失败：<熔断或重试用完的原因>」（不无限重试：一次调模型最多 3 次，备用服务商再来一遍）；取消 `canceled`、`exit_code` -1。`output` 是过程记录，格式同 Claude Code（正文原样，`[工具] 名 · 参数`、`[工具失败] 名 · 原因`），另加 `[等待确认] <操作>` 和随后一行 `[已确认]` / `[已拒绝]` / `[等待超时，按拒绝处理]`。完成时给任务记一条进展（`kind=note`，操作者 `agent`，会话标识是这次的会话 id）「工作台 Agent「名称」执行完成（执行记录 <id 后 8 位>）：」加 Agent 最后一条回复；失败记「工作台 Agent「名称」执行失败（执行记录 <id 后 8 位>）：<原因>」；取消不记。会话里另落一句（失败「这一轮没跑完：<原因>……」，取消「已手动停止这一轮……」）。收尾照常投 `run.finished`（`origin` 为空）。不记运行异常，不登记产物（`write_file` 写的文件照常按会话登记、挂到任务上）。
+- **收尾**：完成 `done`、`exit_code` 0；失败 `failed`、`exit_code` 1，`error` 写原因：步数超限「超过步数上限（N 步）还没做完，已停下。已经执行的操作不会撤回；可以调大步数上限后续跑，或者把任务拆小」，时长超限「超过时长上限（N 分钟）还没做完，已停下……」，服务商不可用「服务商不可用，执行失败：<熔断或重试用完的原因>」（不无限重试：一次调模型最多 3 次，备用服务商再来一遍）；取消 `canceled`、`exit_code` -1。`output` 是过程记录，格式同 Claude Code（正文原样，`[工具] 名 · 参数`、`[工具失败] 名 · 原因`），另加 `[等待确认] <操作>` 和随后一行 `[已确认]` / `[已拒绝]` / `[等待超时，按拒绝处理]`。完成时给任务记一条进展（`kind=note`，操作者 `agent`，会话标识是这次的会话 id）「工作台 Agent「名称」执行完成（执行记录 <id 后 8 位>）：」加 Agent 最后一条回复，按「执行完成改待验收」改状态时末尾加「状态改为待验收。」、和状态一次写；失败记「工作台 Agent「名称」执行失败（执行记录 <id 后 8 位>）：<原因>」；取消不记。会话里另落一句（失败「这一轮没跑完：<原因>……」，取消「已手动停止这一轮……」）。收尾照常投 `run.finished`（`origin` 为空）。不记运行异常，不登记产物（`write_file` 写的文件照常按会话登记、挂到任务上）。
 - 交给工作台 Agent 同样把任务改成进行中（SPEC-tasks-6.17 的规则），不领取；负责人改成这个 Agent（TSK-0500，见上面「负责人设为执行者」）。
 
 ### 统一运行中心（P0-O1）
@@ -3160,6 +3181,8 @@ SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.2
 
 0.23.0（任务关联来源消息）：`task` 节点在输入没带 `message_id` 时取上游读取消息（`im_get_message`）输出的 `message.id` 记为来源消息（只记来源，不按它去重），输入带 `message_ids` 时记进 `source_ref.message_ids`；建了任务发 `sop.task_created`（清单 `emits` 加）；历史任务按执行记录回填，接口 `POST /api/sop/maintenance/message-tasks`，后台任务 `message_tasks` 启用后自动跑一次。见「任务关联来源消息」。不加迁移（回填标记记在 `sop_settings` 的 `message_tasks_backfilled`），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；没升级前不发事件、不回填，IM 插件仍按 `object.created` 记新建任务的来源（输入带 `message_id` 的那些）。
 
+0.24.0（执行任务完成改待验收，TSK-0861）：执行任务节点 `task_run` 发起时给内核传 `ReviewOnDone`，执行成功完成后任务改成待验收（规则见「任务执行」下「执行完成改待验收」）；「Claude Code 执行」节点 `claude_code` 不传、不改。不加迁移、接口不变，已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；不加迁移的版本升级不会让插件不加载。
+
 ### 流程定义
 
 | 方法 | 路径 | body / 说明 |
@@ -3625,7 +3648,7 @@ TSK-0490。页面上要能列出「这一步能拿到什么」，让人从里面
 | `timeout` | 同 `claude_code`，默认 `2 小时` |
 | `on_fail` | `""`（默认，同 `stop`）/ `stop` / `continue` |
 
-工作目录：任务自己的 `workdir`，没设取所属项目的（同内核 `ResolveWorkdir`）；都没有失败「任务 TSK-0001 没有工作目录：任务自己没设，所属项目「X」也没设；在任务或项目上设好工作目录再执行」（没挂项目时是「任务没有所属项目」）；目录不存在、不是目录、不可写（发起前实测写一个临时文件）失败「任务 TSK-0001 的工作目录（继承自任务 / 所属项目「X」）不能用：<内核 CheckWorkdir 的原因>」。提示词：「按工作台任务 TSK-0001「标题」开工（任务 id …）。所属项目…。工作目录…，只在这个目录里改。先用工作台 MCP 的 pmw_get_object 读这条任务的正文、验收标准和最近进展，再动手；做完逐条对照验收标准自查。」+ 验收标准（`props.acceptance`，有的话）+ 附加要求 + 内核的「回写到工作台」一节。发起、等待、并发名额、需求预算（按这条任务算）、步骤的 `claude`、输出同 `claude_code`。`on_fail: continue` 时上面这些失败、发起失败、执行失败 / 取消 / 超时都不让这一步失败：步骤 `done`，输出 = 输入加 `status: "failed"`、`error`、`summary: ""`（执行失败时另有 `run_id`），日志「没能执行，按配置继续往下走：…」/「Claude Code 没成功，按配置继续往下走：…」，不记运行异常。
+工作目录：任务自己的 `workdir`，没设取所属项目的（同内核 `ResolveWorkdir`）；都没有失败「任务 TSK-0001 没有工作目录：任务自己没设，所属项目「X」也没设；在任务或项目上设好工作目录再执行」（没挂项目时是「任务没有所属项目」）；目录不存在、不是目录、不可写（发起前实测写一个临时文件）失败「任务 TSK-0001 的工作目录（继承自任务 / 所属项目「X」）不能用：<内核 CheckWorkdir 的原因>」。提示词：「按工作台任务 TSK-0001「标题」开工（任务 id …）。所属项目…。工作目录…，只在这个目录里改。先用工作台 MCP 的 pmw_get_object 读这条任务的正文、验收标准和最近进展，再动手；做完逐条对照验收标准自查。」+ 验收标准（`props.acceptance`，有的话）+ 附加要求 + 内核的「回写到工作台」一节。发起、等待、并发名额、需求预算（按这条任务算）、步骤的 `claude`、输出同 `claude_code`。执行成功完成后任务改成待验收（0.24.0，TSK-0861，规则见「任务执行」下「执行完成改待验收」：执行中状态被改过、终态、还有别的执行没结束的不改），步骤输出不变；失败、取消、超时不改。`on_fail: continue` 时上面这些失败、发起失败、执行失败 / 取消 / 超时都不让这一步失败：步骤 `done`，输出 = 输入加 `status: "failed"`、`error`、`summary: ""`（执行失败时另有 `run_id`），日志「没能执行，按配置继续往下走：…」/「Claude Code 没成功，按配置继续往下走：…」，不记运行异常。
 
 `loopback` 的 `config`：`target`（必填，上游步骤 key）、`max_rounds`（可选，默认 `3`，1 到 10）。回退条件是步骤的 `rule`（写法同条件分支）。
 

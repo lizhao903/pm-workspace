@@ -223,8 +223,8 @@ const promptTemplate = `你正在协助处理一个来自「产品工作台」�
 {{else}}1. 开始时：用 pmw_update_object（id={{.ObjectID}}）把任务状态改成进行中（状态 key 用 pmw_list_types 查，任务一般是 doing；已经是进行中就不用改），再用 pmw_append_progress 记一句你打算怎么做。
 {{end}}2. 每产出一件交付物（文档、原型、代码提交等）：调 pmw_record_artifact，带 object_id={{.ObjectID}}、run_id={{.RunID}}。
 3. 过程中做完一个关键步骤，用 pmw_append_progress 记一条。
-{{if .Stream}}4. 结束前：调 pmw_finish_run，run_id={{.RunID}}，status 填 done 或 failed，summary 写结论摘要：做了什么、产出在哪、还剩什么没做。工作台在进程退出时收尾，这段结论放在执行记录最前面。
-{{else}}4. 结束时（做完、做不下去、或用户让你停下）：调 pmw_finish_run，run_id={{.RunID}}，status 填 done 或 failed，summary 写结论摘要：做了什么、产出在哪、还剩什么没做。任务做完了再用 pmw_update_object 改状态。
+{{if .Stream}}4. 结束前：调 pmw_finish_run，run_id={{.RunID}}，status 填 done 或 failed，summary 写结论摘要：做了什么、产出在哪、还剩什么没做。工作台在进程退出时收尾，这段结论放在执行记录最前面；status 填 done 时工作台会把任务改成待验收、等人验收，不要自己改状态。
+{{else}}4. 结束时（做完、做不下去、或用户让你停下）：调 pmw_finish_run，run_id={{.RunID}}，status 填 done 或 failed，summary 写结论摘要：做了什么、产出在哪、还剩什么没做。status 填 done 时工作台会把任务改成待验收、等人验收，不要自己把任务改成已完成。
 {{end}}{{if $.Source}}读来源消息的原帖和整串回复用 pmw_get_source_message（object_id={{.ObjectID}}）{{if .Stream}}，不要用 Slack 等渠道自己的 MCP 工具（后台执行没放行，调了会被拒）{{end}}。
 {{end}}{{end}}{{if .DSH}}
 命令都在 dsh 的沙箱里跑：只读执行写不了任何文件；允许改文件时只能写当前目录（和软链接进来的目录）。写入被沙箱拒绝时不要反复重试，在结论里说明。

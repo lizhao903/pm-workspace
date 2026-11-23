@@ -419,6 +419,10 @@ func run(cfg config) error {
 	// 任务交给工作台 Agent 执行（TSK-0460）用同一份：服务商熔断状态插件和任务执行共用
 	opts.Agent = &agent.Service{Store: objects, Connectors: opts.Connectors, PluginSkills: plugins.Skills}
 	plugins.SetAgent(opts.Agent)
+	// 外部插件的 host.agent.run 用同一个模型服务
+	if extHost != nil {
+		extHost.SetAgent(opts.Agent)
+	}
 	// 插件交给 Claude Code（VID-03a）：插件发起的运行只在内存里，退出时最多等 5 秒在途的
 	plugins.SetClaudeRunner(&runner.Runner{Logger: slog.Default()})
 	defer plugins.WaitRuns(5 * time.Second)

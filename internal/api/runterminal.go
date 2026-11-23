@@ -372,6 +372,10 @@ func (s *Server) handleFinishTaskRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.dropHandoff(id)
+	// 回报 done 改待验收（TSK-0861）：终端里的 claude 经 pmw_finish_run 回报、或人点「标记结束」选完成，都算执行完成
+	if status == domain.RunDone {
+		s.reviewAfterRun(ctx, out.ObjectID, id, cliExecutor(out.Harness).name, actorFrom(r))
+	}
 	respondData(w, http.StatusOK, out)
 }
 

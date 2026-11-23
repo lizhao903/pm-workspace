@@ -84,6 +84,34 @@ func TestTaskRunInheritsProjectWorkdir(t *testing.T) {
 	if err != nil || len(runs) != 1 || runs[0].Workdir != wd {
 		t.Fatalf("任务上的执行记录 = %+v %v", runs, err)
 	}
+	// 执行成功完成后任务改待验收（TSK-0861，0.24.0）：内核在收尾后改，记一条进展
+	waitFor(t, "任务改待验收", func() bool {
+		o, err := e.st.GetObject(context.Background(), task.ID)
+		return err == nil && o.Status == domain.TaskStatusReview
+	})
+	prog, _ := e.st.ListProgress(context.Background(), task.ID, 10)
+	if len(prog) == 0 || !strings.Contains(prog[0].Text, "执行完成") || prog[0].Actor != "sop" {
+		t.Fatalf("进展 = %+v", prog)
+	}
+}
+
+// TestTaskRunFailedKeepsStatus：执行失败（Claude Code 回报 failed，on_fail=continue 交给下游）不改任务状态（TSK-0861）。
+func TestTaskRunFailedKeepsStatus(t *testing.T) {
+	e, r, h, f := newTaskRunEnv(t)
+	wd := t.TempDir()
+	task := mkObj(t, e, domain.Object{TypeID: "task", Title: "加个按钮", Workdir: wd})
+	fid := newFlow(t, h, fmt.Sprintf(taskRunFlow, `,"on_fail":"continue"`))
+	id := startRun(t, h, fid, fmt.Sprintf(`{"input":{"task_id":%q}}`, task.ID))["id"].(string)
+	rid := recvRun(t, f)
+	if _, err := r.ReportRun(rid, "failed", "缺权限", nil); err != nil {
+		t.Fatal(err)
+	}
+	f.results <- &clauderun.Result{Status: domain.RunDone}
+	waitStatus(t, h, id, "done")
+	r.WaitRuns(5 * time.Second)
+	if o, _ := e.st.GetObject(context.Background(), task.ID); o.Status != task.Status {
+		t.Fatalf("执行失败不该改状态：%s -> %s", task.Status, o.Status)
+	}
 }
 
 // TestTaskRunOwnWorkdirWins：任务自己设了工作目录时优先用它；任务可以按编号认。

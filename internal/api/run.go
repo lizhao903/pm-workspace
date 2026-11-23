@@ -443,13 +443,19 @@ func (s *Server) handleRunObject(w http.ResponseWriter, r *http.Request) {
 
 	// 先落库再发 done：前端看到 done 就认为「这次执行已经留痕」，
 	// 顺序反了的话，刷新页面会发现历史里根本没有刚跑完的那一条。
-	if ferr := s.finishRun(bg, run.ID, res.Status, res.ExitCode, res.Output, res.Error); ferr != nil {
+	ferr := s.finishRun(bg, run.ID, res.Status, res.ExitCode, res.Output, res.Error)
+	if ferr != nil {
 		emit(runner.Event{Type: runner.EventError, Message: "执行已结束，但记录落库失败：" + ferr.Error()})
 	} else if res.Error != "" {
 		emit(runner.Event{Type: runner.EventError, Message: res.Error})
 	}
 	if res.Status == domain.RunFailed {
 		s.noteRunFailed(bg, run, obj, req.AllowWrites, res.ExitCode, res.Error, res.Output)
+	}
+	// 成功完成改待验收（TSK-0861）：在 done 之前，前端收到 done 刷任务时状态已经是新的。
+	// 落库失败的不改：执行记录都没收尾，任务不该先走一步。
+	if ferr == nil && res.Status == domain.RunDone {
+		s.reviewAfterRun(bg, obj.ID, run.ID, cliExecutor(string(harness)).name, actorFrom(r))
 	}
 
 	// 产物登记在 done 之前：done 的语义是「这次执行的一切都已留痕」。
