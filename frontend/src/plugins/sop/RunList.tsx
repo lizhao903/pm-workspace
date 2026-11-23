@@ -23,7 +23,7 @@ import { RunHead, RunRow } from './parts'
 import { RerunDialog } from './RerunDialog'
 import { defaultRerun, rerunNote, staleRuns } from './rerun'
 import { useSourceText } from './source'
-import { isStoppable } from './stop'
+import { isRunningLike, isStoppable } from './stop'
 import { StopDialog, type StopTarget } from './StopDialog'
 
 const PAGE = 30
@@ -90,7 +90,7 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now, stageTas
     setNote(n)
   }
   // 「停止全部运行中」：选了流程只停这条流程的；按钮在列表里有能停的执行时出现，条数以后端数的为准
-  const anyStoppable = base.some(isStoppable)
+  const anyStoppable = base.some(isRunningLike)
   const flowName = flow ? options.find((o) => o.value === flow)?.label ?? '这条流程' : ''
   const stopAll = () => setStopping(flow ? { kind: 'where', scope: { flow_id: flow }, label: `流程「${flowName}」` } : { kind: 'where', scope: { all_running: true }, label: '全部流程' })
 
@@ -108,9 +108,13 @@ export function RunList({ runs, flows, view, flow, onFlow, onOpen, now, stageTas
         {row}
         {hasFailed && (
           <span className="sop-run-act">
-            {isStoppable(r) && (
+            {isRunningLike(r) && (
               <button type="button" className="btn btn-sm btn-danger-ghost" title="停止这条执行：排队的步骤出队，正在调模型的请求取消，已建出的任务不撤回"
                 aria-label={`停止 ${r.title}`} onClick={() => setStopping({ kind: 'ids', runs: [r] })}>停止</button>
+            )}
+            {shown === 'failed' && (
+              <button type="button" className="btn btn-sm btn-danger-ghost" title="不再重试，终止这条失败的执行：标为已终止、移出待我处理，已建出的任务不撤回"
+                aria-label={`终止 ${r.title}`} onClick={() => setStopping({ kind: 'ids', runs: [r] })}>终止</button>
             )}
             {shown === 'failed' && <RetryButton r={r} flows={flows} onDone={(a, res) => setNote(rerunNote(a, res))} onError={(text) => setNote({ text, bad: true })} />}
             {shown === 'relaunched' && (

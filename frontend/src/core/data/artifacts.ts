@@ -4,6 +4,7 @@
 // 登记后报 { kind: 'artifact' }，列表和统计（删除确认里的产出物数）一起刷新。
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { artifacts, type ArtifactInput, type ArtifactListParams } from '../api'
+import { apiBase } from '../api/client'
 import { useNotifyChange } from './invalidate'
 import { dataKeys } from './keys'
 
@@ -62,3 +63,43 @@ export function useRecordArtifact(objectId: string) {
     onSuccess: () => notify({ kind: 'artifact', objectId }),
   })
 }
+
+// --- 查看（DEV-08b 补，docs/api-contract.md「查看产出物」）：按产出物 id 读，不传路径；403、404、409 都不重试 ---
+
+/** 读产出物登记的本机文件；null 不读 */
+export function useArtifactFile(id: string | null) {
+  return useQuery({
+    queryKey: dataKeys.artifacts.file(id ?? ''),
+    queryFn: ({ signal }) => artifacts.file(id ?? '', signal),
+    enabled: !!id,
+    retry: false,
+  })
+}
+
+/** 提交的说明、改动文件、diff；分支产出物给 sha 看分支上的某个提交。id 为 null 不读 */
+export function useArtifactCommit(id: string | null, sha?: string) {
+  return useQuery({
+    queryKey: dataKeys.artifacts.commit(id ?? '', sha),
+    queryFn: ({ signal }) => artifacts.commit(id ?? '', sha, signal),
+    enabled: !!id,
+    retry: false,
+  })
+}
+
+/** 分支相对主分支的提交和改动文件；null 不读 */
+export function useArtifactBranch(id: string | null) {
+  return useQuery({
+    queryKey: dataKeys.artifacts.branch(id ?? ''),
+    queryFn: ({ signal }) => artifacts.branch(id ?? '', signal),
+    enabled: !!id,
+    retry: false,
+  })
+}
+
+/** 用本机默认应用打开产出物的文件，reveal 为 true 时在访达中显示 */
+export function useOpenArtifact() {
+  return useMutation({ mutationFn: ({ id, reveal }: { id: string; reveal?: boolean }) => artifacts.open(id, reveal) })
+}
+
+/** 原样读产出物文件的地址（图片、PDF、HTML 给 img、iframe 用） */
+export const artifactRawUrl = (id: string) => `${apiBase()}/api/artifacts/${encodeURIComponent(id)}/raw`

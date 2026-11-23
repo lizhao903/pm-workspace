@@ -17,6 +17,11 @@ export { dictItemsApi, useDictItemsAll, saveDictItems, useSaveDictItems } from '
 export type { DictSavePlan, EnumTarget } from './dictionaries'
 export { usePluginJobs, type PluginJob } from './plugins'
 export {
+  externalPluginsApi, useExternalPlugins, useResolveExternalPlugin, useInstallExternalPlugin, useExternalAction,
+  useGrantExternalPermission, useRevokeExternalPermission, useUpgradeExternalPlugin, useRollbackExternalPlugin,
+  useFetchExternalMarket, useReloadExternalDev, type ExternalAction,
+} from './externalPlugins'
+export {
   listAllObjects, useObjects, useAllObjects, useObject, useCreateObject, usePatchObject, useSetStatus, useSetStage, useDeleteObject,
   saveObject, mergeProps, PROP_ACCEPTANCE, PROP_REPO,
 } from './objects'
@@ -27,7 +32,10 @@ export {
 } from './progress'
 export { REVISION_LIMIT, useObjectRevisions, groupRevisions, rejectText, useReject } from './revisions'
 export type { RevisionGroup } from './revisions'
-export { useArtifacts, useObjectArtifacts, useArtifactStats, useArtifactCount, useRecordArtifact, useArtifactsByObject } from './artifacts'
+export {
+  useArtifacts, useObjectArtifacts, useArtifactStats, useArtifactCount, useRecordArtifact, useArtifactsByObject,
+  useArtifactFile, useArtifactCommit, useArtifactBranch, useOpenArtifact, artifactRawUrl,
+} from './artifacts'
 export { runFinished, useTaskRuns, useTaskRun, useCancelRun, streamRun, decideRunCall, useRunPrompt, startTerminalRun, finishTerminalRun, useFinishRun, useRunPresets, useSaveRunPresets, useRunPermissions, useSaveRunPermissions, useRunQuickNotes, useSaveRunQuickNotes } from './runs'
 export { useRunners, useDetectRunners, useDeepSeekSmoke, useStartDeepSeekSmoke } from './runners'
 export { workdirUsable, useWorkdirCheck, useFsBrowse, useFsShortcuts, useFsRoots, useAddFsRoot, useRemoveFsRoot, fsCrumbs } from './fs'
@@ -272,10 +280,11 @@ export { videoContentApi, usePutVideoTopic, useArtifactContent, usePutArtifactCo
 export type { VideoArtifactContent } from './videoContent'
 export {
   videoTopicApi, useVideoTopics, useVideoClips, useCreateTopic, usePatchTopic, useMakeTopic, useDeleteTopic,
-  useCreateClip, usePatchClip, useClipToTopic, useLinkClip, useDeleteClip,
+  useCreateClip, usePatchClip, useClipToTopic, useLinkClip, useDeleteClip, usePullGithubClips,
 } from './videoTopics'
 export type {
   VideoTopic, VideoTopicInput, VideoTopicStatus, VideoTopicScore, VideoPlatform, VideoClip, VideoClipInput, VideoClipKind,
+  GithubClipsInput, GithubClipsMeta, GithubClipsResult, GithubSkipped,
 } from './videoTopics'
 export {
   videoDealApi, videoDealKeys, useVideoDeals, useVideoQuoteRef, useCreateDeal, usePatchDeal, useDeleteDeal, useDealReport,

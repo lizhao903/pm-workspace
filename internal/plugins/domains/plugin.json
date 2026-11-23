@@ -3,7 +3,7 @@
   "name": "内网域名",
   "description": "给本机跑的服务配好记的域名：检测 hosts、pf 转发和本地证书，生成配置和要自己执行的命令",
   "icon": "globe",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "core": ">=1.0.0 <2.0.0",
   "depends": {},
   "optional_depends": { "projects": ">=0.6.0 <1.0.0" },

@@ -23,8 +23,9 @@ import (
 // 执行中、等确认、等检查的步骤回到 pending；节点协程的 ctx 取消，所以排队等模型名额的步骤立即出队（gate.go 的 acquire），
 // 正在调模型的请求跟着 ctx 取消，挂起等服务商恢复的一起清掉；子流程起的子执行一起终止。这里只是把它批量做：
 //
-//   - POST /api/sop/runs/batch-actions {action:"stop", run_ids}：1 到 200 条，只停执行中、待我处理的，
-//     别的（已完成、失败、已终止、不存在、重复）跳过并写明原因；done 只带 run_id。
+//   - POST /api/sop/runs/batch-actions {action:"stop", run_ids}：1 到 200 条，停执行中、待我处理的，
+//     以及还没重跑过的失败执行（sop 0.22.0：待我处理里失败的不想重试时「终止」掉，移出待我处理）；
+//     别的（已完成、已重跑的失败、已终止、不存在、重复）跳过并写明原因；done 只带 run_id。
 //   - POST /api/sop/runs/stop {flow_id?, source?, batch_id?, all_running?, dry_run?}：一次停掉符合条件的全部执行中、待我处理的执行。
 //     flow_id、source、batch_id 至少给一个，或者 all_running: true（不给条件时必须明说，免得手滑停掉全部）。
 //     batch_id 是批量发起（batch.go）时带的批次：停止后这一批再发起的不再新起执行（内存里记着，服务重启后不记）。
@@ -101,12 +102,16 @@ func (b *stoppedBatches) stopped(id string) bool {
 
 /* ---------- 停一条 ---------- */
 
-// notStoppableReason 是不能停的执行的跳过原因；能停回空串。
+// notStoppableReason 是不能停的执行的跳过原因；能停回空串。失败、还没重跑过的也能停（终止，sop 0.22.0）；
+// 按条件停（stoppableCond）仍只停执行中、待我处理的。
 func notStoppableReason(run *Run) string {
 	if run.Stopped {
 		return "已终止"
 	}
-	if run.EndedAt != nil || (run.Status != "running" && run.Status != "waiting") {
+	if run.Status == stFailed && run.RelaunchedTo != "" {
+		return "失败后已重跑"
+	}
+	if run.EndedAt != nil || (run.Status != "running" && run.Status != "waiting" && run.Status != stFailed) {
 		t := statusText[run.Status]
 		if run.Status == stFailed {
 			t = "失败"

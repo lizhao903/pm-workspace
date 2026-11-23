@@ -1,0 +1,71 @@
+.by-scene {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  padding: 80px 120px; font-family: var(--font-body); color: var(--text);
+}
+.by-body { position: relative; z-index: 2; width: 100%; max-width: 1500px; display: flex; gap: 80px; align-items: center; }
+.by-center { flex-direction: column; justify-content: center; gap: 48px; text-align: center; }
+.by-split { justify-content: center; }
+.by-question { font-family: var(--font-display-cn); font-size: 104px; line-height: 1.3; }
+.by-em { color: var(--accent); }
+.by-rule { width: 720px; height: 2px; border-top: 2px dashed var(--accent); transform: scaleX(0); animation: by-grow 900ms var(--ease-soft) both; }
+.by-note { font-size: 42px; color: var(--text-mute); }
+.by-mark { font-family: var(--font-display-en); font-size: 300px; line-height: 1; color: var(--accent); }
+.by-tag {
+  font-size: 40px; color: var(--text-2); padding: 0.4em 0.9em;
+  border: 2px dashed var(--rule); border-radius: 10px; line-height: 1.4;
+}
+
+/* 母题：与第一章同形的竖直南北虚线，step4 长出、step5 保持并由暗转亮。 */
+.by-axis {
+  position: absolute; left: 50%; top: 90px; bottom: 90px; width: 2px;
+  transform: translateX(-50%); display: flex; flex-direction: column;
+  align-items: center; justify-content: space-between;
+  color: var(--text-mute); font-size: 34px; opacity: 0; z-index: 1;
+  transition: opacity 900ms var(--ease-soft);
+}
+.by-axis-on { opacity: 0.7; }
+.by-axis-lit { opacity: 1; }
+.by-axis-n, .by-axis-s { background: var(--shell); padding: 0.1em 0.4em; }
+.by-axis-n { transform: translateY(-70px); }
+.by-axis-line {
+  position: absolute; left: 0; top: 60px; bottom: 60px; width: 2px;
+  border-left: 2px dashed var(--rule); transform: scaleY(0); transform-origin: top center;
+  transition: transform 1400ms var(--ease-soft), border-color 900ms var(--ease-soft);
+}
+.by-axis-line-grown { transform: scaleY(1); }
+.by-axis-lit .by-axis-line { border-left-color: var(--accent); }
+
+.by-figure { display: flex; }
+.by-compass { width: 380px; height: 380px; }
+.by-dial { fill: var(--surface-2); stroke: var(--rule); stroke-width: 3; }
+.by-dir { fill: var(--text-mute); font-size: 36px; font-family: var(--font-display-cn); }
+.by-c-n { fill: var(--chalk-n); }
+.by-c-s { fill: var(--chalk-s); }
+.by-pin { fill: var(--text); }
+.by-scenes { display: flex; flex-direction: column; gap: 28px; }
+.by-scene-tag {
+  font-size: 56px; color: var(--text-2); padding: 0.35em 0.9em;
+  border-bottom: 2px dashed var(--rule); line-height: 1.4;
+}
+
+.by-timeline-step { gap: 56px; }
+.by-timeline-step .by-note { background: var(--shell); padding: 0.2em 0.8em; }
+.by-timeline .by-tick.focus-dim { opacity: 0.55; filter: none; }
+.by-scenes .by-scene-tag.focus-dim { opacity: 0.55; filter: none; }
+.by-timeline { display: flex; flex-direction: column; gap: 48px; }
+.by-tick {
+  display: flex; flex-direction: row; align-items: center; gap: 24px;
+  font-size: 44px; color: var(--text-2); background: var(--shell); padding: 0.15em 0.7em;
+}
+.by-tick-dot { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); border: 4px solid var(--surface); flex: none; }
+
+.by-final { position: relative; flex-direction: column; gap: 40px; }
+.by-card {
+  position: relative; z-index: 2; display: flex; flex-direction: column; gap: 24px; align-items: center;
+  padding: 50px 80px; border: 2px dashed var(--accent); border-radius: 18px; background: var(--surface-2);
+}
+.by-card-kicker { font-size: 40px; color: var(--text-mute); }
+.by-card-text { font-family: var(--font-display-cn); font-size: 88px; color: var(--accent); }
+.by-final .by-note { position: relative; z-index: 2; background: var(--shell); padding: 0.2em 0.8em; }
+
+@keyframes by-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }

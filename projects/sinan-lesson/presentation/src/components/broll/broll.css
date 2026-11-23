@@ -1,0 +1,268 @@
+/*
+ * B-roll 层样式。颜色 / 字体 / 圆角全部走主题 token，换主题不破。
+ * 字号按手机红线：竖屏 / 方形项目最小 24px（见 CHAPTER-CRAFT「手机端可读字号下限」）。
+ * 所有动效由 BRollLayer 内联 style 驱动（读时钟），这里不写 transition / animation。
+ */
+
+.broll-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  background: var(--surface);
+  overflow: hidden;
+}
+.broll-layer--pip {
+  background: transparent;
+  pointer-events: none;
+}
+
+.broll-media {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+}
+.broll-media > img,
+.broll-media > video {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.broll-fill {
+  position: absolute;
+  inset: 0;
+}
+
+.broll-missing {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 3px dashed var(--accent);
+  background: var(--surface-2);
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+  font-size: 28px;
+  text-align: center;
+  padding: 24px;
+}
+.broll-missing small {
+  font-size: 24px;
+  color: var(--text-faint);
+}
+
+.broll-caption {
+  position: absolute;
+  left: var(--stage-pad-x);
+  bottom: var(--stage-pad-y);
+  max-width: 70%;
+  padding: 0.45em 0.8em;
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 28px;
+  letter-spacing: 0.04em;
+  border-radius: var(--r-card);
+  z-index: 50;
+}
+
+/* ── split ── */
+.broll-split {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+}
+.broll-split.is-portrait {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1.1fr 1fr;
+}
+.broll-split__media {
+  width: 100%;
+  height: 100%;
+}
+.broll-split__text {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 36px;
+  padding: var(--stage-pad-y) var(--stage-pad-x);
+}
+.broll-split__title {
+  margin: 0;
+  font-family: var(--font-display-cn);
+  font-size: 64px;
+  line-height: 1.15;
+  color: var(--text);
+}
+.is-portrait .broll-split__title {
+  font-size: 72px;
+}
+.broll-split__points {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+.broll-split__points li {
+  font-size: 36px;
+  line-height: 1.4;
+  color: var(--text-2);
+  padding-left: 1em;
+  border-left: var(--rule-w, 2px) solid var(--accent);
+}
+.is-portrait .broll-split__points li {
+  font-size: 40px;
+}
+
+/* ── grid ── */
+.broll-grid {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+}
+.broll-grid__cell {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-card);
+}
+
+/* ── collage（拍立得） ── */
+.broll-collage {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-2);
+}
+.broll-polaroid {
+  position: absolute;
+  width: 36%;
+  aspect-ratio: 4 / 3.6;
+  padding: 2.2% 2.2% 9%;
+  background: #f7f5f0;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35), 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+.broll-polaroid__img {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+/* 竖屏 / 方形：卡片按宽度放大 */
+:root[data-orientation="portrait"] .broll-polaroid { width: 58%; }
+:root[data-orientation="square"] .broll-polaroid { width: 44%; }
+
+/* ── stack（叠卡） ── */
+.broll-stack {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-2);
+}
+.broll-stack__card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 72%;
+  height: 72%;
+  overflow: hidden;
+  border-radius: var(--r-card);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+}
+:root[data-orientation="portrait"] .broll-stack__card {
+  width: 84%;
+  height: 56%;
+}
+
+/* ── pip（画中画） ── */
+.broll-pip {
+  position: absolute;
+  /* width / aspect-ratio 由 BRollLayer 按素材比例内联给出 */
+  overflow: hidden;
+  border-radius: var(--r-card);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+  outline: var(--rule-w, 2px) solid var(--accent);
+}
+.broll-pip--tl { left: var(--stage-pad-x); top: var(--stage-pad-y); transform-origin: top left; }
+.broll-pip--tr { right: var(--stage-pad-x); top: var(--stage-pad-y); transform-origin: top right; }
+.broll-pip--bl { left: var(--stage-pad-x); bottom: var(--stage-pad-y); transform-origin: bottom left; }
+.broll-pip--br { right: var(--stage-pad-x); bottom: var(--stage-pad-y); transform-origin: bottom right; }
+.broll-pip__caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 10px 16px;
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 24px;
+}
+
+/* ── compare（前后对比） ── */
+.broll-compare {
+  position: absolute;
+  inset: 0;
+}
+.broll-compare__after {
+  position: absolute;
+  inset: 0;
+}
+.broll-compare__bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  margin-left: -2px;
+  background: var(--accent);
+  box-shadow: 0 0 24px var(--accent-glow, transparent);
+}
+.broll-compare__tag {
+  position: absolute;
+  top: var(--stage-pad-y);
+  padding: 0.35em 0.8em;
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 28px;
+  letter-spacing: 0.08em;
+  border-radius: var(--r-card);
+}
+.broll-compare__tag--l { left: var(--stage-pad-x); }
+.broll-compare__tag--r { right: var(--stage-pad-x); }
+
+/* ── annotate（图上标注） ── */
+.broll-annotate {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+}
+.broll-annotate__frame {
+  position: relative;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+.broll-annotate__box {
+  position: absolute;
+  border: 4px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0);
+}
+.broll-annotate__label {
+  position: absolute;
+  left: -4px;
+  top: calc(100% + 10px);
+  white-space: nowrap;
+  padding: 0.3em 0.7em;
+  background: var(--accent);
+  color: var(--surface);
+  font-family: var(--font-display-cn);
+  font-size: 28px;
+  font-weight: 700;
+  border-radius: 4px;
+}

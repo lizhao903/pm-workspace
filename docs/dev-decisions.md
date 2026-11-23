@@ -4,12 +4,19 @@
 
 不可逆或对外的事（推送、合并进 main、改真实库、改已应用的迁移、启动 7777、删除用户文件）不在授权范围内，一律记到「待用户决定」，不做。
 
-## 本地 merge 合流：连接改写历史与保留两条 SOP 0008（2026-11-12）
+## 第六十七批：Claude Code 执行器不必选模型服务商（2026-11-17）
 
-- 用户授权仅在本地 `merge` 合并 `origin/main`，不推送、不修改本地或远程 `main`。合流前备份为 `codex/merge-before-main-20261112`。
-- 原历史 `4775d63` 与新历史 `4bf4f8f` 的 tree 完全相同，先建立仅连接历史、不修改文件的合并提交，再以此共同基点正常合入 `origin/main`，保留本地四个功能提交及远程后续改动。
-- 两侧已发布的 SOP 迁移分别含 `0008_flow_ownership.sql` 和 `0008_im_trigger.sql`。不改文件名、内容或 checksum，只为 SOP 的这两个历史文件允许同编号；仍以文件全名判重，其他编号重复继续拒绝。新增回归测试约束这个例外。
-- 撤回：切回备份分支；不涉及真实数据库变更。
+- 用户指出「claude code 是调用 cli，应该不需要选择模型服务商」。原来设置里的 Claude Code 执行器不选服务商就报「配置缺失」，测试对话也锁着，SOP 节点选它会执行失败。
+- 落地：后端 `usesLocalCLI`：Claude Code 没选服务商时不注入 `ANTHROPIC_*`，直接调本机 `claude`，状态显示「Claude Code 本机登录与配置 · 本机默认模型」；选了服务商照旧走服务商。前端编辑框服务商下拉第一项改「不选，用本机 Claude Code 登录和模型」，不再提示配置缺失，测试可用。
+- 理由：和节点里的「默认 Claude Code」同一条路径，本机登录过就能跑；不像 Codex 那样加勾选框，空着就是本机，少一步。
+- 怎么撤回：回滚本批提交；已存的执行器数据不变。
+
+## 第六十六批：待我处理里失败的执行能终止（2026-11-17）
+
+- 用户要求「待我处理列表增加终止的按钮」。执行中、等我处理的执行早有「停止」（TSK-0717），缺的是失败的执行：它们一直挂在待我处理里，只能重试，不想重试也移不走。
+- 落地：SOP 0.22.0，按 id 停（`batch-actions` 的 `stop`、单条 `stop` 动作）放开还没重跑过的失败执行，已重跑过的跳过「失败后已重跑」；前端失败行加「终止」，确认框文案说终止；按条件的「停止全部运行中」口径不变，仍只停执行中、待我处理的。
+- 理由：终止就是现成的「已终止」状态，不加新状态和迁移；按条件停不碰失败的，免得一键把要排查的失败执行也清掉。
+- 怎么撤回：回滚本批提交；终止过的执行仍是「已终止」，不影响别的数据。
 
 ## 第六十五批：我回复了 IM 消息就标为已处理（2026-11-17）
 
@@ -17,6 +24,114 @@
 - 落地：IM 0.31.0 发 `im.message_replied`（`via`：消息页回复 `workbench`、串里 `thread`、私聊 `dm`；群聊里不在串里发的不算，补历史不发，SOP 节点代发的回复不算），内置流程 `sop_im_replied_done`「我回复后标为已处理」（触发方式 `im_reply`，装上即生效）；SOP 0.21.0 加触发方式 `im_reply`，按 `reply_id` 去重；前端触发方式选项补上它。
 - 理由：做成触发方式而不是写死在回复里，用户能在流程里加条件或别的步骤，也能把触发方式改成「手动」停掉；群聊不在串里的发言只是挂在最近一条上，认不准回的是谁，宁可不标。串里只标我之前最近那一条，更早的仍待处理。
 - 怎么撤回：把内置流程的触发方式改成「手动」即停用；代码回滚本批提交即可，没有迁移。
+
+## 第五十八批：素材收件箱从 GitHub 拉版本更新（VID-10）（2026-11-16）
+
+- 用户要求：「素材收集箱增加从 github 拉取项目的更新信息，记录版本更新内容，做版本更新说明视频使用」。
+- 决策：素材收件箱（视频插件，升到 0.10.0）加「拉取 GitHub 更新」：填仓库 `owner/repo`，从公开仓库的 Release 拉版本更新，一条 Release 落一条素材；素材 kind 新增 `release`（标签「版本更新」），内容就是 Release 说明，可照常「转为选题」做成版本更新说明视频。只做素材收集与转选题，不做自动发布。
+- 出网与权限：内核新增出网组 `github`（只 `api.github.com`）和权限 `network:github`（普通级别，安装/升级时确认，升级新增权限要重新确认）；只拉公开仓库的匿名 GitHub API，每小时 60 次限流。
+- 去重：复用 `video_clips.remote_id`，按 `remote_id = github:owner/repo:tag_name` 去重；不加迁移、不建新表新列。预发布版本默认不拉，面板可选「包含预发布版本」。
+- 接口：新增 `POST /api/video/clips/github`，body `{repo, limit?, include_prerelease?}`，回 `data: VideoClip[]` + `meta: {repo, added, duplicates, releases, skipped}`；`limit` 控制每次拉的 Release 条数（默认 30，1 到 100）。
+- 理由：需求只是「把项目更新收进素材箱做版本更新说明视频」，Release 说明就是现成的脚本素材；匿名公开 API 不动凭证体系，收益相同而风险最小——不做 token、不做私有仓库，避免引入凭证存储、泄露面与权限升级。限流 60 次/小时对本机手动拉取足够，撞限流由接口把原因透给用户。
+- 验证：按 `docs/dev-tasks.json` 的 VID-10 验收跑 Go 测试、前端测试与契约文档双向检查；权限/枚举改动用 `python3 -m json.tool docs/plugin-manifest-v2.schema.json` 校验，plugin-sdk 的 `validate` 能识别 `network:github`，两份 `pmw_plugin.py` 用 `diff -q` 保持一致。
+- 怎么撤回：回滚本批文档与视频插件改动即可；`network:github` 从权限清单、出网组、schema 枚举与 SDK 权限表删掉，没有迁移要回退（复用 `video_clips.remote_id`）。已经收进来的 `release` 素材是普通素材，照常删除或转选题，不影响旧数据。
+
+## 第六十四批：插件出网代理 allowlist + 基线 CSP（2026-11-16）
+
+- `host.http.request`（P2）：插件经宿主代理出网，只按清单「已声明 + 已授予」的 `network:<group>` 放行（复用 `internal/plugin.NetworkAllows`）；每一跳重定向重新检查，最多 5 跳；禁止非 http(s)，不转发 Cookie/Host/connection 等头；请求/响应体上限 8 MiB、单次 30s；`stream=true` 暂回 validation。未授权域名回 `permission_denied`。
+- CSP：`internal/webui` 对所有页面/资源下发基线 `Content-Security-Policy`（default-src self、script/style self+unsafe-inline、img/media blob、connect self、object-src none）+ `X-Content-Type-Options: nosniff` + `Referrer-Policy: same-origin`；import map/vite bootstrap 需要 unsafe-inline，严格 nonce/hash 留后续。
+- 验证：`netproxy_test.go` 覆盖本机放行、无权限 permission_denied、跨域重定向拒绝；`embed_test.go` 断言 CSP/nosniff；`go test ./internal/pluginhost/... ./internal/webui ./internal/api`、`-race` 通过。
+- 怎么撤回：删 `internal/pluginhost/netproxy.go` 的 broker case 与 webui 的 securityHeaders 即可；不影响安装/启停/事件/升级路径。
+
+## 第六十三批：索引可选签名 + 发现页搜索（2026-11-16）
+
+- 索引签名：独立仓库新增 `scripts/sign_index.sh`（openssl ed25519 gen-key/sign/verify）与 README/CONTRIBUTING 规则；`index.json.sig` 为 `{key,sig,publisher}` JSON，签名对象是 `index.json` 原始字节。PMW `FetchMarketIndex` 自动请求 `<url>.sig`：404 且该 URL 从未签名过 → 未签名可用；曾经签过名再缺 `.sig` → 拒绝（防降级）；验签失败/换公钥 → 拒绝。TOFU 表 `plugin_index_keys`（迁移 0062 + 兜底建表）。
+- 发现页：市场视图加 `signed/publisher`，显示「索引已签名/未签名」；新增搜索框，按插件 id/标题/描述/作者/仓库/分类/标签过滤（前端过滤，索引接口不变）。
+- 验证：market_test 增加签名通过、TOFU 降级拒绝、换 key conflict；`go test ./internal/pluginhost/...`、`-race`、API 契约测试通过；前端 build/tsc 通过；索引仓库 `validate_index.py` + 新签名脚本 bash -n 通过；index repo 本地 commit。
+- 怎么撤回：索引不配 `.sig` 即回到未签名；PMW 侧删除本批代码/迁移即可，TOFU 表可清空。
+
+## 第六十二批：外部插件可选签名 + TOFU + verified 信任级（2026-11-16）
+
+- 按计划做签名：清单 `publisher.key`（ed25519 raw 32 字节 base64）声明发布者公钥；GitHub Release 必须同时提供 `SHA256SUMS` 与 `SHA256SUMS.sig`（私钥对 SHA256SUMS 原始字节签名，base64 单行）。
+- `internal/pluginhost/signature.go`：`verifyPublisherSignature`（ed25519.Verify）；GitHub 解析路径在包内清单声明 key 时强制校验签名——缺 sig/签名不匹配都拒绝安装；验签通过 `publisherVerified=true`。
+- TOFU：新增表 `plugin_publisher_keys(publisher_id, public_key, fingerprint, first_seen, last_seen)`（迁移 0061 + 兜底 CREATE IF NOT EXISTS）；首次验签绑定 `publisher.id -> key`，之后同一 id 换 key 返回 `ErrConflict` 并提示清理方式。
+- 状态：`external_plugins` 加 `publisher_id`/`publisher_verified`（迁移 0061）；`Info.Tier`/`Preview.Tier` 为 `verified`/`community`；安装/升级写 tier，`verified` 需验签通过；回滚后按旧状态保守为 community（P2 可补 previous 签名状态）。
+- 开发者工具：`plugin-sdk/.../scripts/sign_release.sh`（openssl gen-key/sign/verify），文档说明私钥 0600、不进仓库；前端插件卡片/预览显示「已验签/社区」徽章。
+- 验证：`signature_test.go` 覆盖签名正反、GitHub 签名 Release 预览/安装 `verified`、缺 sig/坏 sig 拒绝、TOFU 同 key 通过/换 key conflict；`go test ./internal/pluginhost/...`、`-race`、API 契约测试通过；前端 build/tsc 通过。
+- 怎么撤回：不声明 `publisher.key` 的插件行为不变（community）；删除本批代码/迁移即可；TOFU 表可单独清空。
+
+## 第六十一批：外部插件开发者目录（dev link）（2026-11-16）
+
+- 按计划推进 P4 的开发者体验：`--plugin-dev-dir` 不再只是记录，而是真正的「链接安装」。
+- `source.type=dev`：`resolveDevDir` 直接指向源码目录（不复制、不打包），安装/更新只写状态；`Host.Start` 自动扫描开发目录下的一层子目录（含 plugin.json）并 `installDevLocked`；`POST /api/plugins/external/dev/reload` + `Host.ReloadDev` 重新扫描：新目录安装、已装更新版本/清单、消失的 dev 插件清状态（保留数据、**不删源码**）。
+- 安全边界：dev 插件标记 `source_type=dev`，不写 packages/ 目录，卸载跳过删安装目录；普通权限按清单默认授予（本机源码视为开发者信任），高风险仍留给单独授权；与同 id 正式安装冲突时拒绝（先卸载正式版）。
+- 设置页：来源类型加「本地开发目录（链接，开发者模式）」；已安装区加「重新加载开发目录」按钮，显示 dev 插件数量；dev 插件源标签区分。
+- 验证：新增 dev_test.go（自动扫描/未启用、改版本 Reload 后按原启用状态重启、卸载不删源码、显式 dev 安装与正式安装冲突）；`go test ./internal/pluginhost/...`、`-race` 通过；前端 `build`/`tsc` 通过。
+- 怎么撤回：`--plugin-dev-dir` 为空时行为不变；删除 dev 插件状态即可；源码目录始终不会被宿主删除。
+
+## 第六十批：外部插件 HTTP/WebSocket 代理（2026-11-16）
+
+- 按既定顺序补 P1-b：插件自己的 HTTP/WS 能力（`docs/plugin-spec-v2.md` 7.4/7.6）。
+- HTTP：新增 `/api/plugins/external/{id}/api/{path...}`（GET/POST/PUT/PATCH/DELETE）→ `plugin.http.request`。插件可一次性返回 `{stream:false,status,headers,body_b64}`，也可先回 `{stream:true,status,headers}` 再用 `host.http.chunk {request_id,seq,data_b64}` 与 `host.http.end {request_id,seq}` 推块；宿主按 seq 排序、flush 到客户端（SSE/大响应可用）。请求体上限 8 MiB、整体 60s 超时；`/api/` 前缀后的路径去掉插件 id 再交给插件。
+- WebSocket：`Upgrade: websocket` 的 GET → 宿主 `websocket.Accept` → `plugin.http.upgrade {stream_id,path,query,headers}`；客户端帧转 `plugin.http.ws_message`，插件帧用 `host.ws.send`、关闭用 `host.ws.close`（`coder/websocket`，已有依赖）。
+- 安全：流/WS 注册表按插件 id 校验，插件只能写自己的 stream；hop-by-hop 响应头过滤；请求/响应体上限；流式消费过慢回 `rate_limited`。
+- 验证：`http_test.go` 覆盖一次性 HTTP（状态/头/body 透传）、SSE 流式（seq 乱序仍按序写出）、WebSocket echo（宿主↔插件双向帧）；`go test ./internal/pluginhost/...`、`-race`、`./internal/api` 契约测试通过；E2E 全链路仍 PASS。
+- 怎么撤回：删 `internal/pluginhost/http.go` 与 API 路由即可；改动不影响已有安装/启停/事件/升级路径。
+
+## 第五十九批：市场索引独立仓库 + PMW 发现/安装 + GitHub 镜像与重定向白名单（2026-11-16）
+
+- 按用户「建立独立仓库」的决定，创建独立社区索引仓库 **`pmw-plugins-index`**（本机 `../pmw-plugins-index`，本地 git init + 初始 commit，未推送）：`index.json` v1 样例、`schema/index.schema.json`、`scripts/validate_index.py`（纯标准库）、GitHub Actions（校验 + 可选 jsonschema）、PR 模板、`CONTRIBUTING.md`（收录门槛/评审清单/安全红线）、`SECURITY.md`、MIT LICENSE。主仓库不再背社区索引内容。
+- PMW 侧市场索引：`internal/pluginhost/market.go` 实现 `FetchMarketIndex`（只接受 http(s)、不允许凭证/片段、≤2 MiB、10s、只允许同主机重定向；校验 `index_version=1`、id 不重复、版本 SemVer/`api`/`pmw`、`source.type=github-release`、资产 URL https + sha256 64 位；按当前平台与宿主版本计算 `compatible/reason`，按 SemVer 降序）；`POST /api/plugins/external/market` 暴露给设置页；前端 ExternalPlugins 新增「发现（市场索引）」：填 URL → 加载 → 每个兼容版本「安装」→ 先 resolve 预览（权限仍逐项确认）→ 安装。索引不参与信任判断，安装仍走真实包与 SHA-256。
+- GitHub 下载健壮性：`Options.Mirror`（`--plugin-mirror`）支持前缀或 `{url}` 占位符，只改下载地址不改校验；`downloadHTTP` 增加重定向白名单（github.com/api.github.com/objects.githubusercontent.com/github-releases.githubusercontent.com/release-assets.githubusercontent.com（2026-11-23 补：GitHub Release 资产现在跳到这个域名）/codeload.github.com/raw.githubusercontent.com + 入口域名 + 镜像域名），跨主机重定向拒绝。
+- 验证：新增 market_test.go（索引拉取/兼容计算/非 http 与跨主机重定向拒绝）、mirror 单测；`go test ./internal/pluginhost/...`、`./internal/api` 契约测试通过；前端 `npm run build`/`tsc --noEmit` 通过；独立索引仓库 `python3 scripts/validate_index.py` 通过。
+- 怎么撤回：删/回滚本批代码与文档；索引仓库是独立目录，单独删除或重置即可，不影响 PMW；`--plugin-mirror` 为空时行为与之前一致。
+
+## 第五十八批：外部插件事件投递 + 升级/回滚（2026-11-16）
+
+- 承接第五十七批，补 P1-b 的「插件 API 完整性」两块：事件投递、升级/回滚。
+- 事件投递：`Options.Events` 接内核 `events.Bus`；`Host.Start` 注册 tap，把内核事件投递给「清单 `subscribes` 含该事件且已授予 `events:subscribe`」的运行中插件（`plugin.event.deliver`，每插件一个 goroutine、5s 超时、不阻塞发布方）；broker 新增 `host.events.publish`（只允许清单 `emits` 声明的事件，经同一总线发布/再分发）；未声明/未授予/没接总线分别回 validation/permission_denied/unavailable。
+- 升级/回滚：迁移 `0060_external_plugin_versions.sql` 给 `external_plugins` 加 `previous_*` 八列。`Host.Upgrade` 校验同 id/新版本大于当前/兼容/权限确认，复制到 `packages/<id>/<新版本>`，在插件私有库应用新迁移（失败删新目录、旧进程继续跑），停旧进程、写状态（旧版本进 `previous_*`）、按原启用状态拉起；启动失败回滚状态并尽量恢复旧进程。`Host.Rollback` 交换当前/previous_*，按原启用状态拉起；数据库迁移不回退（UI 明确警告）；只保留当前+上一版本目录。
+- API：`POST /api/plugins/external/{id}/upgrade`（body 同安装：source + confirm_permissions）、`POST /api/plugins/external/{id}/rollback`（body `{}`）；契约文档、Info 的 `previous_version` 已同步。设置页安装预览对已装插件显示「升级 x→y」，已安装卡片在有上一版本时显示「回滚到 …」+ 二次确认提示。
+- 验证：pluginhost 新增 events_test.go（订阅投递、未订阅不投递、插件发布/未声明拒绝、无总线 unavailable）与 upgrade_test.go（升级后版本/权限/新迁移/进程、回滚、同版本与无上一版本 conflict）；`go test ./internal/pluginhost/...`、`-race`、`./internal/api`、`./internal/db` 全过；E2E 增加「升级 0.1.0→0.2.0 → 回滚 → 停用/启用 → 卸载」并 PASS；前端 `npm run build`/`tsc --noEmit` 通过。
+- 怎么撤回：回滚本批代码；迁移 0060 只加列、不回退，旧代码忽略 `previous_*` 即可；升级失败的包目录会被清理，回滚只动状态与进程。
+
+## 第五十七批：外部插件 P1-b 第一段（崩溃重启/周期 health/高风险权限授权）（2026-11-13）
+
+- 承接第五十六批：按验收报告的建议继续补 P1-b 的高价值项——运行中崩溃自动重启、周期健康检查、高风险权限单独授予/收回（含 API + 设置页 UI）。
+- 崩溃重启：`onProcExit` 在 enabled 且非用户停用时按 1s/2s/4s 退避自动 `startPlugin`，最多 3 次；超过上限记 `last_error` 并停止重试；用户停用/卸载/关闭宿主时取消等待中的定时器。成功拉起后重置计数。
+- 周期 health：启动成功后每 30s 发 `plugin.health`（`Options.HealthInterval` 可调，测试用短间隔）；连续 3 次失败记 `last_error`、SIGKILL 交给崩溃重启。首次 health 仍只告警不阻塞启用。
+- 高风险权限：`Host.Grant/Revoke` + `POST /api/plugins/external/{id}/permissions/{grant,revoke}`（grant 只接受用户本人操作、`confirm` 必须等于插件名、`trade:live` 与普通权限拒绝；revoke 幂等）。授予后同步运行中进程的权限快照并推 `plugin.permission_changed`；broker 的 `requirePermission` 改为读运行期快照，授予/收回立即生效。设置页已安装卡片列出声明的高风险权限，可「单独授予」（二次确认弹窗）/「收回」。
+- 配置：`Options.HealthInterval`（默认 30s）、`Options.CrashBackoffBase`（默认 1s，测试用 10ms）。
+- 验证：新增 `permissions_test.go`、`restart_test.go`（崩溃后自动重启、4 次后停止并记 last_error），`go test ./internal/pluginhost/...`、`-race`、`go test ./internal/api`、E2E 全过；前端 `npm run build` + `tsc --noEmit` 通过，UI E2E 仍通过。
+- 怎么撤回：回滚本批改动；`Grant/Revoke` 只改 `external_plugins.granted` 一列（remigration 不需要），崩溃重启/health 都是运行时行为，停用即止。
+
+## 第五十六批：外部插件宿主 P1-a 落地（2026-11-13）
+
+- 用户说「继续」，按 `docs/plugin-community-plan.md` 的 P1 路线落地 **P1-a 最小闭环**：本地目录 / `pmw_plugin.py pack` 的 tar.gz / GitHub Release 安装 → 清单校验 → 子进程 + `pmw-plugin-rpc/1` → 前端运行时 ESM 加载 → 启停/卸载。不做签名、高风险权限装后授权 UI、事件投递、WS、市场索引、源码构建（P1-b/P2/P3）。
+- 后端：新增 `internal/pluginhost/`（Manifest v2、source、state、rpc、process、broker、migrations、host）、`internal/api/plugins_external.go` + 10 条路由（已进 `docs/api-contract.md`）、迁移 `0059_external_plugins.sql`；`cmd/pmw` 加 `--allow-external-plugins`（默认 true）+ `--plugin-dev-dir/--plugin-mirror/--plugin-max-versions`，`api.Options.External` 接入；`initial external_plugins` 状态表存于内核库，插件数据/缓存/日志/包各自独立目录。
+- 前端：`frontend/index.html` 静态 import map + `frontend/src/externalReact.ts` + vite 固定产出 `pmw-external-react.js`（与主应用同一份 React）；`core/plugin/external.ts` 运行时桥（v2→v1 适配、slots 映射、host.call、CSS 注入）；`registry.ts` 合并 external source；设置→插件页新增「外部插件（P1-a）」安装/预览/启停/卸载 UI；`core/data/externalPlugins.ts`。
+- 验证：`go build ./...`、`go vet`、`go test ./internal/pluginhost/...`（42 测试，约 76% 覆盖，-race 过）、`go test ./internal/api/` 契约双向 + 集成测试通过；`scripts/e2e-external-plugin.py` 全链路 PASS（安装→子进程 command→host.settings/objects/notify→web/icon/style→停用/启用→卸载）；重启后 enabled 插件自动恢复；另用临时 headless Chrome 脚本验证菜单出现「Hello World」、插件路由渲染、插件 CSS 生效（脚本未入库）。
+- 验收后加固：独立验收（只读 + /tmp overlay 测试）发现 7 条必须修，已全部修复并补回归测试：① 握手必须真正收到带 token 的 plugin.hello（原先首帧非 hello 可绕过）；② SQL 去注释后做关键字黑名单 + 读连接 `PRAGMA query_only=ON`（原注释前缀可绕过 ATTACH、query 可写）；③ WebFile/IconFile 解析 symlink 后再校验 withinDir；④ 前端槽位 id 强制插件命名空间、`window.__PMW_PLUGIN__` 不可写且 register 只接受当前加载 id；⑤ 产品版本 bump 到 0.3.0（Makefile 与 main.go），旧 0.2.x 不支持外部插件；⑥ 崩溃退避/周期 health/ctx.ui 等文档从「已实现」改为 P1-b；⑦ 前端资源路径、ctx API、安装/卸载语义文档与实现对齐。另：插件迁移禁止 ATTACH/DETACH、通知处理受并发上限约束、目录来源 sha256 生效且限 64MiB/500 文件、`plugin.json` 只认根或一层子目录。
+- 已知安全边界（已写进 spec 5.5/8.4/12.7 与 plan）：同页插件 JS 无硬隔离、插件进程同用户可读本机文件/直连本机 API；broker 只防「未声明/未授予的能力」，硬隔离与 OS 沙箱属 P2/P3。
+- 用户此前决定：① 外部插件默认允许安装、每次安装用户确认；② 市场索引独立仓库 `pmw-plugins-index`；③ P1 不做强制签名，签名留 P2 `verified/official` 可选增强。
+- 已知边界：Windows 命名管道、签名、events 投递、WS、崩溃退避/周期 health、高风险权限 UI、市场索引均未做；`host.notify` 的 level 暂未透传；外部插件模块图标仍是默认图标（1.x 图标机制只认内置 key）。
+- 怎么撤回：回滚本批新增/修改的代码与迁移 0059 即可；0059 只建 `external_plugins` 一张新表、不回退，老功能不读它；`internal/pluginhost` 与 `/api/plugins/external*` 是新增包/路由，删除后不影响第一方插件与内核。
+
+## 第五十五批：PMW 外部插件生态方案（2026-11-13）
+
+- 用户要求「输入其他 GitHub 链接就能安装插件，形成类似 DSH 的社区协作模式」，并追问要给开发者什么规范提示、构建提示，以及能否做成一套可安装 skill。
+- 结论：现插件编译进二进制，装不了第三方；目标形态是「外部插件包」（GitHub 仓库 + `plugin.json` v2 + 各平台预编译 sidecar + 预构建前端 ESM），宿主从 GitHub Release 下载、校验后拉起子进程，再运行时加载前端模块，不重建 PMW、不要求用户装 Go/Node。
+- 落地（P0，仅文档与工具，宿主未实现）：`docs/plugin-community-plan.md`（方案/改造清单/路线图）、`docs/plugin-spec-v2.md`（外部插件规范 v0.1）、`docs/plugin-manifest-v2.schema.json`、`docs/plugin-developer-guide.md`（含五类 AI prompt）、`plugin-sdk/`（可安装 skill + 模板 + `pmw_plugin.py` 的 init/validate/pack/self-test/install-check + hello-world 示例）。宿主运行时（`internal/pluginhost`、安装 API、前端 ESM 加载器、安装 UI）属 P1，未实现。
+- 用户决定：① 外部插件默认允许安装，每次安装由用户确认；② 市场索引放独立仓库 `pmw-plugins-index`（GitHub Pages），主仓库只留格式与校验；③ P1 不做强制签名，签名留作 P2 的 `verified`/`official` 可选增强。
+- 理由：第三方代码必须进程隔离 + 能力代理，前端必须运行时加载，才能安全地不重建二进制装插件；签名的价值是证明发布者身份与资产未被篡改，不证明代码安全，PMW 也没有发布者身份 PKI，主要风险靠最小权限、安装确认、评审红线和 commit + SHA-256 固定来兜。
+- 怎么撤回：本批只新增文档和 `plugin-sdk/`（外加 README、`docs/plugin-api.md` 的两处指引），回滚这些文件即可；未改运行时代码、接口和表结构。
+
+## 本地 merge 合流：连接改写历史与保留两条 SOP 0008（2026-11-12）
+
+- 用户授权仅在本地 `merge` 合并 `origin/main`，不推送、不修改本地或远程 `main`。合流前备份为 `codex/merge-before-main-20261112`。
+- 原历史 `4775d63` 与新历史 `4bf4f8f` 的 tree 完全相同，先建立仅连接历史、不修改文件的合并提交，再以此共同基点正常合入 `origin/main`，保留本地四个功能提交及远程后续改动。
+- 两侧已发布的 SOP 迁移分别含 `0008_flow_ownership.sql` 和 `0008_im_trigger.sql`。不改文件名、内容或 checksum，只为 SOP 的这两个历史文件允许同编号；仍以文件全名判重，其他编号重复继续拒绝。新增回归测试约束这个例外。
+- 撤回：切回备份分支；不涉及真实数据库变更。
 
 ## 第五十四批：DeepSeek 模块前缀复用与 dsh 缓存用量（2026-11-12）
 
@@ -1188,6 +1303,14 @@ M1 的开发功能到 DEV-09 已经齐了：任务列表、抽屉、进展、产
   内核新增前端扩展点 `shellStatus`（不进清单 provides，docs/plugin-api.md 2.13.29）；命令面板「开始录音」顺带直接开录。
 - 理由：录音生命周期不能挂在路由组件上，否则切模块即停；放模块级 + 外壳常驻状态条是最小改动，保存/上传也不依赖页面。
 - 怎么撤回：删掉 `shellStatus` 注册和 `RecorderStatus`，页面改回组件内录音引擎即可；数据表、接口都没改，历史录音不受影响。
+
+## 外部插件宿主补漏（2026-11-23）
+
+- `pmw` 版本范围：宿主版本为空或不是正式版本号（生产 bro.vip 是 `-X main.version=dev` 编出来的 `dev`）时不判断，安装、升级、市场列表同一口径（`pmwVersionMatches`）；`api` 范围照常检查。
+- 下载重定向白名单加 `release-assets.githubusercontent.com`：GitHub Release 资产现在跳到这个域名，不加则从 GitHub 安装全部失败。
+- 实现 `host.secrets.get/set/delete`：此前 broker 没有这三个方法，声明了 `secrets:*` 的插件根本存不了凭证。存进内核保险箱而不是插件私有库，理由是加密主密钥统一管理、用户能在凭证列表里看到和删除；按 `plugin:<id>:<scope>` 命名隔离。
+- `plugin.http.request` / `plugin.http.upgrade` 的 `path`：原来取第一个 `/api/` 之后，插件收到 `/plugins/external/<id>/api/...`；改成只去掉 `/api/plugins/external/<id>/api` 前缀（`pluginAPIPath`），与 spec 一致。
+- 出网代理仍不带 Cookie：Garmin 中国区 SSO 实测不带 Cookie 也能完成账号密码校验，但两步验证要续 SSO 会话，插件里暂不支持；要支持时再考虑让插件显式传 `Cookie` 头并把多条 `Set-Cookie` 分开返回。
 
 ## 第五十二批：项目文档标签的文档目录改树形（2026-11-11）
 

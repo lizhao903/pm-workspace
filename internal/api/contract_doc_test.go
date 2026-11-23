@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/lizhao903/pm-workspace/internal/plugin"
+	"github.com/lizhao903/pm-workspace/internal/pluginhost"
 	"github.com/lizhao903/pm-workspace/internal/plugins/browser"
 	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
 	"github.com/lizhao903/pm-workspace/internal/plugins/etf"
@@ -75,7 +76,7 @@ func registeredRoutes(t *testing.T) []string {
 	if err := plugins.Add(recording.New()); err != nil {
 		t.Fatal(err)
 	}
-	(&Server{opt: Options{Plugins: plugins}}).routes(rec)
+	(&Server{opt: Options{Plugins: plugins, External: &pluginhost.Host{}}}).routes(rec)
 	if len(rec.patterns) == 0 {
 		t.Fatal("一条路由都没收到——routes() 的签名或实现变了，本测试已经失效")
 	}

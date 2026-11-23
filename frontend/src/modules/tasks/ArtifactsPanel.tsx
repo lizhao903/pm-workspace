@@ -2,12 +2,15 @@
 
 // 任务抽屉的产出物（DEV-08b，SPEC-tasks-5）：按提交、分支、PR、文件分组，有链接的新窗口打开，
 // 只有本机路径的显示相对路径、可复制绝对路径；可以手工登记一条（来源记成 manual）。
+// 本机文件、有本机仓库的提交和分支点标题在工作台里查看（ArtifactViewer，SPEC-tasks-5.40 起），同时有链接的链接挪到后面。
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   QueryState, errorText, useObjectArtifacts, useRecordArtifact, type Artifact, type ArtifactSource, type WorkObject,
 } from '../../core/data'
 import { Button, InfoTip, Input, Tag } from '../../core/ui'
 import { groupArtifacts, locationOf, shortSha, type ParsedNote } from './artifactNote'
+import { viewKindOf } from './artifactView'
+import { ArtifactViewer } from './ArtifactViewer'
 import { timeAgo } from './model'
 import './artifacts.css'
 
@@ -18,18 +21,27 @@ export function ArtifactRow({ a, p, copied, onCopy, lead }: {
   a: Artifact; p: ParsedNote; copied: boolean; onCopy: (a: Artifact) => void; lead?: ReactNode
 }) {
   const file = p.kind === 'file'
-  const label = file ? (a.url ? a.title || a.url : a.rel_path || a.path) : p.text || a.title || a.url || a.rel_path
+  const view = viewKindOf(a, p)
+  const [viewing, setViewing] = useState(false)
+  // 能在工作台里看的本机文件显示路径（有链接也是），否则同原来：有链接显示标题或链接
+  const label = (file ? (a.url && !view ? a.title || a.url : a.rel_path || a.path) : p.text || a.title || a.url || a.rel_path)
+    // 分支、提交没有备注和标题时，标题处给个能点的字（分支名、sha 已经在前面显示了）
+    || (view === 'branch' ? '看提交' : view === 'commit' ? '看改动' : '')
   // 文件的备注放第二行；代码类的备注已经当标题用了
   const sub = file ? p.text : ''
+  const viewTip = view === 'file' ? `在工作台里查看 ${a.path}` : view === 'commit' ? '看这次提交的改动' : '看这个分支相对主分支的提交'
   return (
     <li className="art-row" data-kind={p.kind}>
       {lead}
       <span className="art-main">
         {p.kind === 'commit' && p.sha && <span className="art-sha" title={p.sha}>{shortSha(p.sha)}</span>}
         {p.branch && <span className="art-branch"><Tag>{p.branch}</Tag></span>}
-        {a.url
-          ? <a className="ellipsis art-link" href={a.url} target="_blank" rel="noopener noreferrer" title={a.url}>{label}</a>
-          : <span className={file ? 'ellipsis art-path' : 'ellipsis'} title={a.path}>{label}</span>}
+        {view
+          ? <button type="button" className={file ? 'ellipsis art-view art-path' : 'ellipsis art-view'} title={viewTip} onClick={() => setViewing(true)}>{label}</button>
+          : a.url
+            ? <a className="ellipsis art-link" href={a.url} target="_blank" rel="noopener noreferrer" title={a.url}>{label}</a>
+            : <span className={file ? 'ellipsis art-path' : 'ellipsis'} title={a.path}>{label}</span>}
+        {view && a.url && <a className="art-url" href={a.url} target="_blank" rel="noopener noreferrer" title={a.url}>链接</a>}
         {sub && <span className="ellipsis art-sub">{sub}</span>}
       </span>
       <span className="src-tag" data-source={a.source} title={`来源：${a.source}`}>{SOURCE_LABEL[a.source] ?? a.source}</span>
@@ -37,6 +49,7 @@ export function ArtifactRow({ a, p, copied, onCopy, lead }: {
         <Button size="sm" title={a.path} onClick={() => onCopy(a)}>{copied ? '已复制' : '复制路径'}</Button>
       )}
       <span className="art-at">{timeAgo(a.created_at)}</span>
+      {viewing && view && <ArtifactViewer a={a} p={p} kind={view} onClose={() => setViewing(false)} />}
     </li>
   )
 }

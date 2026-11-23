@@ -94,6 +94,7 @@
               "network:localhost",
               "network:im",
               "network:media-platforms",
+              "network:github",
               "network:market-data",
               "network:model",
               "network:exchanges",

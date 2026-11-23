@@ -327,6 +327,10 @@ func TestNodeTypesAlignedWithPrototype(t *testing.T) {
 	body := src[start:end]
 	// 每个节点以 kind: '...' 开头，到下一个 kind 之前都是它的配置
 	parts := strings.Split(body, "kind: '")[1:]
+	// 原型把插件登记的节点（例：项目插件的 projects_kb_sync）也放在这张表里，后端的 NodeTypes 只有内置节点，不比
+	parts = slices.DeleteFunc(parts, func(p string) bool {
+		return strings.HasPrefix(p, "projects_") || strings.HasPrefix(p, "im_") || strings.HasPrefix(p, "video_")
+	})
 	// doc、contact 是后端新加的写节点（SOP-02a），原型里用 auto 模拟，不比
 	types := slices.DeleteFunc(slices.Clone(NodeTypes), func(n NodeType) bool { return n.Kind == "doc" || n.Kind == "contact" })
 	if len(parts) != len(types) || len(types) != len(NodeTypes)-2 {

@@ -1,0 +1,8 @@
+/* ─────────────────────────────────────────────────────────────────────
+ * fonts.css — Google Fonts referenced by the built-in themes.
+ *
+ * Loaded via @import (not <link>) for portability across Vite versions.
+ * If you author a new theme that uses a different family, append it
+ * here and to the THEMES.md "fonts loaded by default" list.
+ * ───────────────────────────────────────────────────────────────────── */
+/* 课堂离线投影：不请求在线字体，字体栈在 tokens.css 里回落到系统楷体。 */

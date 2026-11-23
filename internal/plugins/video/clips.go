@@ -19,8 +19,8 @@ import (
 // 现在只能手动收进来，拉热榜、收评论接内容平台是 VID-04 起的事。
 // 来源可追溯：评论带 publish_id（发布记录），IM 消息带 message_id（im 插件的消息，只存不查）。
 
-// ClipKinds 同原型 CLIP_KIND。
-var ClipKinds = []string{"link", "note", "trend", "comment", "competitor", "im"}
+// ClipKinds 同原型 CLIP_KIND，另加 VID-10 的 release（GitHub 版本更新）。
+var ClipKinds = []string{"link", "note", "trend", "comment", "competitor", "im", "release"}
 
 // Clip 同原型 Clip，多 publish_id、message_id 和 updated_at；url、heat、publish_id、message_id 没有就不返回。
 type Clip struct {

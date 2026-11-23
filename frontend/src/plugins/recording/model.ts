@@ -559,3 +559,15 @@ export function systemDeviceHint(info: RecordingAudioDeviceList | undefined): st
   }
   return '选一个虚拟声卡（标了「虚拟声卡/系统声音」的）就能录电脑里别的 App 的声音'
 }
+
+/** 播放位置落在哪一段：开始时间不晚于它的最后一段；段落按开始时间排（后端按 seq 给，seq 即时间顺序） */
+export function activeSegment(segs: readonly { start_ms: number; end_ms: number }[], ms: number): number {
+  let lo = 0
+  let hi = segs.length - 1
+  let hit = -1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (segs[mid].start_ms <= ms) { hit = mid; lo = mid + 1 } else hi = mid - 1
+  }
+  return hit
+}

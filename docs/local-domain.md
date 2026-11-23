@@ -21,10 +21,10 @@ graph LR
   A["浏览器<br/>https://bro.vip"] -->|"DNS: /etc/hosts"| B["127.0.0.1:443"]
   C["浏览器<br/>http://bro.vip"] -->|"DNS: /etc/hosts"| D["127.0.0.1:80"]
   B -->|"pf rdr"| E["127.0.0.1:7443<br/>TLS 监听"]
-  D -->|"pf rdr"| F["127.0.0.1:7777<br/>明文监听"]
+  D -->|"pf rdr"| F["127.0.0.1:7796<br/>明文监听"]
   E --> G["pmw 单进程"]
   F --> G
-  H["MCP / 本地脚本"] -->|"直连"| F
+  H["MCP / 本地脚本"] -->|"明文/直连（会被 pf 遮蔽）"| F
   I["mkcert 本地 CA<br/>(系统钥匙串)"] -.->|"签发 + 信任"| E
 ```
 
@@ -32,20 +32,45 @@ graph LR
 
 | 层 | 做什么 | 配置位置 |
 |---|---|---|
-| hosts | 把域名解析到 127.0.0.1 | `/etc/hosts` |
-| pf | 80 -> 7777、443 -> 7443 | `/etc/pf.anchors/broleez-local` |
-| pmw | 一个进程同时监听明文口与 TLS 口 | LaunchAgent 参数 |
+| hosts | 把域名解析到本机（IPv4 `127.0.0.1` + IPv6 `::1`，两族都要） | `/etc/hosts` |
+| pf | 80 -> 7796、443 -> 7443（旧常驻服务是 7777） | `/etc/pf.anchors/broleez-local` |
+| pmw | 一个进程同时监听明文口与 TLS 口 | `scripts/dev-instance.sh` 启动参数 |
 | mkcert | 签发证书并让系统信任签发它的 CA | 系统钥匙串 + `certs/` |
+
+**为什么 hosts 必须同时写 `::1`**：`bro.vip` 是真实公网域名，DNS 除了 A 记录还有 Cloudflare
+的 AAAA 记录。只写 `127.0.0.1 bro.vip` 时系统仍会把 AAAA 一起返回，浏览器优先连公网 IPv6，
+报的是 `ERR_ADDRESS_UNREACHABLE`（不是 `ERR_CONNECTION_REFUSED`，特别容易误判成服务没起）。
+把 `::1 bro.vip` 也写上，IPv6 这条路立刻失败并回落 IPv4，不会卡住。
 
 **为什么不让 pmw 直接监听 80/443**：1024 以下是特权端口，那要求整个进程以 root 跑。
 一个本地工具没必要拿 root。pf 重定向只把一条转发规则交给内核，进程本身仍是普通用户身份。
 
-**为什么一个进程开两个口**：7777 明文继续服务 MCP 和本地 curl 脚本（它们不需要 TLS，
+**为什么一个进程开两个口**：7796 明文继续服务 MCP 和本地 curl 脚本（它们不需要 TLS，
 也省得给每个脚本配 CA），7443 服务浏览器。同一个 handler、同一个数据库连接，不用起两份进程。
+
+## 日常启动：一条命令
+
+从零配好之后，平时（开机、`sudo pfctl -d` 调试完忘了开回来、手动停过实例）只需要：
+
+```bash
+./scripts/start-workbench.sh          # 启动/修复，复用现有二进制
+./scripts/start-workbench.sh --build  # 先重建前端与二进制再启动
+./scripts/start-workbench.sh --open   # 起来后顺手打开浏览器
+./scripts/start-workbench.sh --status # 只看现状，不改系统、不用 sudo
+```
+
+它按 hosts → pf → pmw（7796 明文 + 7443 TLS）→ 证书 的顺序逐层检查并修复，最后用
+`http/https://bro.vip/api/health` 给结论。需要 root 的只有 hosts/pf 那一步，脚本自己调
+`sudo`，会要一次密码；实例、数据文件仍是当前用户身份。
+
+默认复用现有 `bin/pmw-dev`，不自动重建——工作区经常有别的会话在改代码，自动重建可能把没
+写完的改动带上线；要让改动生效显式加 `--build`。旧的开机常驻服务（`vip.broleez.pmw`，
+指向旧库 `data/pm.db`、7777）会被停用，`--keep-legacy` 可保留。
 
 ## 从零配置
 
-按顺序执行。需要 root 的那几步已经标出来了。
+按顺序执行。需要 root 的那几步已经标出来了。已经配好、只是要拉起来的环境，用上面的
+「日常启动」，不用重跑本节。
 
 ### 0. 先构建
 
@@ -100,11 +125,13 @@ sudo ./scripts/setup-local-domain.sh
 
 做三件事：
 
-1. `/etc/hosts` 加 `127.0.0.1 broleez.vip` 和 `127.0.0.1 bro.vip`（原文件先备份）
+1. `/etc/hosts` 把域名指回本机，**`127.0.0.1` 和 `::1` 各写一条**：`127.0.0.1 broleez.vip`、
+   `::1 broleez.vip`、`127.0.0.1 bro.vip`、`::1 bro.vip`（原文件先备份；只写 IPv4 会出现下面
+   「典型症状」里的 `ERR_ADDRESS_UNREACHABLE`）
 2. 写 `/etc/pf.anchors/broleez-local`，两条规则：
 
    ```
-   rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 80  -> 127.0.0.1 port 7777
+   rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 80  -> 127.0.0.1 port 7796
    rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 443 -> 127.0.0.1 port 7443
    ```
 
@@ -116,7 +143,7 @@ sudo ./scripts/setup-local-domain.sh
 端口可以改。变量要写在 `sudo` **后面**，写在前面会被 sudo 清掉、脚本按默认的 7777 写规则：
 
 ```bash
-sudo PORT=7796 TLS_PORT=7443 ./scripts/setup-local-domain.sh
+sudo env PORT=7796 TLS_PORT=7443 ./scripts/setup-local-domain.sh
 ```
 
 当前生产是 7796（`scripts/dev-instance.sh` 起的），它在 `certs/` 有证书时会同时监听 7443 的 HTTPS，对外地址为 `https://bro.vip`。
@@ -147,11 +174,14 @@ curl -s  -o /dev/null -w '%{http_code}\n' https://broleez.vip/api/health
 三条都应该是 `200`。注意 HTTPS 那两条**不要**加 `-k`：不加 `-k` 还能通，才说明证书链真的
 被系统信任了，加了 `-k` 等于把要验证的东西跳过了。
 
+也可以直接跑 `./scripts/start-workbench.sh`：它启动实例、修域名链路，最后自己跑上面这三条。
+
 浏览器里打开 `https://bro.vip`，地址栏应该是正常的锁图标，没有「不安全」字样。
 
-## 已知副作用：7777 直连会被遮蔽
+## 已知副作用：直连监听端口会被遮蔽
 
-pf 的 rdr 规则生效后，**直接访问 `http://127.0.0.1:7777` 会连不上**。
+pf 的 rdr 规则生效后，**直接访问 pmw 的监听端口（当前 `127.0.0.1:7796` / `127.0.0.1:7443`，
+旧常驻服务是 7777）会连不上**。
 
 这不是 bug，是 pf 地址转换的工作方式：规则匹配的是 `to 127.0.0.1 port 80`，但 pf 在
 lo0 上做转换时会把去往该目的的连接一并纳入状态跟踪，结果就是原始端口被遮住。
@@ -160,16 +190,28 @@ lo0 上做转换时会把去往该目的的连接一并纳入状态跟踪，结�
 
 - 浏览器：`https://bro.vip`
 - 脚本 / curl：`http://bro.vip/api/health`
-- MCP：走域名或明文域名端口，不要写 `127.0.0.1:7777`
+- MCP：走域名或明文域名端口，不要写 `127.0.0.1:7796`
 
-要临时直连 7777 做调试，先关掉 pf：
+要临时直连做调试，先关掉 pf：
 
 ```bash
 sudo pfctl -d          # 临时关闭（重启或跑一次 LaunchDaemon 会恢复）
 sudo pfctl -e          # 用完开回来
 ```
 
+**关完记得开回来**——`sudo pfctl -d` 之后忘了 `-e`（或者重启后 LaunchDaemon 没跑起来），
+表现就是 `https://bro.vip` 打不开（`ERR_CONNECTION_REFUSED` / `ERR_ADDRESS_UNREACHABLE`）。
+拿不准就跑 `./scripts/start-workbench.sh`，它会把 pf 重新加载并启用。
+
 ## 常用排查
+
+先跑一条总览（不用 sudo）：
+
+```bash
+./scripts/start-workbench.sh --status
+```
+
+它会把证书、hosts 两族记录、7796/7443 监听、域名解析、http/https 健康检查、实例状态都列出来。
 
 ```bash
 # 看 pf 里当前生效的转发规则（没有输出就是 anchor 没加载）
@@ -179,11 +221,11 @@ sudo pfctl -a broleez-local -s nat
 sudo pfctl -s info | head -1
 
 # 看 pmw 进程状态与日志
-launchctl list | grep vip.broleez.pmw
-tail -50 logs/pmw.log
+launchctl list | grep vip.broleez.pmw     # 旧的 7777 常驻服务（已被 7796 实例取代）
+tail -50 data-dev/pmw.log
 
 # 确认两个端口真的在监听
-lsof -nP -iTCP -sTCP:LISTEN | grep -E '7777|7443'
+lsof -nP -iTCP -sTCP:LISTEN | grep -E '7796|7443'
 
 # 看证书覆盖了哪些域名、有没有过期
 openssl x509 -in certs/pmw.pem -noout -text | grep -A1 'Subject Alternative Name'
@@ -194,12 +236,13 @@ openssl x509 -in certs/pmw.pem -noout -dates
 
 | 症状 | 多半是 |
 |---|---|
-| `ERR_CONNECTION_REFUSED` on https | 443 没转发（pf 没加载），或 pmw 没带 TLS 参数 |
+| `ERR_ADDRESS_UNREACHABLE` on https | hosts 只写了 `127.0.0.1`，域名仍解析到公网 IPv6 AAAA；跑 `scripts/start-workbench.sh` 补 `::1` |
+| `ERR_CONNECTION_REFUSED` on https | 443 没转发（pf 没加载/被 `pfctl -d` 关了），或 pmw 没带 TLS 参数 |
 | 浏览器报「不安全 / NET::ERR_CERT_AUTHORITY_INVALID」 | `mkcert -install` 没跑过 |
 | `curl https://bro.vip` 报证书错但浏览器正常 | curl 用的是自己的 CA 库，不读系统钥匙串（macOS 自带 curl 会读，Homebrew 版可能不读） |
-| 重启后全挂 | pf LaunchDaemon 没装成功，重跑 `sudo ./scripts/setup-local-domain.sh` |
-| 直连 127.0.0.1:7777 连不上 | 正常，见上面「已知副作用」 |
-| pmw 反复崩溃重启 | 只给了 `--tls-cert` 没给 `--tls-key`（或反过来），pmw 会直接报错退出，看 `logs/pmw.log` |
+| 重启后全挂 | pf LaunchDaemon 没装成功，跑 `./scripts/start-workbench.sh` 或 `sudo ./scripts/setup-local-domain.sh` |
+| 直连 127.0.0.1:7796 / 7443 连不上 | 正常，见上面「已知副作用」 |
+| pmw 反复崩溃重启 | 只给了 `--tls-cert` 没给 `--tls-key`（或反过来），pmw 会直接报错退出，看 `data-dev/pmw.log` |
 
 ## pmw 的 TLS 相关参数
 

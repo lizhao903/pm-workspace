@@ -368,6 +368,8 @@ flowchart TB
 
 清单格式和全部扩展点见 [docs/plugin-api.md](docs/plugin-api.md)。
 
+**外部插件（P1-a，2026-11-13）**：第三方插件也可以不重编译安装——在 设置 → 插件 → 外部插件 里选 GitHub Release / 本地 tar.gz / 本地目录，安装后跑在独立子进程（`pmw-plugin-rpc/1`），前端用运行时 ESM 加载，权限逐项确认；默认允许安装，`--allow-external-plugins=false` 可整块关闭。规范见 [docs/plugin-spec-v2.md](docs/plugin-spec-v2.md)，开发者工具见 [plugin-sdk/](plugin-sdk/README.md)。升级/回滚、事件投递、高风险权限装后授权、市场索引发现已实现，社区索引仓库独立为 `pmw-plugins-index`；签名、WS 流、源码构建等属于后续阶段，尚未实现。
+
 ## 开发
 
 ### 跑起来
@@ -483,7 +485,11 @@ make test     # go test ./... -count=1
 | [AGENTS.md](AGENTS.md) | 项目要求（DSH 归属、检查与提交规范） |
 | [docs/system-overview.md](docs/system-overview.md) | 系统结构、功能关联、已打通的自动化链路、模块与代码位置 |
 | [docs/auto-delivery-flow.md](docs/auto-delivery-flow.md) | 需求到发布全自动化工作流、看板状态、原型回写旁路 |
-| [docs/plugin-api.md](docs/plugin-api.md) | 插件清单格式、扩展点、权限、生命周期 |
+| [docs/plugin-api.md](docs/plugin-api.md) | 插件清单格式、扩展点、权限、生命周期（第一方 API 1.x） |
+| [docs/plugin-community-plan.md](docs/plugin-community-plan.md) | 外部插件与社区协作方案：GitHub 安装、架构改造清单、路线图（草案） |
+| [docs/plugin-spec-v2.md](docs/plugin-spec-v2.md) | 外部插件规范 v2（草案）：包结构、清单、权限、RPC、前端契约、市场索引 |
+| [docs/plugin-developer-guide.md](docs/plugin-developer-guide.md) | 第三方插件开发者指南：上手、规范、五类 AI prompt、发布检查清单 |
+| [plugin-sdk/README.md](plugin-sdk/README.md) | 开发者 skill `pmw-plugin-builder`、模板与校验打包工具 |
 | [docs/api-contract.md](docs/api-contract.md) | REST API 契约，内核和各插件的接口 |
 | [docs/recording-transcription-requirements.md](docs/recording-transcription-requirements.md) | 录音转写的需求、验收口径与 M1–M6 里程碑 |
 | [docs/recording-transcription-design.md](docs/recording-transcription-design.md) | 录音转写设计与实现：转写队列、纪要、候选、声纹、系统音频、常驻 |

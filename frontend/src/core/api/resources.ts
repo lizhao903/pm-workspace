@@ -12,6 +12,9 @@ import type {
   ArtifactPatch,
   ArtifactStats,
   ArtifactsByObject,
+  ArtifactBranch,
+  ArtifactCommit,
+  ArtifactFile,
   ClaimInput,
   ClaimResult,
   Counts,
@@ -166,6 +169,14 @@ export const artifacts = {
     request<Artifact>('PATCH', `/api/artifacts/${seg(id)}`, { body: patch }),
   // 只删登记记录，不删磁盘文件和云端页面
   delete: (id: string) => request<null>('DELETE', `/api/artifacts/${seg(id)}`),
+  // 查看（DEV-08b 补）：只按产出物 id 读登记的位置，不传路径
+  file: (id: string, signal?: AbortSignal) => request<ArtifactFile>('GET', `/api/artifacts/${seg(id)}/file`, { signal }),
+  /** 分支产出物带 sha 看分支上的某个提交；提交产出物不传 */
+  commit: (id: string, sha?: string, signal?: AbortSignal) =>
+    request<ArtifactCommit>('GET', `/api/artifacts/${seg(id)}/commit`, { query: sha ? new URLSearchParams({ sha }) : undefined, signal }),
+  branch: (id: string, signal?: AbortSignal) => request<ArtifactBranch>('GET', `/api/artifacts/${seg(id)}/branch`, { signal }),
+  /** 用本机默认应用打开，reveal 为 true 时在访达中显示 */
+  open: (id: string, reveal = false) => request<{ path: string; reveal: boolean }>('POST', `/api/artifacts/${seg(id)}/open`, { body: { reveal } }),
 }
 
 function runPromptQuery(p: RunPromptParams): URLSearchParams {

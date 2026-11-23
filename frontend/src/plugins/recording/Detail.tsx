@@ -4,6 +4,8 @@
 // 可编辑的转写全文（防抖自动保存）、标题行内重命名、说话人（改名/绑定联系人/重新识别）、
 // 纪要（Markdown/结论/图表 + 生成/SOP）、待确认候选（确认建任务/忽略）、文件清单与下载。
 // 状态/转写/纪要/说话人进度、失败原因、重新转写、删除；导出/归档/搜索是 M3，不放无功能的按钮。
+// 11-20 改两栏：左栏纪要、待你确认、说话人、文件（窄屏排在前面），右栏吸顶的播放器 + 段落/全文切换；
+// 播放时当前段落高亮并在段落栏里跟着滚，用户刚滚过段落栏 4 秒内不抢。
 import { useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import {
@@ -17,12 +19,15 @@ import { InlineRename } from './Rename'
 import { SpeakersSection } from './Speakers'
 import { TodosSection } from './Todos'
 import {
-  clampPct, fmtDuration, jobText, minutesThreshold, recordingPath, speakerColor, speakerDisplayName, speakerMap,
+  activeSegment, clampPct, fmtDuration, jobText, minutesThreshold, recordingPath, speakerColor, speakerDisplayName, speakerMap,
   statusText, statusTone,
 } from './model'
 import './recording.css'
 
 const SAVE_MS = 800
+const FOLLOW_HOLD_MS = 4000
+const EMPTY_SEGS: Recording['segments'] = []
+
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
@@ -51,6 +56,27 @@ export function Detail() {
   const serverText = recording?.transcript ?? ''
   const value = draft ?? serverText
   const dirty = draft !== null && draft !== serverText
+
+  // 右栏「段落 / 转写全文」：没选过时有段落看段落，没有看全文
+  const [tabPick, setTab] = useState<'segs' | 'text' | null>(null)
+  const segments = recording?.segments ?? EMPTY_SEGS
+  const tab = segments.length ? (tabPick ?? 'segs') : 'text'
+  // 播放联动：播放位置对应的段落高亮，并在段落栏里滚到可见处；用户刚滚过段落栏时 4 秒内不抢滚动
+  const [playMs, setPlayMs] = useState(-1)
+  const activeIdx = playMs < 0 ? -1 : activeSegment(segments, playMs)
+  const segsRef = useRef<HTMLOListElement>(null)
+  const holdUntil = useRef(0)
+  const holdFollow = () => { holdUntil.current = Date.now() + FOLLOW_HOLD_MS }
+  useEffect(() => {
+    const box = segsRef.current
+    if (activeIdx < 0 || !box || Date.now() < holdUntil.current) return
+    const el = box.querySelector<HTMLElement>(`[data-seg="${activeIdx}"]`)
+    if (!el) return
+    const top = el.offsetTop
+    if (top < box.scrollTop || top + el.offsetHeight > box.scrollTop + box.clientHeight) {
+      box.scrollTop = Math.max(0, top - box.clientHeight / 3)
+    }
+  }, [activeIdx, tab])
 
   // 停手 800 毫秒自动保存；失焦立刻保存（flushSave 会先清掉定时器）
   useEffect(() => {
@@ -107,7 +133,9 @@ export function Detail() {
     const a = audioRef.current
     if (!a) return
     a.currentTime = Math.max(0, ms) / 1000
-    void a.play().catch(() => { /* 被自动播放策略拦下时停在定位处，用户再点播放 */ })
+    setPlayMs(Math.max(0, ms))
+    holdUntil.current = 0
+    void a.play()?.catch(() => { /* 被自动播放策略拦下时停在定位处，用户再点播放 */ })
   }
 
   if (!id) {
@@ -216,55 +244,73 @@ export function Detail() {
         </div>
       )}
 
-      <section className="rec-section">
-        <div className="rec-section-title">音频</div>
-        {r.has_audio ? (
-          <audio ref={audioRef} className="rec-audio" controls preload="metadata" src={recordingAudioUrl(r.id)} />
-        ) : <span className="rec-faint">这条录音没有音频文件</span>}
-      </section>
-
-      {r.segments.length > 0 && (
-        <section className="rec-section">
-          <div className="rec-section-title">段落<span className="rec-faint">点一段跳到音频对应位置</span></div>
-          <ol className="rec-segs">
-            {r.segments.map((seg) => {
-              const spk = seg.speaker ? spkMap.get(seg.speaker) : undefined
-              return (
-                <li key={seg.seq}>
-                  <button type="button" className="rec-seg" onClick={() => seek(seg.start_ms)}>
-                    <span className="rec-seg-t">{fmtDuration(seg.start_ms)}</span>
-                    {spk ? (
-                      <span className="rec-seg-spk" style={{ color: speakerColor(spk.label), borderColor: speakerColor(spk.label) }}>
-                        {speakerDisplayName(spk)}
-                      </span>
-                    ) : null}
-                    <span className="rec-seg-x">{seg.text}</span>
-                  </button>
-                </li>
-              )
-            })}
-          </ol>
-        </section>
-      )}
-
-      <section className="rec-section">
-        <div className="rec-section-title">
-          <span>转写全文</span>
-          <span className={cls('rec-save', saveState === 'error' && 'bad')} role="status">
-            {saveState === 'saving' ? '保存中…' : saveState === 'saved' ? '已保存' : saveState === 'error' ? `保存失败：${saveError}` : ''}
-          </span>
+      {/* 两栏：左边纪要、待你确认、说话人、文件（窄屏排在前面）；右边播放器 + 段落/全文，桌面吸顶，段落在栏内滚动 */}
+      <div className="rec-detail">
+        <div className="rec-detail-main">
+          <MinutesSection r={r} />
+          <TodosSection r={r} threshold={threshold} />
+          <SpeakersSection r={r} />
+          <FilesSection id={r.id} active={busyJob} revision={`${r.status}:${r.updated_at}`} />
         </div>
-        <Textarea className="rec-transcript" aria-label="转写全文" rows={10} value={value}
-          placeholder="还没有转写文本；转写完成后会出现在这里，也可以直接粘贴或修改"
-          onChange={(e) => { setDraft(e.target.value); setSaveState('idle'); setSaveError('') }}
-          onBlur={flushSave} />
-        <div className="rec-section-hint">失焦或停手 0.8 秒自动保存。段落是转写原文，改全文不会改原始时间戳。</div>
-      </section>
 
-      <SpeakersSection r={r} />
-      <MinutesSection r={r} />
-      <TodosSection r={r} threshold={threshold} />
-      <FilesSection id={r.id} active={busyJob} revision={`${r.status}:${r.updated_at}`} />
+        <aside className="rec-detail-side" aria-label="音频与转写">
+          <div className="rec-player">
+            {r.has_audio ? (
+              <audio ref={audioRef} className="rec-audio" controls preload="metadata" src={recordingAudioUrl(r.id)}
+                onTimeUpdate={(e) => setPlayMs(e.currentTarget.currentTime * 1000)}
+                onSeeked={(e) => setPlayMs(e.currentTarget.currentTime * 1000)} />
+            ) : <span className="rec-faint">这条录音没有音频文件</span>}
+          </div>
+
+          <div className="rec-tabs" role="tablist" aria-label="转写视图">
+            <button type="button" role="tab" aria-selected={tab === 'segs'} className={cls('rec-tab', tab === 'segs' && 'on')}
+              disabled={!r.segments.length} title={r.segments.length ? undefined : '还没有段落'} onClick={() => setTab('segs')}>
+              段落{r.segments.length ? <span className="rec-faint"> {r.segments.length}</span> : null}
+            </button>
+            <button type="button" role="tab" aria-selected={tab === 'text'} className={cls('rec-tab', tab === 'text' && 'on')}
+              onClick={() => setTab('text')}>
+              转写全文
+            </button>
+            <span className={cls('rec-save', saveState === 'error' && 'bad')} role="status">
+              {saveState === 'saving' ? '保存中…' : saveState === 'saved' ? '已保存' : saveState === 'error' ? `保存失败：${saveError}` : ''}
+            </span>
+          </div>
+
+          {tab === 'segs' ? (
+            <>
+              <ol ref={segsRef} className="rec-segs" aria-label="段落" onWheel={holdFollow} onTouchMove={holdFollow}>
+                {r.segments.map((seg, i) => {
+                  const spk = seg.speaker ? spkMap.get(seg.speaker) : undefined
+                  const on = i === activeIdx
+                  return (
+                    <li key={seg.seq} data-seg={i}>
+                      <button type="button" className={cls('rec-seg', on && 'on')} aria-current={on ? 'true' : undefined}
+                        onClick={() => seek(seg.start_ms)}>
+                        <span className="rec-seg-t">{fmtDuration(seg.start_ms)}</span>
+                        {spk ? (
+                          <span className="rec-seg-spk" style={{ color: speakerColor(spk.label), borderColor: speakerColor(spk.label) }}>
+                            {speakerDisplayName(spk)}
+                          </span>
+                        ) : null}
+                        <span className="rec-seg-x">{seg.text}</span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ol>
+              <div className="rec-section-hint">点一段跳到那里播放；播放时当前段落高亮并跟着滚动。</div>
+            </>
+          ) : (
+            <>
+              <Textarea className="rec-transcript" aria-label="转写全文" rows={14} value={value}
+                placeholder="还没有转写文本；转写完成后会出现在这里，也可以直接粘贴或修改"
+                onChange={(e) => { setDraft(e.target.value); setSaveState('idle'); setSaveError('') }}
+                onBlur={flushSave} />
+              <div className="rec-section-hint">失焦或停手 0.8 秒自动保存。段落是转写原文，改全文不会改原始时间戳。</div>
+            </>
+          )}
+        </aside>
+      </div>
 
       <ConfirmDialog open={confirmRetranscribe} title="重新转写这条录音？" confirmLabel="重新转写" busy={retranscribe.isPending}
         onCancel={() => setConfirmRetranscribe(false)} onConfirm={doRetranscribe}>

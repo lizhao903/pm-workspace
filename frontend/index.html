@@ -5,6 +5,20 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
+    <!--
+      外部插件（P1-a）的 import map：插件 bundle 把 React 系列做成 external，运行期由这里解析到
+      宿主构建产物 pmw-external-react.js（同一个构建、同一份 React 实例）。必须在任何 module 脚本之前。
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "/pmw-external-react.js",
+          "react-dom": "/pmw-external-react.js",
+          "react-dom/client": "/pmw-external-react.js",
+          "react/jsx-runtime": "/pmw-external-react.js"
+        }
+      }
+    </script>
     <title>一人之下</title>
   </head>
   <body>

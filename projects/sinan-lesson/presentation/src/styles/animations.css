@@ -1,0 +1,161 @@
+/* ─────────────────────────────────────────────────────────────────────
+ * animations.css — generic, theme-agnostic motion vocabulary.
+ *
+ * All durations / easings come from the active theme's tokens.
+ * ───────────────────────────────────────────────────────────────────── */
+
+/* MaskReveal — clip-path text wipe (left → right).
+ * 用 animation 而不是 transition：元素挂载时就带着 .in，transition 不会触发
+ * （v1.15 及以前的写法文字是直接出现的，没有擦出效果）。 */
+.mask-reveal {
+  clip-path: inset(0 100% 0 0);
+}
+.mask-reveal.in {
+  animation: mask-reveal 700ms var(--ease-quart) both;
+}
+@keyframes mask-reveal {
+  from { clip-path: inset(0 100% 0 0); }
+  to   { clip-path: inset(0 0 0 0); }
+}
+
+/* Hairline rule grow — scaleX from 0 → 1, transform-origin: left（同上，用 animation） */
+.rule-grow {
+  transform: scaleX(0);
+  transform-origin: left;
+}
+.rule-grow.in {
+  animation: rule-grow var(--dur-cinematic) var(--ease-expo) both;
+}
+@keyframes rule-grow {
+  from { transform: scaleX(0); }
+  to   { transform: scaleX(1); }
+}
+
+/* Generic vertical rise + opacity (small UI labels, captions) */
+@keyframes rise-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Scale-in with overshoot (use for stamp / badge / accent moment) */
+@keyframes scale-in {
+  0%   { opacity: 0; transform: scale(0.8); }
+  60%  { opacity: 1; transform: scale(1.04); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+/* Pop with overshoot ease (more spring) */
+@keyframes pop-in {
+  0%   { opacity: 0; transform: scale(0.6) rotate(-2deg); }
+  100% { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+/* Caret blink (bounded — for use INSIDE a sized animation) */
+@keyframes caret-blink {
+  50% { opacity: 0; }
+}
+
+/* Slow-pulse halo (rings, notifications) */
+@keyframes pulse-halo {
+  0%   { opacity: 0.6; transform: scale(0.9); }
+  70%  { opacity: 0;   transform: scale(1.6); }
+  100% { opacity: 0;   transform: scale(1.6); }
+}
+
+/* Letter stagger (use with .letter-stagger > .letter, set --i: 0..n) */
+.letter-stagger > .letter {
+  display: inline-block;
+  opacity: 0;
+  transform: translateY(40px) scale(0.85);
+  animation: letter-rise var(--dur-slow) var(--ease-expo) forwards;
+  animation-delay: calc(var(--i, 0) * 60ms);
+}
+@keyframes letter-rise {
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ─────────────────────────────────────────────────────────────────────
+ * v1.16 镜头语言原语。分工见 references/CHAPTER-CRAFT.md Part 3：
+ *   入场（出现）· 强调（已在屏上的东西被点到）· 退场（让位）· 转场（换景）
+ * 跟口播走的时刻一律用提示点：style={{ animationDelay: cue.delay("x") }}，
+ * 不要手填秒数。所有动画都是 CSS animation / transition，逐帧渲染器可以拨到
+ * 任意一帧（render-video-frames.mjs 动态模式）。
+ * ───────────────────────────────────────────────────────────────────── */
+
+/* 转场 · 章节入场：换章时整屏轻微推入，替代硬切（App.tsx 给 .scene 加 .scene-enter） */
+.scene-enter {
+  animation: scene-enter var(--dur-slow) var(--ease-quart) both;
+}
+@keyframes scene-enter {
+  from { opacity: 0; transform: scale(1.015); filter: blur(6px); }
+  to   { opacity: 1; transform: none; filter: none; }
+}
+
+/* 入场 · 从下往上擦出（竖屏主轴是 Y，竖屏优先用它代替左右 wipe） */
+.wipe-up {
+  clip-path: inset(100% 0 0 0);
+  animation: wipe-up var(--dur-slow) var(--ease-quart) both;
+}
+@keyframes wipe-up {
+  to { clip-path: inset(0 0 0 0); }
+}
+
+/* 入场 · 失焦到清晰（安静的金句、引用） */
+.blur-in {
+  animation: blur-in var(--dur-cinematic) var(--ease-soft) both;
+}
+@keyframes blur-in {
+  from { opacity: 0; filter: blur(14px); letter-spacing: 0.08em; }
+  to   { opacity: 1; filter: none; }
+}
+
+/* 入场 · SVG 线条自绘：给 path 设 pathLength="1" */
+.draw-line {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: draw-line var(--dur-cinematic) var(--ease-soft) forwards;
+}
+@keyframes draw-line {
+  to { stroke-dashoffset: 0; }
+}
+
+/* 强调 · 推近一下（镜头 punch-in）：数字落地、关键词被点名 */
+.punch-in {
+  animation: punch-in 700ms var(--ease-overshoot) both;
+}
+@keyframes punch-in {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.08); }
+  100% { transform: scale(1.04); }
+}
+
+/* 强调 · 荧光笔扫过：<mark className="hl-sweep">…</mark> */
+.hl-sweep {
+  color: inherit;
+  background: linear-gradient(var(--accent-soft), var(--accent-soft)) no-repeat 0 85% / 0% 0.42em;
+  animation: hl-sweep 800ms var(--ease-quart) forwards;
+}
+@keyframes hl-sweep {
+  to { background-size: 100% 0.42em; }
+}
+
+/* 强调 · 逐项揭示时的上下文降噪：讲到 Y，X 退到背景 */
+.focus-dim {
+  opacity: 0.32;
+  filter: saturate(0.4);
+  transition: opacity var(--dur-base) var(--ease-soft), filter var(--dur-base) var(--ease-soft);
+}
+
+/* 退场 · 持续存在的元素让位（同一棵树里切 class，不是卸载） */
+.fade-out {
+  animation: fade-out var(--dur-base) var(--ease-soft) forwards;
+}
+@keyframes fade-out {
+  to { opacity: 0; transform: translateY(-12px); }
+}
+.shrink-out {
+  animation: shrink-out var(--dur-base) var(--ease-quart) forwards;
+}
+@keyframes shrink-out {
+  to { opacity: 0; transform: scale(0.92); }
+}

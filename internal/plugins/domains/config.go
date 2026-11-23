@@ -82,11 +82,17 @@ func upstream(s Settings, e entry) (string, bool) {
 	return "", false
 }
 
-// hostsLines 是要追加进 /etc/hosts 的内容：注释行加每个域名一行（地址和域名之间是制表符，同脚本）。
+// hostsLines 是要追加进 /etc/hosts 的内容：注释行加每个域名的解析行（地址和域名之间是制表符，同脚本）。
+// 解析到本机时每个域名写两条：127.0.0.1 和 ::1——bro.vip 这类真实公网域名在 DNS 上还有 AAAA 记录，
+// 只写 IPv4 时浏览器会优先连公网 IPv6，报 ERR_ADDRESS_UNREACHABLE（同 setup-local-domain.sh）。
+// 局域网访问指到 lan_ip 时只写这一条。
 func hostsLines(s Settings, es []entry) []string {
 	lines := []string{hostsHeader}
 	for _, e := range es {
 		lines = append(lines, s.ip()+"\t"+e.fqdn)
+		if !s.LAN {
+			lines = append(lines, "::1\t"+e.fqdn)
+		}
 	}
 	return lines
 }

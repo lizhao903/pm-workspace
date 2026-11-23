@@ -1,0 +1,43 @@
+{
+  "manifest_version": 2,
+  "id": "{{PMW_ID}}",
+  "name": "{{PMW_NAME}}",
+  "description": "{{PMW_DESCRIPTION}}",
+  "version": "{{PMW_VERSION}}",
+  "api": ">=2.0.0 <3.0.0",
+  "pmw": ">=0.3.0 <1.0.0",
+  "license": "MIT",
+  "homepage": "https://github.com/{{PMW_OWNER}}/pmw-plugin-{{PMW_ID}}",
+  "repository": "https://github.com/{{PMW_OWNER}}/pmw-plugin-{{PMW_ID}}",
+  "publisher": {
+    "id": "github:{{PMW_OWNER}}"
+  },
+  "icon": "assets/icon.svg",
+  "provides": {
+    "modules": ["{{PMW_ID}}"],
+    "settings": ["{{PMW_ID}}"],
+    "today_cards": ["{{PMW_ID}}_tip"],
+    "commands": ["{{PMW_ID}}.say_hi"]
+  },
+  "permissions": ["objects:read", "notify"],
+  "permissions_reason": {
+    "objects:read": "在模块页和今日卡片里展示最近对象标题，作为只读示例",
+    "notify": "点「打个招呼」按钮时发一条演示通知"
+  },
+  "runtime": {
+    "backend": {
+      "kind": "process",
+      "protocol": "pmw-plugin-rpc/1",
+      "entry": {
+        "darwin-arm64": "bin/{{PMW_ID}}-darwin-arm64",
+        "linux-amd64": "bin/{{PMW_ID}}-linux-amd64",
+        "windows-amd64": "bin/{{PMW_ID}}-windows-amd64.exe"
+      },
+      "health_timeout_ms": 10000
+    },
+    "web": {
+      "entry": "web/entry.js",
+      "styles": ["web/style.css"]
+    }
+  }
+}

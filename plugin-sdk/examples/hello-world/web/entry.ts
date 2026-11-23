@@ -1,0 +1,260 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
+/**
+ * PMW 外部插件前端入口（清单 v2 / 宿主 API 2.0.0，草案）。
+ *
+ * 宿主怎么加载：import() 加载 '/api/plugins/external/<id>/web/<web_entry>?v=<version>'（带版本号破缓存），
+ * 本模块在求值时执行 window.__PMW_PLUGIN__.register({ id, api, activate, deactivate })。
+ * 宿主校验 api 兼容后才调用 activate(ctx)；停用时调用 deactivate() 并卸载模块。
+ *
+ * 硬约束（详见 references/frontend.md）：
+ *   - 不自带 React：'react' 由宿主 import map 映射到同一份 React 19；
+ *   - CSS 只能写在 [data-pmw-plugin="<id>"] 作用域下，不改宿主全局样式；
+ *   - 不往 document.body 追加第二个应用，不 eval / new Function，不加载远程脚本；
+ *   - 注册的 id 必须和 plugin.json 的 provides 一致。
+ *
+ * 说明：本文件是 .ts 扩展名，但只使用 JavaScript 语法子集（类型走 JSDoc），
+ * 这样零构建依赖也能作为 ESM 直接运行；需要完整 TS 时再接 esbuild/tsc。
+ */
+
+import { Component, createElement as h, useEffect, useState } from "react";
+
+const PLUGIN_ID = "hello_world";
+const PLUGIN_NAME = "Hello World";
+const API_RANGE = ">=2.0.0 <3.0.0";
+
+/** 注册时返回的清理函数，deactivate 里统一 dispose。 @type {Array<{dispose?: () => void}>} */
+const disposables = [];
+
+/** 当前插件的 ctx，activate 时赋值；组件只通过它访问宿主能力。 @type {any} */
+let ctxRef = null;
+
+/**
+ * 错误边界：每个注册的组件各自包一层，插件界面异常不能影响外壳。
+ * @type {any}
+ */
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    // 只写 console，不弹宿主级提示；宿主会收到错误边界上报。
+    console.error("[pmw-plugin] 组件异常", PLUGIN_ID, error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      const message = String((this.state.error && this.state.error.message) || this.state.error);
+      return h(
+        "div",
+        { className: "pmw-plugin pmw-plugin-error", role: "alert" },
+        h("strong", null, "这个插件界面出错了"),
+        h("p", null, message),
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/** 用错误边界包一层。 @param {any} Inner @returns {any} */
+function guarded(Inner) {
+  return function Guarded(props) {
+    return h(ErrorBoundary, null, h(Inner, props));
+  };
+}
+
+/** 模块页：provides.modules 里的 hello_world。 */
+function ModulePage() {
+  const [items, setItems] = useState([]);
+  const [hint, setHint] = useState("正在读取最近对象…");
+
+  useEffect(function () {
+    let alive = true;
+    const ctx = ctxRef;
+    if (!ctx) return function () {};
+    if (!ctx.permissions.has("objects:read")) {
+      setHint("没有 objects:read 权限，列表示例不可用（这是正常降级）。");
+      return function () {};
+    }
+    ctx.host
+      .call("host.objects.list", { limit: 5 })
+      .then(function (res) {
+        if (!alive) return;
+        const list = Array.isArray(res && res.items) ? res.items : [];
+        setItems(list);
+        setHint(list.length ? "" : "宿主里还没有对象。");
+      })
+      .catch(function (err) {
+        if (alive) setHint("读取对象失败：" + String((err && err.message) || err));
+      });
+    return function () {
+      alive = false;
+    };
+  }, []);
+
+  return h(
+    "div",
+    { className: "pmw-plugin pmw-plugin-module" },
+    h("header", { className: "pmw-plugin-header" },
+      h("h2", null, PLUGIN_NAME),
+      h("p", null, "这是外部插件示例模块页，数据通过 ctx.host.call 从宿主 API 读取。"),
+    ),
+    hint ? h("p", { className: "pmw-plugin-hint" }, hint) : null,
+    h(
+      "ul",
+      { className: "pmw-plugin-list" },
+      items.map(function (it) {
+        return h("li", { key: it.id || it.title }, h("span", null, it.title || "(无标题)"));
+      }),
+    ),
+    h(
+      "button",
+      { className: "pmw-plugin-button", type: "button", onClick: greet },
+      "在今日卡片里打个招呼",
+    ),
+  );
+}
+
+/** 设置分节：provides.settings 里的 hello_world。 */
+function SettingsSection() {
+  const [enabled, setEnabled] = useState(true);
+  const [saved, setSaved] = useState("");
+
+  useEffect(function () {
+    const ctx = ctxRef;
+    if (!ctx) return;
+    ctx.host
+      .call("host.settings.get", { key: "greet_on_open" })
+      .then(function (res) {
+        if (res && typeof res.value === "boolean") setEnabled(res.value);
+      })
+      .catch(function () {
+        /* 宿主 P1 未实现时忽略，用默认值 */
+      });
+  }, []);
+
+  function toggle() {
+    const next = !enabled;
+    setEnabled(next);
+    const ctx = ctxRef;
+    if (!ctx) return;
+    ctx.host
+      .call("host.settings.set", { key: "greet_on_open", value: next })
+      .then(function () {
+        setSaved("已保存");
+      })
+      .catch(function (err) {
+        setSaved("保存失败：" + String((err && err.message) || err));
+      });
+  }
+
+  return h(
+    "section",
+    { className: "pmw-plugin pmw-plugin-settings" },
+    h("h3", null, PLUGIN_NAME + " 设置"),
+    h(
+      "label",
+      { className: "pmw-plugin-check" },
+      h("input", { type: "checkbox", checked: enabled, onChange: toggle }),
+      " 启用问候提示",
+    ),
+    saved ? h("p", { className: "pmw-plugin-hint" }, saved) : null,
+  );
+}
+
+/** 今日卡片：provides.today_cards 里的 hello_world_tip。 */
+function TodayCard() {
+  const [summary, setSummary] = useState("今天也要好好工作。");
+
+  useEffect(function () {
+    let alive = true;
+    const ctx = ctxRef;
+    if (!ctx || !ctx.permissions.has("objects:read")) return function () {};
+    ctx.host
+      .call("host.objects.list", { limit: 3 })
+      .then(function (res) {
+        if (!alive) return;
+        const n = Array.isArray(res && res.items) ? res.items.length : 0;
+        if (n > 0) setSummary("最近有 " + n + " 个对象在等你处理。");
+      })
+      .catch(function () {});
+    return function () {
+      alive = false;
+    };
+  }, []);
+
+  return h(
+    "div",
+    { className: "pmw-plugin pmw-plugin-card" },
+    h("h4", null, PLUGIN_NAME),
+    h("p", null, summary),
+    h(
+      "button",
+      { className: "pmw-plugin-button", type: "button", onClick: greet },
+      "打个招呼",
+    ),
+  );
+}
+
+/** 用插件自己的名义发通知（需要清单声明 notify 权限）。 */
+function greet() {
+  const ctx = ctxRef;
+  if (!ctx) return;
+  ctx.notify({
+    level: "info",
+    title: PLUGIN_NAME,
+    body: "你好！这条通知来自 PMW 外部插件示例。",
+  });
+}
+
+/** 命令面板动作：provides.commands 里的 hello_world.say_hi。 */
+function runSayHi() {
+  const ctx = ctxRef;
+  if (!ctx) return;
+  greet();
+}
+
+/**
+ * 入口。宿主校验 api 范围后调用 activate；停用时调用 deactivate。
+ * 所有注册返回 disposable，deactivate 统一清理（宿主也会按插件 id 兜底撤销）。
+ */
+window.__PMW_PLUGIN__.register({
+  id: PLUGIN_ID,
+  api: API_RANGE,
+
+  activate(ctx) {
+    ctxRef = ctx;
+    disposables.push(
+      ctx.slots.register("module", { id: PLUGIN_ID, title: PLUGIN_NAME }, guarded(ModulePage)),
+      ctx.slots.register(
+        "settings.section",
+        { id: PLUGIN_ID, title: PLUGIN_NAME + " 设置" },
+        guarded(SettingsSection),
+      ),
+      ctx.slots.register(
+        "today.card",
+        { key: PLUGIN_ID + "_tip", title: PLUGIN_NAME + " 提示" },
+        guarded(TodayCard),
+      ),
+      ctx.slots.register("command", { id: PLUGIN_ID + ".say_hi", title: "打个招呼", run: runSayHi }),
+    );
+  },
+
+  deactivate() {
+    for (const d of disposables) {
+      try {
+        if (d && typeof d.dispose === "function") d.dispose();
+      } catch (err) {
+        console.warn("[pmw-plugin] dispose 失败", err);
+      }
+    }
+    disposables.length = 0;
+    ctxRef = null;
+  },
+});

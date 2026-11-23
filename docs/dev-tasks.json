@@ -6135,5 +6135,27 @@
     ],
     "body": "【任务来源】第四十四批决策记录：IM-06 后台拉取和工作台回复同时发生时可能记两次，未处理。用户 2026-10-31 说「把这个项目待办安排处理」，主会话据此补做。\n\n## 要做什么\n\n- 工作台回复发出后、落库前，拉取或回调把本人这条当「本人发的」先记了：回复落库后清掉同会话同编号的那条，以回复为准。\n- recordSelf 查重和插入合成一条语句，按同渠道、同连接器、同会话圈（外部编号只在会话内唯一）。\n- 不加唯一索引、不加迁移。im 升 0.7.1。",
     "acceptance": "- [ ] 假 Slack 在 chat.postMessage 返回前经回调推回本人消息，回复只记一条\n- [ ] 原有本人身份测试照过\n- [ ] gofmt、go vet、go test ./... 通过"
+  },
+  {
+    "key": "VID-10",
+    "type": "task",
+    "title": "素材收件箱从 GitHub 拉版本更新，做版本更新说明视频",
+    "milestone": "M5",
+    "module": "fullstack",
+    "priority": "P2",
+    "estimate": "M",
+    "depends_on": [
+      "VID-08a",
+      "VID-08c"
+    ],
+    "workdir": ".",
+    "spec": [
+      "docs/plugin-api.md 3.1 权限清单 network:github、NetworkHosts 的 github 组",
+      "docs/plugin-manifest-v2.schema.json permissions / permissions_reason 的枚举与 if-then",
+      "web-next/docs/spec/videos.md SPEC-videos-4 素材收件箱",
+      "docs/api-contract.md「选题和素材箱（VID-08a）」"
+    ],
+    "body": "【任务来源】用户 2026-11-16 要求「素材收集箱增加从 github 拉取项目的更新信息，记录版本更新内容，做版本更新说明视频使用」。\n\n## 要做什么\n\n- 内核新增出网组 `github`（只 `api.github.com`）与权限 `network:github`（普通级别，安装/升级时确认）；`NetworkHosts`、权限清单、清单 schema 同步。\n- 视频插件升到 0.10.0：`permissions` 加 `network:github`；素材 kind 加 `release`（标签「版本更新」）；新增 `POST /api/video/clips/github`，body `{repo, limit?, include_prerelease?}`，回 `data: VideoClip[]` + `meta: {repo, added, duplicates, releases, skipped}`。\n- 拉取：只拉公开仓库的 Release（匿名 API，每小时 60 次限流），一条 Release 落一条素材，标题取 `tag_name`（`name` 不空且不同时拼「tag_name name」）、内容用 Release 说明原文；预发布默认不拉，`include_prerelease` 可选；`limit` 默认 30、1 到 100，直接当 `per_page`。\n- 去重：复用 `video_clips.remote_id`，按 `remote_id = github:owner/repo:tag_name` 去重，不加迁移。\n- 前端素材收件箱加「拉取 GitHub 更新」按钮和面板（仓库、条数、包含预发布版本），收进来的素材可照常「转为选题」做版本更新说明视频。\n\n## 不做什么\n\n- 不做 GitHub token、私有仓库、自动发布；也不收仓库代码、commit、Issue，只做 Release 版本更新。\n- 不加内核或插件迁移，不新建表、不改 `video_clips` 表结构。\n- 不碰 `network:any`，不扩其他出网组域名。\n\n## 注意事项\n\n- 域名清单与权限枚举以 `docs/plugin-api.md` 3.1 和 `docs/plugin-manifest-v2.schema.json` 为准；改权限要同步 `docs/plugin-spec-v2.md`、`docs/plugin-developer-guide.md`、plugin-sdk 的权限表和 `pmw_plugin.py`，两份 `pmw_plugin.py` 必须逐字节一致。\n- `docs/api-contract.md` 与 `docs/plugin-manifest.schema.json` 由契约任务统一改，不要并行动。\n- 插件只走 `plugin.Core` 的句柄出网（`Core.HTTP(\"github\")`），不用 `http.DefaultClient`；每一跳按域名清单校验。\n- 拉取失败（仓库不存在、限流、权限没确认）要回明确错误、界面原样给用户看；限流是每小时 60 次，不要重试风暴。\n- 验证用测试实例或假服务端，不碰真实库；前端只连测试实例，不重启 7777。",
+    "acceptance": "- [ ] Go 测试覆盖：`github` 出网组只放行 `api.github.com`、权限未确认时拉取失败、按 `remote_id = github:owner/repo:tag_name` 去重、预发布默认跳过、`meta` 的 added/duplicates/releases/skipped 正确\n- [ ] 前端测试覆盖：素材收件箱「拉取 GitHub 更新」面板（仓库、条数、包含预发布版本）与 `release` 素材的展示、转为选题\n- [ ] 契约文档：`docs/api-contract.md` 写明 `POST /api/video/clips/github` 的 body 与 `data`/`meta`；权限文档（`docs/plugin-api.md`、`docs/plugin-spec-v2.md`、`docs/plugin-developer-guide.md`）和 schema 枚举含 `network:github`\n- [ ] `python3 -m json.tool docs/plugin-manifest-v2.schema.json`、`python3 -m json.tool docs/dev-tasks.json` 通过；两份 `pmw_plugin.py` `diff -q` 一致\n- [ ] gofmt、go vet、`go test ./...` 通过，前端 `tsc --noEmit` 通过"
   }
 ]

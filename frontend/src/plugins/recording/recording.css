@@ -216,6 +216,9 @@
   .rec-row-tags { flex-basis: 100%; }
   .rec-file-time { display: none; }
   .rec-section-actions { margin-left: 0; flex-basis: 100%; }
+  /* 窄屏标题行换行：标题词不被说明挤成竖排 */
+  .rec-section-title { flex-wrap: wrap; row-gap: var(--sp-2); }
+  .rec-section-title > span:first-child { flex: none; white-space: nowrap; }
   .rec-rename-input { width: 180px; }
 }
 
@@ -286,4 +289,31 @@
 @media (max-width: 560px) {
   .rec-status { max-width: calc(100vw - 24px); padding-left: 10px; }
   .rec-status-text { display: none; }
+}
+
+/* ---------- 详情两栏（11-20）：左栏纪要和待办，右栏播放器 + 段落/全文，右栏桌面吸顶 ---------- */
+.rec-detail { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 0.9fr); gap: var(--sp-6, 24px); align-items: start; }
+.rec-detail-main { display: flex; flex-direction: column; gap: var(--sp-5); min-width: 0; }
+.rec-detail-side {
+  position: sticky; top: var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-3); min-width: 0;
+  max-height: calc(100dvh - 2 * var(--sp-4) - 56px);
+}
+.rec-detail-side .rec-audio { max-width: none; }
+.rec-player { flex: none; }
+.rec-tabs { display: flex; align-items: center; gap: var(--sp-2, 4px); border-bottom: 1px solid var(--line); flex: none; }
+.rec-tab { padding: var(--sp-2, 4px) var(--sp-3); background: none; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.rec-tab.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.rec-tab:disabled { opacity: 0.5; cursor: default; }
+.rec-tabs .rec-save { margin-left: auto; }
+.rec-detail-side .rec-segs { position: relative; flex: 1 1 auto; min-height: 160px; max-height: none; }
+.rec-detail-side .rec-transcript { flex: 1 1 auto; min-height: 240px; resize: vertical; }
+.rec-seg.on { background: var(--accent-soft, var(--hover)); box-shadow: inset 3px 0 0 var(--accent); }
+.rec-seg.on .rec-seg-t { color: var(--accent); }
+
+@media (max-width: 1080px) {
+  .rec-detail { grid-template-columns: minmax(0, 1fr); }
+  /* 单栏时纪要和待办在前；播放器吸在顶部，段落限高在框内滚 */
+  .rec-detail-side { position: static; max-height: none; }
+  .rec-player { position: sticky; top: 0; z-index: 2; padding: var(--sp-2, 4px) 0; background: var(--bg); }
+  .rec-detail-side .rec-segs { max-height: 60vh; }
 }

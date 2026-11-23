@@ -3,7 +3,7 @@
 // 视频插件的选题和素材箱（VID-08c，接口是 VID-08a）。契约见 docs/api-contract.md「选题和素材箱（VID-08a）」。
 // 选题、素材都不分页，一次取完由前端分组、筛选、搜索。写操作报 { kind: 'video' }：立项会生成视频，素材和选题互相记着 id，整个前缀一起刷
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { request, requestList } from '../api'
+import { request, requestEnvelope, requestList } from '../api'
 import { useNotifyChange } from './invalidate'
 import type { Video } from './video'
 import { videoKeys } from './videoKeys'
@@ -48,7 +48,7 @@ export type VideoTopicInput = {
   drop_reason?: string | null
 }
 
-export type VideoClipKind = 'link' | 'note' | 'trend' | 'comment' | 'competitor' | 'im'
+export type VideoClipKind = 'link' | 'note' | 'trend' | 'comment' | 'competitor' | 'im' | 'release'
 
 export type VideoClip = {
   /** cl_ 前缀 */
@@ -80,6 +80,14 @@ export type VideoClipInput = {
   triaged?: boolean
 }
 
+/** 从 GitHub 拉版本更新（VID-10）：repo 收 owner/repo 或仓库地址，limit 1..100，默认 30 */
+export type GithubClipsInput = { repo: string; limit?: number; include_prerelease?: boolean }
+/** 跳过没收的版本：草稿、预发布（没勾）、没有 tag */
+export type GithubSkipped = { tag: string; reason: string }
+/** 拉取结果：added 是新收的，duplicates 是之前收过的，releases 是 GitHub 上取到的条数 */
+export type GithubClipsMeta = { repo: string; added: number; duplicates: number; releases: number; skipped: GithubSkipped[] }
+export type GithubClipsResult = { clips: VideoClip[]; meta: GithubClipsMeta }
+
 const base = '/api/video'
 const topicPath = (id: string) => `${base}/topics/${encodeURIComponent(id)}`
 const clipPath = (id: string) => `${base}/clips/${encodeURIComponent(id)}`
@@ -101,6 +109,16 @@ export const videoTopicApi = {
     request<{ topic: VideoTopic; clip: VideoClip }>('POST', `${clipPath(id)}/topic`, { body }),
   /** 并入进行中的选题 */
   linkClip: (id: string, topicId: string) => request<{ topic: VideoTopic; clip: VideoClip }>('POST', `${clipPath(id)}/link`, { body: { topic_id: topicId } }),
+  /** 从 GitHub 拉公开仓库的 Release 收成「版本更新」素材 */
+  pullGithubClips: async (body: GithubClipsInput): Promise<GithubClipsResult> => {
+    const r = await requestEnvelope<VideoClip[]>('POST', `${base}/clips/github`, { body })
+    // meta 以外层信封为准；后端没给时按回来的条数兜底，界面不至于显示 undefined
+    const meta = (r.meta ?? {}) as unknown as Partial<GithubClipsMeta>
+    return {
+      clips: r.data,
+      meta: { repo: body.repo, added: r.data.length, duplicates: 0, releases: r.data.length, skipped: [], ...meta },
+    }
+  },
 }
 
 /** 全部选题，按新建先后 */
@@ -171,6 +189,23 @@ export function useClipToTopic() {
 
 export function useLinkClip() {
   return useTopicWrite(({ id, topicId }: { id: string; topicId: string }) => videoTopicApi.linkClip(id, topicId), both)
+}
+
+/** 从 GitHub 拉版本更新：回来的新素材按 id 去重、新在前并进缓存，再刷整个 video 前缀 */
+export function usePullGithubClips() {
+  const qc = useQueryClient()
+  const notify = useNotifyChange()
+  return useMutation({
+    mutationFn: (body: GithubClipsInput) => videoTopicApi.pullGithubClips(body),
+    onSuccess: (r) => {
+      qc.setQueryData<VideoClip[]>(videoKeys.clips, (xs) => {
+        if (!xs) return r.clips
+        const have = new Set(xs.map((c) => c.id))
+        return [...r.clips.filter((c) => !have.has(c.id)), ...xs]
+      })
+      return notify({ kind: 'video' })
+    },
+  })
 }
 
 /** 删除选题：和素材的关联一起删，素材和立项生成的视频留着 */

@@ -4,7 +4,7 @@
 
 - 来源：`web-next/docs/dev-plan.md` 2.3 到 2.8、第 6 节；已定决策见 `docs/dev-decisions.md`
 - 任务：CORE-01a（本文档）；类型定义和校验在 CORE-01b，后端注册在 CORE-04a，迁移在 CORE-05
-- 范围：只定第一方插件需要的东西。第三方插件（进程外、走 HTTP 或 MCP）到 M3 之后再开放，到时在本文档上加一版
+- 范围：只定第一方插件需要的东西。第三方插件（进程外、走 HTTP 或 MCP）到 M3 之后再开放，到时在本文档上加一版；第三方/外部插件的草案规范已另起一版，见 `docs/plugin-spec-v2.md`（清单 v2、`pmw-plugin-rpc/1`、运行时前端 ESM，P1 起落地）
 - 插件 API 版本：`1.1.0`（M2 起 1.0.0，VID-03a 升到 1.1.0），见第 1.3 节。这几批加的句柄和清单字段按 1.3 本该再升小版本，发布前由用户一起定稿，本文档暂不改版本号
 - 覆盖到：第三十六批（DOC-02 按提交 2775785 的代码逐项核对）。2.0 的代码块和 2.13 的句柄参考是代码里已有的；标了「规划」的还没实现
 
@@ -1947,6 +1947,7 @@ api.shellStatus.register({ key: 'recorder', order: 10, render: RecorderStatus })
 | `network:localhost` | 访问 127.0.0.1 和本机域名 | 普通 |
 | `network:im` | 访问 IM 平台（Slack、Telegram、飞书、企业微信的接口域名） | 普通 |
 | `network:media-platforms` | 访问视频平台 | 普通 |
+| `network:github` | 访问 GitHub Release 接口（只拉公开仓库的匿名 API，每小时 60 次限流，VID-10） | 普通 |
 | `network:market-data` | 访问行情源 | 普通 |
 | `network:model` | 下载本地模型（HuggingFace 与镜像，录音转写插件用，REC-01a） | 普通 |
 | `network:exchanges` | 访问交易所的账户和交易接口（交易套件 0.5.0 起用它只读同步交易所账户，0.7.0 起加实盘闸门放行的下单、撤单、查单，见 3.3） | 高 |
@@ -1962,6 +1963,7 @@ api.shellStatus.register({ key: 'recorder', order: 10, render: RecorderStatus })
 | `localhost` | 回环地址（127.0.0.0/8、::1）、`localhost`、`*.localhost` |
 | `im` | `slack.com`、`*.slack.com`、`api.telegram.org`、`open.feishu.cn`、`open.larksuite.com`、`qyapi.weixin.qq.com` |
 | `media-platforms` | B 站 `bilibili.com`、`*.bilibili.com`、`*.hdslb.com`、`*.bilivideo.com`；YouTube `youtube.com`、`*.youtube.com`、`youtube.googleapis.com`、`*.googlevideo.com`、`*.ytimg.com`，`www.googleapis.com` 只放 `/youtube/`、`/upload/youtube/`；抖音 `douyin.com`、`*.douyin.com`、`*.douyinpic.com`、`*.douyinvod.com` |
+| `github` | `api.github.com`（VID-10：只拉公开仓库的 Release，匿名 API，每小时 60 次限流） |
 | `market-data` | Binance `data-api.binance.vision`、`data-stream.binance.vision`，`api.binance.com` 只放公开行情路径（`/api/v3/` 下的 ping、time、exchangeInfo、depth、trades、aggTrades、klines、uiKlines、avgPrice、ticker），U 本位永续 `fapi.binance.com` 只放公开行情路径（`/fapi/v1/` 下的 ping、time、exchangeInfo、depth、klines、premiumIndex、fundingRate、fundingInfo、ticker）；OKX `www.okx.com` 只放 `/api/v5/market/`、`/api/v5/public/`，`ws.okx.com` 只放 `/ws/v5/public`、`/ws/v5/business` |
 | `model` | `huggingface.co`、`*.huggingface.co`、`hf.co`、`*.hf.co`、`hf-mirror.com`、`*.hf-mirror.com`（REC-01a：下载 whisper.cpp 模型，会 302 到 CDN，每一跳都查） |
 | `exchanges` | Binance `api.binance.com`、`api1` 到 `api4.binance.com`、`fapi`、`dapi`、`stream`、`fstream.binance.com`、`testnet.binance.vision`；OKX `www.okx.com`、`ws.okx.com`。只列域名、不分路径。交易套件（TRD-07a）在客户端外面再包一层检查：只读请求只放行 `GET` 和 `internal/plugins/trade/exchange.go` 的 `exchangeReadPaths` 里的路径（Key 权限、余额、持仓、挂单查询、成交历史、公开的交易规则、永续杠杆查询）；写请求（TRD-08d）只放行 `exchange_trade.go` 的 `exchangeTradePaths`（下单、撤单、查单），而且只在实盘闸门签发的一次性令牌下放行，永不放行提币、划转、借贷。`testnet.binancefuture.com`（U 本位合约测试网）还不在这张表里 |
@@ -1992,6 +1994,7 @@ api.shellStatus.register({ key: 'recorder', order: 10, render: RecorderStatus })
 | 登记了 Host 处理器的插件（`domains`） | `network:localhost` | 内核按 Host 分发前查，没确认的不交给它（2.11） |
 | `trade` | `network:exchanges` | 交易所账户连通测试、同步前经 `Core.HTTP("exchanges")` 拿客户端，没确认时失败，账户的异常原因就是这句提示（0.5.0，TRD-07a） |
 | `trade` | `trade:live` | 实盘开关的闸门里查（0.6.0，TRD-08c）：打开开关要评审通过且 `Granted("trade:live")`；0.7.0（TRD-08d）起实盘下单、部署到实盘、恢复实盘部署每一笔都现查它（和评审、开关、读取 + 交易、交易所现查的 Key 权限一起），收回后下一笔就被拒、运行中的实盘部署自动暂停 |
+| `video` | `network:github` | 拉取 GitHub 版本更新前经 `Core.HTTP("github")` 拿客户端，没声明或没确认时接口失败（0.10.0，VID-10） |
 
 视频插件（TSK-0456）另有两处：读用户登记的素材目录（浏览、预览、缩略图、加 B-roll、检查文件在不在）前查 `fs:read:registered`，没确认时素材目录标成不可用，接口回 400，登记新目录回 409；取视频元数据、生成缩略图前查 `process:spawn`，没确认时降级成只显示文件信息。读工程目录照旧查 `fs:read:project`。
 
@@ -2231,17 +2234,19 @@ SOP 在进程启动时自动完成表结构迁移和 JSON 补建：主程序在 
 | 1.0.0 | 2026-10-28 | 初版（CORE-01a） |
 | 1.1.0 | 2026-10-29 | `Core` 加 `Runs()`：发起 Agent、SOP 运行和交给 Claude Code，跑完给发起的插件投 `run.finished`（VID-03a） |
 
+补记（不改版本号，2026-11-16，VID-10）：权限清单加 `network:github`（3.1，普通级别：只访问 `api.github.com`，只拉公开仓库的 Release，匿名 API，每小时 60 次限流）。视频插件实际清单升到 0.10.0：`permissions` 在 `network:media-platforms` 之后加 `network:github`（升级时要重新确认），素材 kind 加 `release`（版本更新），接口加 `POST /api/video/clips/github`（body `repo`、`limit?`、`include_prerelease?`，回 `data: VideoClip[]` + `meta: {repo, added, duplicates, releases, skipped}`）；不加迁移，复用 `video_clips.remote_id` 去重（`remote_id = github:owner/repo:tag_name`），预发布默认不拉。只增不改。
+
 补记（不改版本号，2026-11-11，录音常驻）：前端 `PluginApi` 加 `shellStatus`（2.13.29），插件在任意页面常驻渲染一块状态（录音插件用它显示录音计时/暂停/停止）。不进清单 `provides`，只增不改；录音插件本身没改清单和权限。
 
 补记（不改版本号，2026-11-06，TSK-0491）：SOP 节点扩展点（2.7）`SOPNodeSpec` 加 `Effect`（`SOPEffectRead` / `SOPEffectWrite` / `SOPEffectWait`）、`DryRun`，SOP 调试按它决定真跑还是模拟；声明 `read` 的节点 `Run` 必须不改任何数据。流程目录加可选接口 `SOPDebugger`（`TestSOP`、`ExplainIMTrigger`，类型 `SOPTest`，内核别名 `SOPCatalogDebugger`），Agent 的 `test_sop`、`explain_im_trigger` 经注册表 `Registry.TestSOP` / `ExplainIMTrigger` 调；SOP 插件旧版本没实现时这两个工具不出现。只增不改。IM（0.28.0）、视频（0.8.2）插件声明了各自节点的 `Effect`；IM 插件 `emits` 加 `im.message_muted`。
+
+补记（不改版本号，2026-11-19，TSK-0841 复盘）：`Registrar` 加 `ProjectDirs`（2.13.31，类型 `ProjectDir`、`ProjectDirLister`、`ErrNoProjectDirs`，常量 `ProjectDirCode`、`ProjectDirPrototype`、`ProjectDirPRD`），项目插件 0.21.0 登记它，回各档案的代码库、原型库、需求文档目录。只增不改，按 1.3 是小版本，和其余几条一起等用户定稿。
 
 补记（不改版本号，2026-11-19，TSK-0837）：`Registrar` 加 `ProjectRunAllow`（2.13.30，类型 `ProjectRunAllowLister`、`ErrNoProjectRunAllow`），项目插件 0.20.0 登记它，回项目档案的执行白名单。只增不改，按 1.3 是小版本，和其余几条一起等用户定稿。
 
 补记（不改版本号，2026-11-19，串相关）：插件 API 不变。IM 插件（实际清单 0.32.0）的事件 `im.message_received`、`im.message_muted` 的 payload 只增三项 `thread_related`（布尔）、`thread_reason`（`mine` / `mention` / `dm` / `task` / 空串）、`thread_parent_message_id`（父消息 id 或 null），读取消息 `im_get_message` 的 `message` 同样多这三项；SOP 编排插件（实际清单 0.23.0）的 IM 过滤加 `thread_related`「相关串里的回复按 @我 算」，缺省 false。订阅方按 JSON 解 payload，旧订阅方不认的键忽略即可；口径见 `docs/api-contract.md` IM「事件」与 SOP「IM 触发」。不加迁移。
 
 补记（不改版本号，2026-11-06，TSK-0721）：`Core` 加 `Knowledge()`（类型 `KnowledgeService`、`KnowledgeBackend`、`KnowledgeBaseInfo`、`KBItem`、`KBSyncResult`、`KBProblem`，钩子 `Registry.SetKnowledge`）；`ObjectReader` 加 `List`、类型 `ObjectQuery`，`ObjectInfo` 加 `Archived`；`SOPFlowTemplate` 加 `Schedule`（类型 `SOPFlowTemplateSchedule`）。内核迁移 `0054_kb_doc_origin.sql`（`kb_docs.origin`、`origin_key`，来源类型多 `file`）。项目插件实际清单（0.19.0）`sop_nodes` 加 `projects_kb_sync`，迁移加 `0012_kb.sql`（表 `projects_kb`、`projects_sop_templates`），后台任务加 `kb_flow_template`，实现 `Uninstaller`；全部节点补 `Spec.Effect`。SOP 插件 0.19.0 的 `InstallFlow` 认 `Schedule`。只增不改。
-补记（不改版本号，2026-11-19，TSK-0841 复盘）：`Registrar` 加 `ProjectDirs`（2.13.31，类型 `ProjectDir`、`ProjectDirLister`、`ErrNoProjectDirs`，常量 `ProjectDirCode`、`ProjectDirPrototype`、`ProjectDirPRD`），项目插件 0.21.0 登记它，回各档案的代码库、原型库、需求文档目录。只增不改，按 1.3 是小版本，和其余几条一起等用户定稿。
-
 
 补记（不改版本号，2026-11-06，TSK-0490）：SOP 节点扩展点（2.7）`SOPNodeDef`、`SOPNode` 加 `Spec SOPNodeSpec`（`Label`、`Desc`、`Params []SOPParam`、`Outputs []SOPOutput`），加 `WithSOPSpecs(r, specs)` 在登记时按 kind 补声明；`Spec.Params` 里必填的并进 `Required`。流程目录 `SOPCatalog` 加 `SOPGuide`，`SOPFlowDoc` 加 `Warnings`。只增不改：不给 `Spec` 的节点照旧能用（`outputs_open: true`）；`SOPCatalog` 现有唯一实现是 SOP 编排插件（实际清单 0.16.0，不加迁移）。IM（0.26.1）、项目（0.17.1）、视频（0.8.1）插件给各自的节点补了声明，不加迁移。
 

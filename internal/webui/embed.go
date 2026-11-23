@@ -38,7 +38,21 @@ func Handler() http.Handler {
 // handlerFor 抽出来是为了让测试能喂一份假的文件系统，不依赖真实构建产物。
 func handlerFor(fsys fs.FS) http.Handler { return &handler{files: fsys} }
 
+// securityHeaders 给同源页面下发基线 CSP：脚本/样式只允许同源（import map 与 vite 的
+// 内联 bootstrap 需要 unsafe-inline），禁止远程脚本、object、表单外发；图片/媒体允许
+// data:/blob: 以兼容内嵌图标、录音与插件预览。
+func securityHeaders(w http.ResponseWriter) {
+	w.Header().Set("Content-Security-Policy",
+		"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "+
+			"img-src 'self' data: blob:; font-src 'self' data:; media-src 'self' blob:; "+
+			"connect-src 'self'; frame-src 'self' blob:; worker-src 'self' blob:; "+
+			"object-src 'none'; base-uri 'self'; form-action 'self'")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "same-origin")
+}
+
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	securityHeaders(w)
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

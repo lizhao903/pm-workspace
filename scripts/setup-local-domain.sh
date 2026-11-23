@@ -1,13 +1,22 @@
 #!/bin/bash
-# 把 broleez.vip 指向本机的产品工作台，并让 http(s)://broleez.vip 免端口直达。
+# 把 bro.vip / broleez.vip 指向本机的产品工作台，并让 http(s)://bro.vip 免端口直达。
 #
-# 做两件事（都需要 root）：
-#   1. /etc/hosts 加一行解析到 127.0.0.1
-#   2. pf 加两条重定向：127.0.0.1:80 -> 7777（明文），127.0.0.1:443 -> 7443（TLS）
+# 做三件事（都需要 root）：
+#   1. /etc/hosts 把域名解析到本机，127.0.0.1 与 ::1 两个地址族都写
+#   2. pf 加两条重定向：127.0.0.1:80 -> 明文端口，127.0.0.1:443 -> TLS 端口
+#   3. 装 LaunchDaemon，让重启后 pf 自动加载并启用
 #
-# 443 那条是必须的：Chrome 对 .vip 这类公网 TLD 会自动把地址升级到 HTTPS，
-# 地址栏敲 bro.vip 根本不走 80 口，443 没人监听就是 ERR_CONNECTION_REFUSED。
+# 两个都不算多余的细节：
+#   - 只写 127.0.0.1 不够。bro.vip 是真实公网域名，DNS 仍会返回 Cloudflare 的
+#     AAAA 记录，浏览器优先连公网 IPv6 时报的是 ERR_ADDRESS_UNREACHABLE
+#     （不是 ERR_CONNECTION_REFUSED，很容易误判成服务没起）。所以 ::1 也要覆盖，
+#     即使本机没有 IPv6 监听，连不上也会立刻回落 IPv4，不会卡住。
+#   - 443 那条是必须的：Chrome 对 .vip 这类公网 TLD 会自动把地址升级到 HTTPS，
+#     地址栏敲 bro.vip 根本不走 80 口，443 没人监听就是 ERR_CONNECTION_REFUSED。
+#
 # 证书用 scripts/setup-tls.sh 签发，没签也不影响这条规则——只是 443 会连不上后端。
+# 默认端口 7777 是旧常驻服务；现在生产实例是 7796（scripts/dev-instance.sh），
+# 日常启动用 scripts/start-workbench.sh，它会带 PORT=7796 调本脚本。
 #
 # 不直接让工作台监听 80：那要求整个进程以 root 运行，一个本地工具没必要拿 root 权限跑。
 # pf 重定向只把内核里的一条转发规则交给 root，进程本身仍以普通用户运行。
@@ -28,19 +37,27 @@ if [ "$(id -u)" -ne 0 ]; then
 fi
 
 # ---- 1. hosts ----
+# 每个域名写两条：IPv4 指 127.0.0.1，IPv6 指 ::1。理由见文件头。
 BACKED_UP=0
+backup_once() {
+  [ "$BACKED_UP" -eq 0 ] || return 0
+  cp /etc/hosts "/etc/hosts.bak.$(date +%Y%m%d%H%M%S)"
+  printf '\n# 产品工作台本地域名（scripts/setup-local-domain.sh 添加）\n' >> /etc/hosts
+  BACKED_UP=1
+}
+host_has() { # host_has <ip> <domain>：/etc/hosts 里是否已有这条（按字段比，注释行不算）
+  awk -v ip="$1" -v d="$2" '!/^[[:space:]]*#/ && $1==ip && $2==d { found=1 } END { exit(found?0:1) }' /etc/hosts
+}
 for d in $DOMAINS; do
-  if grep -qE "^[^#]*[[:space:]]${d}([[:space:]]|\$)" /etc/hosts; then
-    echo "[hosts] ${d} 已存在，跳过"
-    continue
-  fi
-  if [ "$BACKED_UP" -eq 0 ]; then
-    cp /etc/hosts "/etc/hosts.bak.$(date +%Y%m%d%H%M%S)"
-    printf '\n# 产品工作台本地域名（scripts/setup-local-domain.sh 添加）\n' >> /etc/hosts
-    BACKED_UP=1
-  fi
-  printf '127.0.0.1\t%s\n' "$d" >> /etc/hosts
-  echo "[hosts] 已添加 127.0.0.1 ${d}"
+  for ip in 127.0.0.1 ::1; do
+    if host_has "$ip" "$d"; then
+      echo "[hosts] ${ip} ${d} 已存在，跳过"
+      continue
+    fi
+    backup_once
+    printf '%s\t%s\n' "$ip" "$d" >> /etc/hosts
+    echo "[hosts] 已添加 ${ip} ${d}"
+  done
 done
 [ "$BACKED_UP" -eq 1 ] && echo "[hosts] 原文件已备份"
 dscacheutil -flushcache 2>/dev/null || true

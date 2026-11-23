@@ -230,7 +230,7 @@ function stubStop() {
 }
 
 describe('停止（TSK-0717）', () => {
-  it('执行中、待我处理的行有「停止」，确认后按 id 停；已完成、失败的没有', async () => {
+  it('执行中、待我处理的行有「停止」，确认后按 id 停；已完成、失败的没有「停止」', async () => {
     const calls = stubStop()
     const user = userEvent.setup()
     renderList([run(1, 'running'), run(2, 'waiting'), run(3, 'done'), run(4, 'failed')])
@@ -244,6 +244,22 @@ describe('停止（TSK-0717）', () => {
     await user.click(within(dlg).getByRole('button', { name: '停止 1 条' }))
     await waitFor(() => expect(screen.getByRole('status').textContent).toContain('已停止 1 条'))
     expect(calls.find((c) => c.path === '/api/sop/runs/batch-actions')!.body).toEqual({ run_ids: ['spr_1'], action: 'stop' })
+  })
+
+  it('失败的行有「终止」（SOP 0.22.0），确认框说终止，按 id 停；已完成的没有', async () => {
+    const calls = stubStop()
+    const user = userEvent.setup()
+    renderList([run(3, 'done'), run(4, 'failed')])
+    expect(screen.queryByRole('button', { name: '终止 写纪要 · 3' })).toBeNull()
+    await user.click(screen.getByRole('button', { name: '终止 写纪要 · 4' }))
+    const dlg = screen.getByRole('alertdialog')
+    expect(within(dlg).getByText('终止这条失败的执行')).toBeTruthy()
+    expect(within(dlg).getByText(/移出失败和待我处理，不能再重试/)).toBeTruthy()
+    await user.click(within(dlg).getByRole('button', { name: '终止 1 条' }))
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('已停止 1 条'))
+    expect(calls.find((c) => c.path === '/api/sop/runs/batch-actions')!.body).toEqual({ run_ids: ['spr_4'], action: 'stop' })
+    // 只有失败的、没有在跑的：不出「停止全部运行中」（按条件停不碰失败的）
+    expect(screen.queryByRole('button', { name: '停止全部运行中' })).toBeNull()
   })
 
   it('「执行中」分段能勾选批量停止，只有能停的行有勾选框；「全部」分段没有勾选框', async () => {

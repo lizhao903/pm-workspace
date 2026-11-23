@@ -19,23 +19,30 @@ import { terminalLauncherRegistry, terminalLauncherStore } from './terminalLaunc
 import { sessionSourceRegistry, sessionSourceStore } from './sessionSources'
 import { shellStatusRegistry, shellStatusStore } from './shellStatus'
 import { checkManifest, formatIssue, parseManifest, PLUGIN_API_VERSION, type PluginManifest } from './manifest'
+import { satisfies } from './semver'
+import { cachedExternalSources, EXTERNAL_API_VERSION, externalSources, fetchExternalRows, rememberExternalSources } from './external'
 import { enabledPlugins } from '../../plugins/enabled'
 import { requestList } from '../api'
 
-// 一个可装的插件：目录名、清单原文、入口加载函数
+// 一个可装的插件：目录名、清单原文、入口加载函数。
+// external 为 true 的是 P1-a 外部插件（清单 v2，后端已校验），清单是 external.ts 转换后的 1.x 形态，
+// resolve/activate 时跳过 v1 的 parseManifest/checkManifest，只校验 api 兼容和 id 一致。
 export type PluginSource = {
   id: string
   manifest: unknown
   load?: () => Promise<{ default: PluginEntry }>
+  external?: boolean
 }
 
 // 没加载的插件和原因，界面上提示用
 export type PluginProblem = { id: string; name?: string; reasons: string[] }
 
-// 启用了哪些插件（按菜单顺序）和当前插件 API 版本
+// 启用了哪些插件（按菜单顺序）和当前插件 API 版本；外部插件（P1-a）另给一份 sources
 export type PluginState = {
   enabled: string[]
   apiVersion: string
+  /** 后端 enabled 的外部插件；没有外部插件时不带这个字段 */
+  external?: PluginSource[]
 }
 
 export type Resolved = { ok: PluginManifest[]; problems: PluginProblem[] }
@@ -72,14 +79,19 @@ export function discoverPlugins(): PluginSource[] {
 
 // 启用列表读 GET /api/plugins：后端在跑（running）的插件按后端顺序；后端没有记录的插件
 // （后端还没编译进来的，例如示例 hello）按本地 enabled.ts 接在后面。后端有记录就以后端为准。
+// 外部插件（P1-a）并行读 GET /api/plugins/external；读不到当没有，不影响第一方插件。
 // 最多等 timeoutMs；超时或读不到时抛错，loadPlugins 收下后只显示内核模块，并在插件提示里写原因
 export async function fetchPluginState(timeoutMs = 3000): Promise<PluginState> {
   const ctl = new AbortController()
   const timer = setTimeout(() => ctl.abort(), timeoutMs)
+  // 先发第一方列表，保证第一个请求还是 /api/plugins（测试和代理日志都按这个顺序看）
+  const listTask = requestList<unknown>('/api/plugins', { signal: ctl.signal })
+  const externalTask = fetchExternalRows(timeoutMs, ctl.signal)
   let rows: unknown[]
   try {
-    rows = (await requestList<unknown>('/api/plugins', { signal: ctl.signal })).data
+    rows = (await listTask).data
   } catch (e) {
+    void externalTask
     if (ctl.signal.aborted) throw new Error(`${timeoutMs / 1000} 秒内没有返回，只显示内核模块`)
     throw new Error(`${(e as Error).message}，只显示内核模块`)
   } finally {
@@ -94,7 +106,13 @@ export async function fetchPluginState(timeoutMs = 3000): Promise<PluginState> {
     if (running === true) enabled.push(id)
   }
   for (const id of enabledPlugins) if (!known.has(id)) enabled.push(id)
-  return { enabled, apiVersion: PLUGIN_API_VERSION }
+  // 同 id 的以内置插件为准（后端装外部插件时会拒绝和内置插件重名，这里只是防御）
+  const external = externalSources(await externalTask).filter((s) => !known.has(s.id))
+  for (const s of external) enabled.push(s.id)
+  rememberExternalSources(external)
+  const state: PluginState = { enabled, apiVersion: PLUGIN_API_VERSION }
+  if (external.length > 0) state.external = external
+  return state
 }
 
 // 按启用列表挑插件：清单不合法、id 和目录名不符、依赖没启用或版本不符、成环的都不加载。
@@ -103,10 +121,29 @@ export function resolvePlugins(sources: readonly PluginSource[], state: PluginSt
   const byId = new Map(sources.map((s) => [s.id, s]))
   const problems: PluginProblem[] = []
   const active = new Map<string, PluginManifest>()
+  // 外部插件（清单 v2）：后端已经校验过，跳过 v1 的 parse/check，只查 id、api 兼容、入口和重复
+  const externalIds = new Set<string>()
   for (const id of new Set(state.enabled)) {
     const src = byId.get(id)
     if (!src) {
       problems.push({ id, reasons: ['没有这个插件'] })
+      continue
+    }
+    if (src.external) {
+      if (src.manifest === undefined) {
+        problems.push({ id, reasons: ['缺少外部插件清单'] })
+        continue
+      }
+      const m = src.manifest as PluginManifest
+      const reasons: string[] = []
+      if (m.id !== id) reasons.push(`清单 id 是 ${m.id}，和目录名 ${id} 不一致`)
+      if (!satisfies(EXTERNAL_API_VERSION, m.core)) reasons.push(`要求宿主 API ${m.core}，当前 ${EXTERNAL_API_VERSION}`)
+      if (!src.load) reasons.push('缺少前端入口 web_entry')
+      if (reasons.length > 0) problems.push({ id, name: m.name, reasons })
+      else {
+        active.set(id, m)
+        externalIds.add(id)
+      }
       continue
     }
     if (src.manifest === undefined) {
@@ -129,6 +166,8 @@ export function resolvePlugins(sources: readonly PluginSource[], state: PluginSt
     changed = false
     const env = { apiVersion: state.apiVersion, plugins: [...active.values()] }
     for (const m of [...active.values()]) {
+      // 外部插件的依赖、清单一致性由后端安装/启用时校验，前端不再按 1.x 规则查
+      if (externalIds.has(m.id)) continue
       const issues = checkManifest(m, env)
       if (issues.length === 0) continue
       const reasons = issues.map((i) => {
@@ -148,6 +187,22 @@ export function resolvePlugins(sources: readonly PluginSource[], state: PluginSt
 
 const isDev = import.meta.env.DEV
 
+// 合并内置插件和外部插件（P1-a）的 sources：同 id 以内置为准，外部插件接在后面
+export function mergePluginSources(
+  sources: readonly PluginSource[],
+  external?: readonly PluginSource[],
+): PluginSource[] {
+  const out = [...sources]
+  if (!external || external.length === 0) return out
+  const seen = new Set(out.map((s) => s.id))
+  for (const s of external) {
+    if (seen.has(s.id)) continue
+    seen.add(s.id)
+    out.push(s)
+  }
+  return out
+}
+
 // 加载并激活插件。任何一步出错只影响这个插件，记进 problems，不让整个应用起不来
 export async function loadPlugins(
   sources: readonly PluginSource[] = discoverPlugins(),
@@ -162,9 +217,11 @@ export async function loadPlugins(
       return { modules: [], plugins: [], problems: [{ id: '插件列表', reasons: ['读取失败：' + (e as Error).message] }] }
     }
   }
-  const { ok, problems: blocked } = resolvePlugins(sources, st)
+  if (st.external?.length) rememberExternalSources(st.external)
+  const allSources = mergePluginSources(sources, st.external)
+  const { ok, problems: blocked } = resolvePlugins(allSources, st)
   problems.push(...blocked)
-  const byId = new Map(sources.map((s) => [s.id, s]))
+  const byId = new Map(allSources.map((s) => [s.id, s]))
   const modules: PluginModule[] = []
   const plugins: PluginManifest[] = []
 
@@ -261,11 +318,38 @@ export type ActivateResult =
 
 // 启用插件（docs/plugin-api.md 4.2 的前端部分，插件管理页在后端启用成功后调）：查清单和依赖，加载入口调 activate。
 // 路由和菜单的模块列表是启动时定的：启动时就有路由的模块（启动时启用、后来停用又启用的）直接回到菜单；
-// 启动时没有的要整页重新加载，这时 reload 为 true。已经在跑的不重复加载；只有后端没有前端入口的直接算成功
-export async function activatePlugin(id: string, sources: readonly PluginSource[] = discoverPlugins()): Promise<ActivateResult> {
+// 启动时没有的要整页重新加载，这时 reload 为 true。已经在跑的不重复加载；只有后端没有前端入口的直接算成功。
+// 外部插件（P1-a）的 source 由设置页显式传入或从启动时的缓存里取；清单已由后端校验，只查 api 兼容。
+export async function activatePlugin(
+  id: string,
+  sources: readonly PluginSource[] = mergePluginSources(discoverPlugins(), cachedExternalSources()),
+): Promise<ActivateResult> {
   if (entries.has(id)) return { ok: true, reload: false }
   const src = sources.find((s) => s.id === id)
   if (!src || src.manifest === undefined) return { ok: true, reload: false }
+  if (src.external) {
+    if (!src.load) return { ok: true, reload: false }
+    const m = src.manifest as PluginManifest
+    if (!satisfies(EXTERNAL_API_VERSION, m.core)) {
+      return { ok: false, reasons: [`要求宿主 API ${m.core}，当前 ${EXTERNAL_API_VERSION}`] }
+    }
+    const reasons: string[] = []
+    disposeAll(id)
+    try {
+      const entry = (await src.load()).default
+      entry.activate(pluginApi(m, reasons, isDev))
+      entries.set(id, entry)
+      manifests.set(id, m)
+    } catch (e) {
+      disposeAll(id)
+      console.error(`外部插件 ${id} 加载失败`, e)
+      return { ok: false, reasons: ['加载失败：' + (e as Error).message] }
+    }
+    problems = problems.filter((p) => p.id !== id)
+    // 外部插件的模块不是启动时建的，第一次启用要整页重新加载才会进菜单/路由
+    const reload = moduleStore.ofOwner(id).some((d) => !routed.has(d.id))
+    return { ok: true, reload }
+  }
   const r = parseManifest(src.manifest)
   if (!r.ok) return { ok: false, reasons: r.issues.map((i) => '清单 ' + formatIssue(i)) }
   if (!src.load) return { ok: true, reload: false }

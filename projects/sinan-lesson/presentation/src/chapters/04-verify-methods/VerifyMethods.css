@@ -1,0 +1,66 @@
+.vm-scene {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 40px;
+  padding: 80px 120px; font-family: var(--font-body); color: var(--text);
+}
+.vm-axis {
+  position: absolute; left: 50%; top: 100px; bottom: 100px; width: 2px;
+  border-left: 2px dashed var(--rule); transform: translateX(-50%);
+  display: flex; flex-direction: column; justify-content: space-between; color: var(--text-faint); font-size: 32px;
+}
+.vm-axis span { transform: translateX(-50%); }
+.vm-body { position: relative; width: 100%; max-width: 1500px; display: flex; flex-direction: column; align-items: center; gap: 40px; }
+
+/* 常驻磁铁：step1~3 不卸载，只旋转与复制；step4 起收拢让位。 */
+.vm-magnet {
+  position: relative; width: 1500px; max-height: 560px; min-height: 560px;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
+  opacity: 1; transition: max-height 800ms var(--ease-soft), min-height 800ms var(--ease-soft), opacity 600ms var(--ease-soft);
+}
+.vm-magnet-away { max-height: 0; min-height: 0; opacity: 0; pointer-events: none; }
+.vm-holder {
+  position: relative; z-index: 2; display: flex; flex-direction: column; align-items: center; gap: 16px;
+  transform-origin: center center; transition: transform 1200ms cubic-bezier(0.65, 0, 0.25, 1);
+}
+.vm-tilt { transform: rotate(-38deg); }
+.vm-straight { transform: rotate(0deg); }
+.vm-straight .vm-pin { animation: punch-in 700ms var(--ease-overshoot) both; }
+.vm-bar { width: 170px; height: 520px; }
+.vm-bar-small { width: 100px; height: 300px; }
+.vm-n { fill: var(--chalk-n); }
+.vm-s { fill: var(--chalk-s); }
+.vm-pole { fill: var(--text); font-size: 44px; font-family: var(--font-mono); }
+.vm-pin { fill: var(--accent); }
+.vm-trial-label { font-size: 36px; color: var(--text-mute); animation: vm-fade 700ms var(--ease-soft) both; }
+.vm-copies { position: absolute; inset: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 200px; }
+.vm-copy { display: flex; flex-direction: column; align-items: center; gap: 14px; font-size: 36px; color: var(--text-mute); }
+
+.vm-note { font-size: 44px; color: var(--text-2); }
+.vm-label { font-size: 48px; color: var(--accent); }
+
+.vm-hang { width: 620px; height: 470px; }
+.vm-rig { stroke: var(--text-mute); stroke-width: 6; stroke-linecap: round; }
+.vm-float { width: 720px; height: 410px; }
+.vm-water { fill: var(--surface-3); stroke: var(--rule); stroke-width: 3; }
+.vm-wave { fill: none; stroke: var(--accent); stroke-width: 4; }
+.vm-raft { fill: var(--text-mute); }
+
+.vm-notes { display: flex; gap: 44px; }
+.vm-placeholder {
+  width: 400px; height: 300px; border: 2px dashed var(--rule); border-radius: 16px;
+  background: var(--surface-2); display: grid; place-items: center;
+  font-size: 38px; color: var(--text-faint);
+}
+
+.vm-sheet { width: 1100px; display: flex; flex-direction: column; gap: 12px; }
+.vm-tr {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;
+  padding: 18px 30px; border-bottom: 2px dashed var(--rule); font-size: 42px; color: var(--text-2);
+}
+.vm-th { color: var(--text-mute); font-size: 36px; border-bottom-color: var(--accent); }
+
+.vm-draw { stroke-dasharray: 900; animation: vm-draw-line 1200ms var(--ease-soft) both; }
+.vm-fade { animation: vm-fade 900ms var(--ease-soft) both; }
+
+@keyframes vm-draw-line { from { stroke-dashoffset: 900; } to { stroke-dashoffset: 0; } }
+@keyframes vm-fade { from { opacity: 0; } to { opacity: 1; } }

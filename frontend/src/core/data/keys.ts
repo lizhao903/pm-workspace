@@ -72,6 +72,10 @@ export const dataKeys = {
     list: (f?: ArtifactListParams) => ['artifacts', 'list', normFilter(f)] as const,
     stats: (f?: ArtifactListParams) => ['artifacts', 'stats', normFilter(f)] as const,
     byObject: (f?: ArtifactListParams) => ['artifacts', 'by-object', normFilter(f)] as const,
+    /** 查看（DEV-08b 补）：文件内容、提交（分支产出物带 sha）、分支 */
+    file: (id: string) => ['artifacts', 'file', id] as const,
+    commit: (id: string, sha = '') => ['artifacts', 'commit', id, sha] as const,
+    branch: (id: string) => ['artifacts', 'branch', id] as const,
   },
   runs: {
     all: ['runs'] as const,

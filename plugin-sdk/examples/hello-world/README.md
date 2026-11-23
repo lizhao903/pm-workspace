@@ -1,0 +1,97 @@
+# Hello World
+
+PMW（一人之下）外部插件，遵循 **PMW Plugin 2.0**（清单 `manifest_version: 2`，宿主插件 API `2.0.0`）。
+
+- 插件 id：`hello_world`
+- 版本：`0.1.0`
+- 作者：example
+- 许可证：MIT
+
+> 状态：PMW 外部插件宿主（P1）尚未实现，本包目前只能在本地开发校验（`make validate` / `make pack`），还不能在现版 PMW 里安装运行。安装能力上线后，从「设置 → 插件 → 从 GitHub 安装」填入本仓库地址即可。
+
+## 能做什么
+
+- 工作台「Hello World」模块页：读取最近对象标题（示例）；
+- 设置分节：一个开关，演示 `host.settings.get/set`；
+- 今日卡片：展示最近对象数量，按钮发一条插件通知（需要 `notify` 权限）；
+- 命令面板命令 `hello_world.say_hi`：后端返回一句问候，并演示 `host.objects.list`。
+
+## 兼容性
+
+| 字段 | 要求 |
+|---|---|
+| 清单版本 | `manifest_version: 2` |
+| 宿主插件 API | `>=2.0.0 <3.0.0`（`api`） |
+| PMW 版本 | `>=0.3.0 <1.0.0`（`pmw`） |
+| 平台二进制 | darwin-arm64、linux-amd64、windows-amd64（CI 构建） |
+
+## 目录结构
+
+```
+plugin.json                  # 唯一清单（manifest v2）
+main.go                      # 后端：pmw-plugin-rpc/1 客户端（标准库，无第三方依赖）
+go.mod
+web/entry.ts                 # 前端入口源码（JS 语法子集 + JSDoc，零构建依赖）
+web/entry.js                 # 构建产物：ESM 入口，宿主 import() 加载
+web/style.css                # 作用域样式，只挂在 [data-pmw-plugin="hello_world"] 下
+assets/icon.svg              # 插件图标
+scripts/pmw_plugin.py        # 校验/打包工具（由 init 从 PMW plugin-sdk 复制的副本，不是权威代码）
+Makefile                     # build / build-all / validate / lint / pack
+CHANGELOG.md                 # 版本变更（Keep a Changelog）
+.github/workflows/release.yml
+```
+
+## 本地开发
+
+要求：Go 1.22+、Python 3.9+（不需要 Node）。
+
+```bash
+make build       # 构建当前平台二进制到 bin/
+make validate    # 校验清单和包内文件
+make lint        # gofmt + go vet + validate
+make pack        # 打当前平台发布包到 dist/
+```
+
+发布矩阵和工具自检：
+
+```bash
+make build-all   # darwin-arm64 / linux-amd64 / windows-amd64
+make pack        # 每次只打当前平台；CI 按平台分别打包
+python3 scripts/pmw_plugin.py self-test   # 工具链自检（需要模板目录，插件仓库内不可用）
+```
+
+后端协议是 `pmw-plugin-rpc/1`：宿主拉起子进程，插件连 `PMW_PLUGIN_SOCKET`，握手
+`plugin.hello → host.welcome`，之后按 `plugin.* / host.*` 方法表通信。细节见 PMW 仓库
+`plugin-sdk/skill/pmw-plugin-builder/references/backend.md`。
+
+`scripts/pmw_plugin.py` 是 `init` 从 PMW `plugin-sdk` 复制进来的副本，只用于本仓库的
+`make validate` / `make pack` 等本地命令；权威版本、模板和 `self-test`/`init` 都在 PMW 仓库的
+`plugin-sdk/skill/pmw-plugin-builder/` 里，两边不一致时以 PMW 仓库为准。
+
+## 权限
+
+| 权限 | 理由 |
+|---|---|
+| `objects:read` | 在模块页和今日卡片里展示最近对象标题，作为只读示例 |
+| `notify` | 点「打个招呼」按钮时发一条演示通知 |
+
+只申请用得到的权限；新增权限时同步更新 `permissions_reason`，否则 `validate` 不通过。
+隐式权限 `store:plugin`、`log:write` 不写进清单。
+
+## 发布
+
+1. 改 `plugin.json` 的 `version`，补 `CHANGELOG.md`；
+2. 提交并以 `v<version>` 打 tag；
+3. GitHub Actions 按矩阵构建、打包含 `SHA256SUMS` 的产物、创建 Release；
+4. 如果发布者配置了 ed25519 签名密钥（仓库 secret `PLUGIN_SIGNING_KEY`），Release 会额外带 `SHA256SUMS.sig`；
+5. 把仓库地址和 Release 信息提交到 PMW 社区索引（格式见 PMW 仓库 `plugin-sdk/skill/pmw-plugin-builder/references/release.md`）。
+
+## 许可证
+
+MIT，见 [LICENSE](LICENSE)。
+
+---
+
+由 DeepSeek Harness（dsh）协助完成。
+
+[![](https://img.shields.io/badge/powered_by-dsh-4D6BFE?style=flat-square&logo=deepseek&logoColor=white)](https://github.com/deepseek-ai/deepseek-harness)

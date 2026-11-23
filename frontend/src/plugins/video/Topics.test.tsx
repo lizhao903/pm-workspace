@@ -47,6 +47,20 @@ function fakeBackend(seedTopics: VideoTopic[], seedClips: VideoClip[] = []) {
       return json(t, 201)
     }
     if (p === '/api/video/clips' && method === 'GET') return json(clips, 200, { total: clips.length, todo: clips.filter((c) => !c.triaged).length })
+    if (p === '/api/video/clips/github' && method === 'POST') {
+      const repo = String(body.repo)
+      // 假 GitHub：404 那种仓库回 400 错误信封，其余按固定两条 release 落库（新在前）
+      if (repo === 'ghost/nope') return err(400, 'validation', 'GitHub 上没有这个仓库，或者它不是公开仓库')
+      const made: VideoClip[] = [
+        { tag: 'v1.2.0', name: '性能大改', content: '更快的启动', url: `https://github.com/${repo}/releases/tag/v1.2.0` },
+        { tag: 'v1.1.0', name: '', content: '修了几个 bug', url: `https://github.com/${repo}/releases/tag/v1.1.0` },
+      ].map((r) => ({
+        id: `cl_gh_${r.tag}`, kind: 'release', title: r.name ? `${r.tag} ${r.name}` : r.tag, content: r.content, url: r.url,
+        source: `GitHub · ${repo}`, tags: [r.tag], starred: false, topic_ids: [], triaged: false, created_at: now(), updated_at: now(),
+      }))
+      clips.unshift(...made)
+      return json(made, 200, { repo, added: made.length, duplicates: 0, releases: made.length + 1, skipped: [{ tag: 'v1.3.0', reason: '草稿' }] })
+    }
     if (p === '/api/video/clips' && method === 'POST') {
       const c: VideoClip = {
         id: `cl_${++seq}`, kind: body.kind, title: body.title ?? (body.url ? body.url.replace(/^https?:\/\//, '').slice(0, 60) : body.content.slice(0, 40)),
@@ -243,5 +257,96 @@ describe('素材收件箱', () => {
     await user.click(within(card).getByRole('button', { name: '看过了' }))
     await waitFor(() => expect(be.clips[0].triaged).toBe(true))
     expect(await screen.findByText('待整理的都处理完了')).toBeInTheDocument()
+  })
+
+  it('从 GitHub 拉版本更新：填仓库拉取，收成版本更新素材并按类型筛选', async () => {
+    // 种一条别的类型的素材，验证「版本更新」筛选真的排掉了它，而不是恒看条数
+    const note: VideoClip = {
+      id: 'cl_note', kind: 'note', title: '非版本更新素材', content: '一条普通笔记', source: '手动添加',
+      tags: [], starred: false, topic_ids: [], triaged: false, created_at: T, updated_at: T,
+    }
+    const be = fakeBackend([], [note])
+    const user = userEvent.setup()
+    show('/video_clips')
+    expect(await screen.findByRole('article', { name: '非版本更新素材' })).toBeInTheDocument()
+    expect(screen.queryByText('待整理的都处理完了')).toBeNull()
+    const toggle = screen.getByRole('button', { name: '拉取 GitHub 更新' })
+    expect(toggle).toHaveAttribute('aria-pressed', 'false')
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-pressed', 'true')
+
+    const form = screen.getByRole('region', { name: '拉取 GitHub 更新' })
+    expect(within(form).getByText('只拉公开仓库的 Release；GitHub 匿名接口每小时 60 次')).toBeInTheDocument()
+    await user.type(within(form).getByRole('textbox', { name: 'GitHub 仓库' }), 'acme/pmw')
+    const limit = within(form).getByRole('spinbutton', { name: '条数' })
+    expect(limit).toHaveValue(30)
+    await user.clear(limit)
+    await user.type(limit, '10')
+    await user.click(within(form).getByRole('checkbox', { name: '包含预发布版本' }))
+    await user.click(within(form).getByRole('button', { name: '拉取' }))
+
+    await waitFor(() => expect(be.calls.some((c) => c.path === '/api/video/clips/github')).toBe(true))
+    expect(be.calls.find((c) => c.path === '/api/video/clips/github')?.body).toEqual({ repo: 'acme/pmw', limit: 10, include_prerelease: true })
+    // 成功后关面板、提示条数、切到待整理的版本更新（筛选按钮已按下）
+    expect(await screen.findByText('收进 2 条版本更新')).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: '拉取 GitHub 更新' })).toBeNull()
+    const kinds = screen.getByRole('group', { name: '按类型筛选' })
+    expect(within(kinds).getByRole('button', { name: '版本更新' })).toHaveAttribute('aria-pressed', 'true')
+
+    const top = await screen.findByRole('article', { name: 'v1.2.0 性能大改' })
+    expect(within(top).getByText('版本更新')).toBeInTheDocument()
+    expect(within(top).getByText('GitHub · acme/pmw')).toBeInTheDocument()
+    expect(within(top).getByText('更快的启动')).toBeInTheDocument()
+    expect(within(top).getByRole('link')).toHaveAttribute('href', 'https://github.com/acme/pmw/releases/tag/v1.2.0')
+    // 自动切到「版本更新」后只剩两条 release，普通笔记不渲染
+    expect(screen.getAllByRole('article').map((a) => a.getAttribute('aria-label'))).toEqual(['v1.2.0 性能大改', 'v1.1.0'])
+    expect(screen.queryByRole('article', { name: '非版本更新素材' })).toBeNull()
+
+    // 切到「全部类型」：普通笔记回来，共 3 条
+    await user.click(within(kinds).getByRole('button', { name: '全部类型' }))
+    expect(screen.getAllByRole('article').map((a) => a.getAttribute('aria-label'))).toEqual(['v1.2.0 性能大改', 'v1.1.0', '非版本更新素材'])
+
+    // 再点「版本更新」：真的只留两条 release（不是恒真）
+    await user.click(within(kinds).getByRole('button', { name: '版本更新' }))
+    expect(screen.getAllByRole('article').map((a) => a.getAttribute('aria-label'))).toEqual(['v1.2.0 性能大改', 'v1.1.0'])
+    expect(screen.queryByRole('article', { name: '非版本更新素材' })).toBeNull()
+  })
+
+  it('版本更新素材能转为选题，标题和内容带进新选题', async () => {
+    const be = fakeBackend([])
+    const user = userEvent.setup()
+    const router = show('/video_clips')
+    expect(await screen.findByText('待整理的都处理完了')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '拉取 GitHub 更新' }))
+    const form = screen.getByRole('region', { name: '拉取 GitHub 更新' })
+    await user.type(within(form).getByRole('textbox', { name: 'GitHub 仓库' }), 'acme/pmw')
+    await user.click(within(form).getByRole('button', { name: '拉取' }))
+    const card = await screen.findByRole('article', { name: 'v1.2.0 性能大改' })
+
+    await user.click(within(card).getByRole('button', { name: '转为选题' }))
+    await waitFor(() => expect(router.state.location.pathname).toBe('/video_clips/topics'))
+    const call = be.calls.find((c) => c.path === '/api/video/clips/cl_gh_v1.2.0/topic')
+    expect(call).toMatchObject({ method: 'POST' })
+    expect(call?.body).toEqual({})
+    const made = be.topics.find((t) => t.title === 'v1.2.0 性能大改')
+    expect(made).toMatchObject({ title: 'v1.2.0 性能大改', outline: '更快的启动' })
+    expect(be.clips.find((c) => c.id === 'cl_gh_v1.2.0')?.topic_ids).toEqual([made!.id])
+    // 打开新选题的抽屉，确认收件箱里的版本更新变成了一条选题
+    expect(await screen.findByRole('dialog', { name: 'v1.2.0 性能大改' })).toBeInTheDocument()
+  })
+
+  it('GitHub 拉取失败显示错误，面板不关', async () => {
+    fakeBackend([])
+    const user = userEvent.setup()
+    show('/video_clips')
+    expect(await screen.findByText('待整理的都处理完了')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '拉取 GitHub 更新' }))
+    const form = screen.getByRole('region', { name: '拉取 GitHub 更新' })
+    await user.type(within(form).getByRole('textbox', { name: 'GitHub 仓库' }), 'ghost/nope')
+    await user.click(within(form).getByRole('button', { name: '拉取' }))
+    const alert = await within(form).findByRole('alert')
+    expect(alert).toHaveTextContent('拉取失败：GitHub 上没有这个仓库，或者它不是公开仓库')
+    expect(screen.getByRole('region', { name: '拉取 GitHub 更新' })).toBeInTheDocument()
+    expect(screen.queryByText(/收进 .* 条版本更新/)).toBeNull()
   })
 })

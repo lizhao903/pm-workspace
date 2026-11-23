@@ -111,6 +111,26 @@ it('Codex CLI 默认使用本机 ChatGPT 登录，测试通过 CLI 发送', asyn
   expect(screen.getByRole('button', { name: '发送测试' })).toBeDisabled()
 })
 
+it('Claude Code 不选服务商也能用：不提示配置缺失，测试走本机 Claude Code', async () => {
+  const user = userEvent.setup()
+  let tested: unknown
+  vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+    if (String(url).endsWith('/probe')) return new Response(JSON.stringify({ data: { path: '/opt/bin/claude', version: '2.0.0 (Claude Code)', warnings: [] } }))
+    if (String(url).endsWith('/test')) { tested = JSON.parse(String(init?.body)); return new Response(JSON.stringify({ data: { reply: 'Claude 回复正常', model: '本机默认模型' } })) }
+    return new Response(JSON.stringify({ data: [] }))
+  }))
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><ExecutorsSection /></QueryClientProvider>)
+  await user.click(screen.getByRole('button', { name: '新建执行器' }))
+  await user.type(screen.getByRole('textbox', { name: '执行器名称' }), '本机 Claude')
+  await user.selectOptions(screen.getByRole('combobox', { name: '执行器类型' }), 'claude')
+  expect(screen.getByRole('combobox', { name: '模型服务商' })).toHaveValue('')
+  expect(screen.getByRole('option', { name: '不选，用本机 Claude Code 登录和模型' })).toBeInTheDocument()
+  expect(screen.queryByText(/未选择模型服务商，配置尚不完整/)).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: '发送测试' }))
+  expect(await screen.findByText('Claude 回复正常')).toBeInTheDocument()
+  expect(tested).toMatchObject({ executor: { kind: 'claude', provider_id: '' } })
+})
+
 it('环境查询回复按四类表格展示，支持 Markdown JSON', () => {
   render(<ExecutorTestReply reply={'```json\n{"skill":["review"],"mcp":["pmw"],"rag":[],"rule":["AGENTS.md"]}\n```'} />)
   const table = screen.getByRole('table')

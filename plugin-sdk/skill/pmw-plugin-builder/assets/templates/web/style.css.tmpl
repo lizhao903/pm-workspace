@@ -1,0 +1,72 @@
+/*
+ * PMW 外部插件的样式只允许写在 [data-pmw-plugin="<id>"] 作用域下。
+ * 宿主会渲染 <div data-pmw-plugin="<id>"> 包住插件组件；不要改宿主全局样式、
+ * 不要给 body/html 设样式、不要用 !important 覆盖别人。
+ *
+ * 颜色优先用宿主暴露的 --pmw-* token，取不到时给中性兜底，别硬编码品牌色。
+ */
+
+[data-pmw-plugin="{{PMW_ID}}"] {
+  color: var(--pmw-text, inherits);
+  font-size: var(--pmw-font-size, 14px);
+}
+
+[data-pmw-plugin="{{PMW_ID}}"] .pmw-plugin {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+[data-pmw-plugin="{{PMW_ID}}"] .pmw-plugin-header h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+[data-pmw-plugin="{{PMW_ID}}"] .pmw-plugin-hint {
+  margin: 0;
+  color: var(--pmw-text-secondary, #6b7280);
+  font-size: 12px;
+}
+
+[data-pmw-plugin="{{PMW_ID}}"] .pmw-plugin-list {
+  margin: 0;
+  padding-left: 18px;
+}
+
+[data-pmw-plugin="{{PMW_ID}}"] .pmw-plugin-card {
+  padding: 12px;
+  border: 1px solid var(--pmw-border, #e5e7eb);
+  border-radius: var(--pmw-radius, 8px);
+  background: var(--pmw-panel, #ffffff);
+}
+
+[data-pmw-plugin="{{PMW_ID}}"] .pmw-plugin-card h4 {
+  margin: 0 0 6px;
+}
+
+[data-pmw-plugin="{{PMW_ID}}"] .pmw-plugin-button {
+  align-self: flex-start;
+  padding: 6px 12px;
+  border: 1px solid var(--pmw-border, #d1d5db);
+  border-radius: var(--pmw-radius, 6px);
+  background: var(--pmw-panel, #f9fafb);
+  color: inherit;
+  cursor: pointer;
+}
+
+[data-pmw-plugin="{{PMW_ID}}"] .pmw-plugin-button:hover {
+  background: var(--pmw-panel-hover, #f3f4f6);
+}
+
+[data-pmw-plugin="{{PMW_ID}}"] .pmw-plugin-error {
+  padding: 10px;
+  border: 1px solid var(--pmw-danger, #ef4444);
+  border-radius: var(--pmw-radius, 6px);
+  color: var(--pmw-danger, #b91c1c);
+}
+
+[data-pmw-plugin="{{PMW_ID}}"] .pmw-plugin-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

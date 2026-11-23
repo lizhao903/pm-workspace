@@ -11,6 +11,7 @@ import {
 } from '../../../core/data'
 import { Button, cls, EmptyState, PageTitle, Pill } from '../../../core/ui'
 import { DisableDialog, InstallDialog, UninstallDialog, UpgradeDialog } from './dialogs'
+import { ExternalPlugins } from './ExternalPlugins'
 import { nameOf, pluginStatus, quoteNames, STATUS_VIEW } from './labels'
 import { PluginDrawer, PluginLogo } from './PluginDrawer'
 import './plugins.css'
@@ -253,6 +254,9 @@ export function PluginsSection({ reload = () => window.location.reload() }: {
           </>
         )}
       </QueryState>
+
+      {/* 外部插件（P1-a）：第三方插件包的安装、预览、启停和卸载 */}
+      <ExternalPlugins reload={reload} />
 
       {open && <PluginDrawer plugin={open} list={list} actions={actionsFor(open, 'drawer')} onClose={() => setOpenId(null)} />}
 

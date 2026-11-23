@@ -1,0 +1,97 @@
+.em-scene {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 16px;
+  padding: 80px 120px; font-family: var(--font-body); color: var(--text);
+}
+.em-body { position: relative; width: 100%; max-width: 1600px; display: flex; gap: 70px; align-items: center; }
+.em-center { flex-direction: column; justify-content: center; gap: 40px; }
+.em-figure { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+
+/* 母题：南北基准线常驻；末步统计条收拢后由它接住，线末端仍是问号。 */
+.em-axis {
+  position: absolute; left: 50%; top: 90px; bottom: 90px; width: 2px;
+  border-left: 2px dashed var(--rule); transform: translateX(-50%);
+  display: flex; flex-direction: column; justify-content: space-between;
+  color: var(--text-faint); font-size: 32px; opacity: 0.35;
+  transition: opacity 900ms var(--ease-soft), border-color 900ms var(--ease-soft);
+}
+.em-axis span { transform: translateX(-50%); }
+.em-axis-lit { opacity: 1; border-left-color: var(--accent); color: var(--text-mute); }
+.em-axis-q {
+  position: absolute; left: 50%; bottom: -70px; transform: translateX(-50%);
+  font-family: var(--font-display-en); font-size: 96px; color: var(--accent);
+  animation: em-q-in 900ms var(--ease-soft) both;
+}
+
+/* 同一枚剖面 step1~3 常驻，step4 起收拢让位给实验台与记录表。 */
+.em-earth-layer {
+  display: flex; justify-content: center; gap: 70px;
+  max-height: 470px; opacity: 1; overflow: hidden;
+  transition: max-height 800ms var(--ease-soft), opacity 600ms var(--ease-soft);
+}
+.em-earth-layer-away { max-height: 0; opacity: 0; }
+.em-earth { width: 500px; height: 410px; }
+.em-globe { fill: var(--surface-2); stroke: var(--rule); stroke-width: 2; }
+.em-core { fill: var(--surface-3); stroke: var(--rule); stroke-width: 1; }
+.em-s { fill: var(--chalk-s); }
+.em-n { fill: var(--chalk-n); }
+.em-empty-box { fill: none; stroke: var(--text-mute); stroke-width: 2; stroke-dasharray: 8 8; }
+.em-pole { fill: var(--text); font-size: 32px; font-family: var(--font-mono); }
+.em-empty-label { fill: var(--text-mute); font-size: 32px; font-family: var(--font-body); }
+.em-cap { font-size: 38px; color: var(--text-mute); }
+.em-h { font-family: var(--font-display-cn); font-size: 76px; line-height: 1.35; text-align: center; }
+.em-em { color: var(--accent); }
+.em-caveat {
+  font-size: 34px; color: var(--text-mute); line-height: 1.4;
+  padding: 0.4em 0.9em; border: 2px dashed var(--rule); border-radius: 10px;
+}
+.em-kicker { font-size: 42px; color: var(--text-mute); }
+.em-note { font-size: 42px; color: var(--text-2); }
+
+.em-switches { display: flex; gap: 60px; }
+.em-switch {
+  font-size: 52px; padding: 0.5em 1em; border: 3px dashed var(--rule);
+  border-radius: 14px; color: var(--text-mute); background: var(--surface-2); line-height: 1.4;
+}
+.em-switch-on { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+
+.em-lab { flex-direction: column; gap: 26px; }
+/* 1180px 宽时 sinan-sim.html 自然高度约 791px；留 800px 且允许内部滚动，footer 按钮可达。 */
+.em-frame-wrap {
+  width: 1330px; height: 900px; overflow: auto; position: relative;
+  border: 2px dashed var(--rule); border-radius: 14px; background: var(--surface);
+}
+.em-frame { width: 1180px; height: 800px; border: 0; transform: scale(1.125); transform-origin: top left; }
+
+.em-sheet { width: 1080px; display: flex; flex-direction: column; gap: 10px; }
+.em-tr {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px;
+  padding: 16px 30px; border-bottom: 2px dashed var(--rule); font-size: 42px; color: var(--text-2);
+}
+.em-th { color: var(--text-mute); font-size: 36px; border-bottom-color: var(--accent); }
+.em-off-row { color: var(--text-mute); }
+.em-sheet-note { font-size: 32px; color: var(--text-faint); }
+.em-figure-inline { font-size: 44px; color: var(--accent); }
+
+.em-stats { display: flex; gap: 100px; }
+.em-stat { width: 520px; display: flex; flex-direction: column; gap: 18px; }
+.em-num { font-family: var(--font-display-en); font-size: 150px; line-height: 1; color: var(--accent); }
+.em-num span { font-size: 56px; color: var(--text-mute); }
+.em-stat-empty .em-num { color: var(--text-mute); }
+.em-bar { height: 18px; border-radius: 9px; background: var(--surface-3); overflow: hidden; }
+.em-bar i { display: block; height: 100%; background: var(--accent); }
+.em-stat-label { font-size: 38px; color: var(--text-2); }
+
+.em-lab-btn, .em-close {
+  position: absolute; right: 120px; top: 24px; z-index: 6;
+  font-family: var(--font-body); font-size: 34px; color: var(--accent); cursor: pointer;
+  padding: 0.4em 0.9em; border: 2px dashed var(--accent); border-radius: 10px;
+  background: var(--surface-2); line-height: 1.4;
+}
+.em-overlay {
+  position: absolute; inset: 0; z-index: 5; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 20px; background: var(--shell);
+}
+.em-overlay .em-close { position: relative; right: auto; top: auto; }
+
+@keyframes em-q-in { from { opacity: 0; transform: translateX(-50%) translateY(24px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }

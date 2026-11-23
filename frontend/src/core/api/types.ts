@@ -356,6 +356,72 @@ export type ArtifactPatch = {
   note?: string
 }
 
+// 产出物查看（DEV-08b 补，docs/api-contract.md「查看产出物」）：按产出物 id 读登记的文件、提交、分支
+/** 预览方式：markdown、html（content 是源码，渲染走 /raw）、image、pdf、office（不预览）、text（源码、配置，等宽）、binary（读出来是二进制） */
+export type ArtifactPreview = 'markdown' | 'html' | 'image' | 'pdf' | 'office' | 'text' | 'binary'
+
+export type ArtifactFile = {
+  artifact_id: string
+  /** 解析软链后的真实路径 */
+  path: string
+  name: string
+  ext: string
+  size: number
+  modified: string
+  preview: ArtifactPreview
+  /** image、pdf、office 不读内容，也是 true */
+  binary: boolean
+  /** 超过 limit 字节只给开头 */
+  truncated: boolean
+  limit: number
+  content: string
+}
+
+/** 改动的文件；status 是 git 的 A/M/D/R/C/T，改名时 old_path 是原路径；二进制的行数为 0 */
+export type ArtifactChangedFile = {
+  path: string
+  old_path: string
+  status: string
+  additions: number
+  deletions: number
+  binary: boolean
+}
+
+export type ArtifactCommit = {
+  artifact_id: string
+  repo: string
+  sha: string
+  parents: string[]
+  author: string
+  author_email: string
+  authored_at: string
+  subject: string
+  body: string
+  files: ArtifactChangedFile[]
+  files_truncated: boolean
+  diff: string
+  /** diff 超过 limit 字节只给开头 */
+  truncated: boolean
+  limit: number
+}
+
+export type ArtifactBranchCommit = { sha: string; author: string; authored_at: string; subject: string }
+
+/** 分支相对主分支（base）多出来的提交（新的在前，最多 200 条）和相对分叉点的改动文件 */
+export type ArtifactBranch = {
+  artifact_id: string
+  repo: string
+  branch: string
+  ref: string
+  base: string
+  ahead: number
+  behind: number
+  commits: ArtifactBranchCommit[]
+  commits_truncated: boolean
+  files: ArtifactChangedFile[]
+  files_truncated: boolean
+}
+
 export type ArtifactListParams = {
   object_id?: string
   // 与 object_id 同时给后端报 400

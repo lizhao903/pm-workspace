@@ -18,6 +18,13 @@
 .art-form { display: flex; flex-direction: column; gap: var(--sp-4); }
 .art-form-acts { display: flex; gap: var(--sp-4); }
 
+/* 能在工作台里点开看的标题（DEV-08b 补）：外形同链接；同时有链接的，链接放在后面一个小字 */
+.art-view { min-width: 0; padding: 0; border: 0; background: none; text-align: left; font: inherit; color: var(--accent); cursor: pointer; }
+.art-view:hover { text-decoration: underline; }
+.art-view.art-path { font-family: var(--mono); }
+.art-url { flex: none; font-size: var(--fs-xs); color: var(--faint); }
+.art-url:hover { color: var(--accent); }
+
 @media (max-width: 760px) {
   .art-at { display: none; }
   .art-row { flex-wrap: wrap; }

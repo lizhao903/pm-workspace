@@ -8,7 +8,7 @@ describe('视频创作插件', () => {
     const r = await loadPlugins(discoverPlugins(), { enabled: ['projects', 'video'], apiVersion: PLUGIN_API_VERSION })
     expect(r.problems).toEqual([])
     const video = r.plugins.find((p) => p.id === 'video')!
-    expect(video.permissions).toEqual(['fs:read:project', 'fs:write:project', 'network:media-platforms', 'process:spawn', 'fs:read:registered'])
+    expect(video.permissions).toEqual(['fs:read:project', 'fs:write:project', 'network:media-platforms', 'network:github', 'process:spawn', 'fs:read:registered'])
     expect(r.modules.filter((m) => m.plugin.id === 'video').map((m) => [m.def.id, m.def.label, m.def.path])).toEqual([
       ['videos', '做视频', 'videos'], ['video_clips', '素材收集', 'video_clips'], ['video_publish', '发布与数据', 'video_publish'],
     ])

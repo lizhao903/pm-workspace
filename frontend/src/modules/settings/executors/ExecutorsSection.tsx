@@ -58,6 +58,8 @@ function ExecutorEditor({ initial, onClose }: { initial?: Executor; onClose: () 
   const baseline = initial ? { name: initial.name, kind: initial.kind, bin: initial.bin, desc: initial.desc, enabled: initial.enabled, provider_id: initial.provider_id ?? '', use_cli_config: initial.use_cli_config ?? false } : blank()
   const dirty = JSON.stringify(draft) !== JSON.stringify(baseline)
   const patch = (value: Partial<ExecutorInput>) => setDraft((old) => ({ ...old, ...value }))
+  // 直接用本机 CLI 的登录和默认模型：Codex 勾了本机配置，或 Claude Code 没选服务商（Claude Code 是调本机 claude 命令，服务商可选）
+  const localCli = (draft.kind === 'codex' && !!draft.use_cli_config) || (draft.kind === 'claude' && !draft.provider_id)
   return <Drawer open kicker={initial ? '编辑执行器' : '新建执行器'} onClose={onClose} dirty={dirty}
     footer={(requestClose) => <><Button onClick={requestClose}>取消</Button><Button variant="primary" disabled={save.isPending || !draft.name.trim() || !draft.bin.trim()} onClick={() => save.mutate({ id: initial?.id, input: draft }, { onSuccess: onClose })}>{save.isPending ? '保存中…' : '保存'}</Button></>}>
     <div className="form executor-editor">
@@ -77,8 +79,8 @@ function ExecutorEditor({ initial, onClose }: { initial?: Executor; onClose: () 
       </dl>}
       {(probeError || !!probe?.warnings?.length) && <div className="executor-warning" role="status">⚠ {probeError || probe?.warnings.join('；')}</div>}
       {draft.kind === 'codex' && <Checkbox checked={!!draft.use_cli_config} onCheckedChange={(use_cli_config) => patch({ use_cli_config })}>使用本机 Codex 登录和模型配置（ChatGPT）</Checkbox>}
-      {!(draft.kind === 'codex' && draft.use_cli_config) && <Field label="模型服务商" hint="模型使用所选服务商配置的模型名称及版本">
-        <Select aria-label="模型服务商" value={draft.provider_id ?? ''} options={[{ value: '', label: '请选择模型服务商' }, ...(providers.data ?? []).map((p) => ({ value: p.id, label: `${p.name} · ${p.model || '未配置模型'}${p.enabled ? '' : '（已停用）'}` })), ...(draft.provider_id && !(providers.data ?? []).some((p) => p.id === draft.provider_id) ? [{ value: draft.provider_id, label: '服务商已删除或尚未加载' }] : [])]} onValueChange={(provider_id) => patch({ provider_id })} />
+      {!(draft.kind === 'codex' && draft.use_cli_config) && <Field label="模型服务商" hint={draft.kind === 'claude' ? '可不选：不选就用本机 Claude Code 的登录和默认模型；选了改走所选服务商（Anthropic 兼容）的模型' : '模型使用所选服务商配置的模型名称及版本'}>
+        <Select aria-label="模型服务商" value={draft.provider_id ?? ''} options={[{ value: '', label: draft.kind === 'claude' ? '不选，用本机 Claude Code 登录和模型' : '请选择模型服务商' }, ...(providers.data ?? []).map((p) => ({ value: p.id, label: `${p.name} · ${p.model || '未配置模型'}${p.enabled ? '' : '（已停用）'}` })), ...(draft.provider_id && !(providers.data ?? []).some((p) => p.id === draft.provider_id) ? [{ value: draft.provider_id, label: '服务商已删除或尚未加载' }] : [])]} onValueChange={(provider_id) => patch({ provider_id })} />
       </Field>
       }
       {draft.kind === 'codex' && <div>
@@ -88,17 +90,17 @@ function ExecutorEditor({ initial, onClose }: { initial?: Executor; onClose: () 
         {draft.use_cli_config && <p className="executor-editor-hint">仅展示本机文件配置，运行时可能被环境变量或 CLI 默认值覆盖。</p>}
       </div>}
       {providers.isError && <div role="alert">服务商加载失败：{errorText(providers.error)}</div>}
-      {!draft.provider_id && !(draft.kind === 'codex' && draft.use_cli_config) && <div className="executor-warning">⚠ 未选择模型服务商，配置尚不完整</div>}
+      {!draft.provider_id && !localCli && <div className="executor-warning">⚠ 未选择模型服务商，配置尚不完整</div>}
       </section>
       <section aria-label="配置测试" className="executor-test executor-editor-section">
         <h3>测试验证</h3>
-        <p className="rp-muted">{draft.kind === 'codex' && draft.use_cli_config ? '通过 Codex CLI 使用本机登录和默认模型，在临时目录中进行只读测试。' : draft.kind === 'codex' ? '通过 Codex CLI 在临时目录中以只读沙箱测试所选服务商和模型；服务商需要支持 Responses API。' : '通过所选本机 CLI，在临时目录中以只读模式测试当前配置；程序、认证或服务商不兼容时直接报错。'}</p>
+        <p className="rp-muted">{draft.kind === 'codex' && draft.use_cli_config ? '通过 Codex CLI 使用本机登录和默认模型，在临时目录中进行只读测试。' : draft.kind === 'claude' && !draft.provider_id ? '通过本机 Claude Code 使用它自己的登录和默认模型，在临时目录中以只读模式测试。' : draft.kind === 'codex' ? '通过 Codex CLI 在临时目录中以只读沙箱测试所选服务商和模型；服务商需要支持 Responses API。' : '通过所选本机 CLI，在临时目录中以只读模式测试当前配置；程序、认证或服务商不兼容时直接报错。'}</p>
         {draft.kind === 'codex' && <ExecutorCommand draft={draft} />}
         <div className="executor-editor-chat-label">测试对话</div>
         <ChatPanel key={JSON.stringify([draft.kind, draft.bin, draft.provider_id, draft.use_cli_config])}
           initialInput={initialMessage} inputLabel="测试消息" sendLabel="发送测试"
           emptyText="查询当前会话加载的 Skill、MCP、RAG 和规则，也可以继续追问。"
-          disabled={!draft.provider_id && !(draft.kind === 'codex' && draft.use_cli_config)}
+          disabled={!draft.provider_id && !localCli}
           onSend={async (messages, signal) => {
             const result = await executorsApi.test(draft, messages.at(-1)!.content, messages.slice(0, -1), signal)
             return result.reply

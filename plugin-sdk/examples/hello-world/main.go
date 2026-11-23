@@ -1,0 +1,654 @@
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+
+// Package main 是 PMW 外部插件后端的 Go 骨架（清单 v2 / 宿主 API 2.0.0，草案）。
+//
+// 传输与协议：pmw-plugin-rpc/1，JSON-RPC 2.0 + 换行分帧，本机 IPC：
+//   - macOS / Linux：Unix domain socket，地址来自环境变量 PMW_PLUGIN_SOCKET；
+//   - Windows：宿主用命名管道，模板用标准库 os.OpenFile 打开 \\.\pipe\...。
+//
+// 宿主是 socket server，插件启动后主动连上去，握手 plugin.hello -> host.welcome；
+// 之后宿主发 plugin.activate，插件返回后进入运行状态，宿主再按需发健康检查。
+//
+// 本文件只用标准库，不引第三方依赖。握手、健康检查、优雅退出和 host.* 调用封装
+// 都可以替换，但协议帧、错误码、环境变量不要改。协议见 references/backend.md。
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net"
+	"os"
+	"os/signal"
+	"runtime"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
+	"time"
+)
+
+const (
+	// protocolVersion 是宿主和插件之间的协议名，清单 runtime.backend.protocol 必须和它一致。
+	protocolVersion = "pmw-plugin-rpc/1"
+	// pluginAPIRange 是 plugin.json 里 api 字段的原文；握手时原样交给宿主复查。
+	// 改清单 api 时同步改这里（模板默认 >=2.0.0 <3.0.0）。
+	pluginAPIRange = ">=2.0.0 <3.0.0"
+	// maxFrameBytes 是单条消息上限（8 MiB，协议默认值），超了直接断开。
+	maxFrameBytes = 8 << 20
+	// defaultCallTimeout 是插件调宿主时的默认超时；个别方法（如 host.agent.run）可显式传更大的 timeout_ms。
+	defaultCallTimeout = 30 * time.Second
+	// maxInflight 是同时处理的宿主请求数上限，和宿主侧的每插件并发默认值对齐。
+	maxInflight = 8
+)
+
+// 环境变量由宿主注入（见 references/backend.md）。清单和协议不靠这些值做权限判断，
+// 它们只是身份和数据目录信息；权限一律由宿主在 RPC 层强制。
+var (
+	pluginID     = envOr("PMW_PLUGIN_ID", "unknown_plugin")
+	pluginVer    = envOr("PMW_PLUGIN_VERSION", "0.0.0")
+	apiVersion   = envOr("PMW_PLUGIN_API_VERSION", "2.0.0")
+	dataDir      = envOr("PMW_PLUGIN_DATA_DIR", "")
+	cacheDir     = envOr("PMW_PLUGIN_CACHE_DIR", "")
+	hostLogLevel = envOr("PMW_PLUGIN_LOG_LEVEL", "info")
+)
+
+func envOr(key, fallback string) string {
+	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
+		return v
+	}
+	return fallback
+}
+
+// main 只负责把 run 的错误翻译成退出码：0 正常退出（宿主停用或 SIGTERM），1 失败。
+func main() {
+	logger := newLogger(hostLogLevel)
+	if err := run(logger); err != nil {
+		logger.Error("插件进程退出", "err", err)
+		os.Exit(1)
+	}
+	logger.Info("插件进程正常退出", "plugin", pluginID)
+}
+
+func newLogger(level string) *slog.Logger {
+	var l slog.Level
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "debug":
+		l = slog.LevelDebug
+	case "warn", "warning":
+		l = slog.LevelWarn
+	case "error":
+		l = slog.LevelError
+	default:
+		l = slog.LevelInfo
+	}
+	return slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: l}))
+}
+
+func run(logger *slog.Logger) error {
+	rw, err := dialHost()
+	if err != nil {
+		return fmt.Errorf("连接宿主失败：%w", err)
+	}
+
+	// 信号和 plugin.deactivate 都走 cancelBase：前者是宿主 SIGTERM，后者是协议里的正常停用。
+	base, cancelBase := context.WithCancel(context.Background())
+	defer cancelBase()
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigCh)
+	go func() {
+		select {
+		case <-sigCh:
+			logger.Info("收到退出信号")
+			cancelBase()
+		case <-base.Done():
+		}
+	}()
+
+	srv := &server{log: logger, cancel: cancelBase, startedAt: time.Now()}
+	conn := newRPCConn(rw, logger, srv.handlers())
+	conn.onDeactivate = cancelBase
+	srv.conn = conn
+	conn.start(base)
+
+	// 握手要在读循环启动之后做：host.welcome 是作为响应回到读循环里分发的。
+	helloCtx, cancelHello := context.WithTimeout(base, 10*time.Second)
+	defer cancelHello()
+	if err := conn.hello(helloCtx); err != nil {
+		conn.close()
+		return fmt.Errorf("握手失败：%w", err)
+	}
+	logger.Info("已连接宿主", "plugin", pluginID, "version", pluginVer, "api", apiVersion,
+		"data_dir", dataDir, "cache_dir", cacheDir)
+
+	select {
+	case <-base.Done():
+	case <-conn.done:
+	}
+	conn.close()
+	// 给已经开始的 handler 一点时间收尾；宿主侧 5s SIGKILL 兜底。
+	conn.wait(5 * time.Second)
+	return nil
+}
+
+// dialHost 连宿主。Unix 用 PMW_PLUGIN_SOCKET 的绝对路径；Windows 用命名管道。
+//
+// macOS / Linux 差异：Unix socket 路径有长度上限（macOS 约 104 字节、Linux 约 108 字节），
+// 宿主会把 socket 放在短路径的数据目录下；插件只按环境变量给的原样连接，不要自己拼路径。
+func dialHost() (io.ReadWriteCloser, error) {
+	sock := strings.TrimSpace(os.Getenv("PMW_PLUGIN_SOCKET"))
+	if sock == "" {
+		return nil, errors.New("PMW_PLUGIN_SOCKET 未设置（不是由 PMW 宿主拉起的进程？）")
+	}
+	if runtime.GOOS == "windows" {
+		// Windows 命名管道：标准库没有专门 API，但 os.OpenFile 内部就是 CreateFile，
+		// 对 \\.\pipe\... 路径可用；不需要 go-winio。
+		return os.OpenFile(sock, os.O_RDWR, 0)
+	}
+	conn, err := net.DialTimeout("unix", sock, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	return conn, nil
+}
+
+// ---------------------------------------------------------------------------
+// JSON-RPC 2.0 + 换行分帧
+// ---------------------------------------------------------------------------
+
+type rpcRequest struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Method  string          `json:"method"`
+	Params  json.RawMessage `json:"params,omitempty"`
+}
+
+type rpcResponse struct {
+	JSONRPC string          `json:"jsonrpc"`
+	ID      json.RawMessage `json:"id,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *rpcError       `json:"error,omitempty"`
+}
+
+// rpcError 是 JSON-RPC 错误对象：整数 code 按规范 7.7 的表，
+// message 必须是人能读的中文（可脱敏），data 可选，用来带字段路径、权限名等细节。
+type rpcError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
+}
+
+func (e *rpcError) Error() string { return e.Message }
+
+// 语义错误名到 JSON-RPC 整数码的映射（与 docs/plugin-spec-v2.md 7.7 一致）。
+var errorCodeNumbers = map[string]int{
+	"parse_error":       -32700,
+	"invalid_request":   -32600,
+	"method_not_found":  -32601,
+	"invalid_params":    -32602,
+	"internal_error":    -32603,
+	"permission_denied": -32001,
+	"not_found":         -32002,
+	"validation":        -32003,
+	"conflict":          -32004,
+	"rate_limited":      -32005,
+	"unavailable":       -32006,
+	"internal":          -32007,
+}
+
+func rpcErrorf(code, format string, args ...any) *rpcError {
+	msg := fmt.Sprintf(format, args...)
+	num, ok := errorCodeNumbers[code]
+	if !ok {
+		num = errorCodeNumbers["internal_error"]
+	}
+	return &rpcError{Code: num, Message: msg}
+}
+
+type handlerFunc func(ctx context.Context, raw json.RawMessage) (any, error)
+
+type rpcConn struct {
+	rw       io.ReadWriteCloser
+	br       *bufio.Reader
+	log      *slog.Logger
+	handlers map[string]handlerFunc
+
+	writeMu sync.Mutex
+	nextID  atomic.Int64
+	mu      sync.Mutex
+	pending map[string]chan rpcResponse
+
+	closed atomic.Bool
+	done   chan struct{}
+	wg     sync.WaitGroup
+	sem    chan struct{}
+
+	// onDeactivate 在 plugin.deactivate 的响应写完后调用，通知主循环正常退出。
+	onDeactivate func()
+}
+
+func newRPCConn(rw io.ReadWriteCloser, log *slog.Logger, handlers map[string]handlerFunc) *rpcConn {
+	return &rpcConn{
+		rw:       rw,
+		br:       bufio.NewReaderSize(rw, 64*1024),
+		log:      log,
+		handlers: handlers,
+		pending:  map[string]chan rpcResponse{},
+		done:     make(chan struct{}),
+		sem:      make(chan struct{}, maxInflight),
+	}
+}
+
+func (c *rpcConn) start(ctx context.Context) { go c.readLoop(ctx) }
+
+// hello 握手：插件 -> 宿主 plugin.hello，宿主回 host.welcome（结果里带协议、宿主版本、会话 id）。
+// 握手 10 秒内没完成按失败处理，宿主会 SIGTERM 掉插件。
+func (c *rpcConn) hello(ctx context.Context) error {
+	params := map[string]any{
+		"protocol":       protocolVersion,
+		"plugin_id":      pluginID,
+		"plugin_version": pluginVer,
+		"token":          strings.TrimSpace(os.Getenv("PMW_PLUGIN_TOKEN")),
+		"api":            pluginAPIRange,
+		// 可选能力；模板只实现基础 RPC，需要流式 HTTP / WS 时再声明。
+		"capabilities": []string{},
+	}
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
+	var welcome struct {
+		Protocol string `json:"protocol"`
+		Host     struct {
+			PMWVersion string `json:"pmw_version"`
+			APIVersion string `json:"api_version"`
+			OS         string `json:"os"`
+			Arch       string `json:"arch"`
+		} `json:"host"`
+		Plugin struct {
+			ID      string `json:"id"`
+			Version string `json:"version"`
+		} `json:"plugin"`
+		Limits struct {
+			MaxMessageBytes       int `json:"max_message_bytes"`
+			MaxConcurrentRequests int `json:"max_concurrent_requests"`
+			DefaultTimeoutMS      int `json:"default_timeout_ms"`
+		} `json:"limits"`
+		Permissions []string `json:"permissions"`
+	}
+	if err := c.call(reqCtx, "plugin.hello", params, &welcome); err != nil {
+		return err
+	}
+	if welcome.Protocol != protocolVersion {
+		return fmt.Errorf("协议不匹配：宿主 %q，插件要求 %q", welcome.Protocol, protocolVersion)
+	}
+	if welcome.Plugin.ID != "" && welcome.Plugin.ID != pluginID {
+		return fmt.Errorf("宿主回显的插件 id 不一致：%q", welcome.Plugin.ID)
+	}
+	c.log.Info("握手完成",
+		"host", welcome.Host.PMWVersion, "api", welcome.Host.APIVersion,
+		"os", welcome.Host.OS, "arch", welcome.Host.Arch,
+		"limits", welcome.Limits, "permissions", welcome.Permissions)
+	return nil
+}
+
+func (c *rpcConn) close() {
+	if c.closed.CompareAndSwap(false, true) {
+		close(c.done)
+		_ = c.rw.Close()
+	}
+}
+
+func (c *rpcConn) wait(timeout time.Duration) {
+	ch := make(chan struct{})
+	go func() { c.wg.Wait(); close(ch) }()
+	select {
+	case <-ch:
+	case <-time.After(timeout):
+		c.log.Warn("有请求处理未在超时内结束，强制退出")
+	}
+}
+
+func (c *rpcConn) write(v any) error {
+	frame, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	if len(frame)+1 > maxFrameBytes {
+		return fmt.Errorf("响应超过单帧上限 %d 字节", maxFrameBytes)
+	}
+	frame = append(frame, '\n')
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	_, err = c.rw.Write(frame)
+	return err
+}
+
+// call 发一个 host.* 请求并等响应；out 非 nil 时把 result 解进去。
+func (c *rpcConn) call(ctx context.Context, method string, params, out any) error {
+	id := "pmw-" + strconv.FormatInt(c.nextID.Add(1), 10)
+	ch := make(chan rpcResponse, 1)
+	c.mu.Lock()
+	c.pending[id] = ch
+	c.mu.Unlock()
+	defer func() {
+		c.mu.Lock()
+		delete(c.pending, id)
+		c.mu.Unlock()
+	}()
+
+	req := map[string]any{
+		"jsonrpc": "2.0",
+		"id":      id,
+		"method":  method,
+	}
+	if params != nil {
+		req["params"] = params
+	}
+	if err := c.write(req); err != nil {
+		return err
+	}
+
+	select {
+	case <-ctx.Done():
+		return fmt.Errorf("调用 %s 超时或被取消：%w", method, ctx.Err())
+	case resp := <-ch:
+		if resp.Error != nil {
+			return resp.Error
+		}
+		if out != nil && len(resp.Result) > 0 {
+			if err := json.Unmarshal(resp.Result, out); err != nil {
+				return fmt.Errorf("解析 %s 的响应失败：%w", method, err)
+			}
+		}
+		return nil
+	}
+}
+
+func (c *rpcConn) readLoop(ctx context.Context) {
+	defer c.close()
+	for {
+		line, err := c.br.ReadBytes('\n')
+		if len(line) > maxFrameBytes {
+			c.log.Error("收到超过单帧上限的消息，断开", "bytes", len(line), "limit", maxFrameBytes)
+			return
+		}
+		line = bytes.TrimSpace(line)
+		if len(line) > 0 {
+			c.dispatch(ctx, line)
+		}
+		if err != nil {
+			if !errors.Is(err, io.EOF) && !c.closed.Load() {
+				c.log.Debug("读取宿主消息结束", "err", err)
+			}
+			return
+		}
+	}
+}
+
+func (c *rpcConn) dispatch(ctx context.Context, line []byte) {
+	var probe struct {
+		ID     json.RawMessage `json:"id"`
+		Method string          `json:"method"`
+	}
+	if err := json.Unmarshal(line, &probe); err != nil {
+		c.log.Warn("收到无法解析的帧", "err", err)
+		return
+	}
+
+	// 没有 method、有 id：是宿主对我们 host.* 调用的响应。
+	if probe.Method == "" {
+		if len(probe.ID) > 0 {
+			c.deliverResponse(line)
+		}
+		return
+	}
+
+	// 没有 id：通知，不回应。
+	if len(probe.ID) == 0 || string(probe.ID) == "null" {
+		if h, ok := c.handlers[probe.Method]; ok {
+			c.wg.Add(1)
+			go func() {
+				defer c.wg.Done()
+				if _, err := h(ctx, nil); err != nil {
+					c.log.Warn("处理通知失败", "method", probe.Method, "err", err)
+				}
+			}()
+		}
+		return
+	}
+
+	// 普通请求：并发处理，最多 maxInflight 个。
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		select {
+		case c.sem <- struct{}{}:
+			defer func() { <-c.sem }()
+		case <-ctx.Done():
+			return
+		}
+
+		h, ok := c.handlers[probe.Method]
+		if !ok {
+			_ = c.write(map[string]any{
+				"jsonrpc": "2.0",
+				"id":      probe.ID,
+				"error":   rpcErrorf("method_not_found", "未实现方法 %s", probe.Method),
+			})
+			return
+		}
+		var params json.RawMessage
+		var full rpcRequest
+		if err := json.Unmarshal(line, &full); err == nil {
+			params = full.Params
+		}
+		result, err := h(ctx, params)
+		resp := map[string]any{"jsonrpc": "2.0", "id": probe.ID}
+		if err != nil {
+			var rerr *rpcError
+			if !errors.As(err, &rerr) {
+				rerr = rpcErrorf("internal", "%s 处理失败：%v", probe.Method, err)
+			}
+			resp["error"] = rerr
+		} else {
+			resp["result"] = result
+		}
+		if werr := c.write(resp); werr != nil {
+			c.log.Debug("回写响应失败", "method", probe.Method, "err", werr)
+		}
+		if probe.Method == "plugin.deactivate" {
+			// 先让响应写出去（上面已经同步写完），再通知主循环退出。
+			c.cancelAfterDeactivate()
+		}
+	}()
+}
+
+// cancelAfterDeactivate 由 server 注入；单独拆出来便于测试。
+func (c *rpcConn) cancelAfterDeactivate() {
+	if c.onDeactivate != nil {
+		c.onDeactivate()
+	}
+}
+
+func (c *rpcConn) deliverResponse(line []byte) {
+	var resp rpcResponse
+	if err := json.Unmarshal(line, &resp); err != nil {
+		c.log.Warn("收到无法解析的响应", "err", err)
+		return
+	}
+	key := idKey(resp.ID)
+	c.mu.Lock()
+	ch, ok := c.pending[key]
+	c.mu.Unlock()
+	if !ok {
+		c.log.Debug("收到未知请求 id 的响应", "id", key)
+		return
+	}
+	select {
+	case ch <- resp:
+	default:
+	}
+}
+
+// idKey 把 id 的 JSON 原始形式规整成 map key：字符串 id 去掉引号，数字 id 原样。
+func idKey(raw json.RawMessage) string {
+	s := strings.TrimSpace(string(raw))
+	if len(s) >= 2 && s[0] == '"' && s[len(s)-1] == '"' {
+		if unq, err := strconv.Unquote(s); err == nil {
+			return unq
+		}
+	}
+	return s
+}
+
+// ---------------------------------------------------------------------------
+// 插件业务：按清单 provides 声明的方法实现；没声明的扩展点不要注册。
+// ---------------------------------------------------------------------------
+
+type server struct {
+	conn      *rpcConn
+	log       *slog.Logger
+	cancel    context.CancelFunc
+	startedAt time.Time
+}
+
+func (s *server) handlers() map[string]handlerFunc {
+	return map[string]handlerFunc{
+		"plugin.activate":           s.handleActivate,
+		"plugin.deactivate":         s.handleDeactivate,
+		"plugin.health":             s.handleHealth,
+		"plugin.event.deliver":      s.handleEventDeliver,
+		"plugin.command.run":        s.handleCommand,
+		"plugin.permission_changed": s.handlePermissionChanged,
+	}
+}
+
+// handleActivate 只做登记和只读探测，不做重活；必须 10 秒内返回。
+func (s *server) handleActivate(ctx context.Context, _ json.RawMessage) (any, error) {
+	s.log.Info("plugin.activate", "plugin", pluginID)
+	// 两个 host.* 示例：store 是隐式权限，objects.list 需要清单声明 objects:read。
+	// 宿主 P1 未实现或权限没授予时这里会失败，失败只记警告、不影响激活（插件应可降级运行）。
+	s.demoStoreQuery(ctx)
+	s.demoObjectsList(ctx)
+	return map[string]any{"ok": true}, nil
+}
+
+func (s *server) handleDeactivate(ctx context.Context, _ json.RawMessage) (any, error) {
+	s.log.Info("plugin.deactivate，准备退出", "plugin", pluginID)
+	s.cancel()
+	return map[string]any{"ok": true}, nil
+}
+
+func (s *server) handleHealth(_ context.Context, _ json.RawMessage) (any, error) {
+	return map[string]any{
+		"status": "ok",
+		"detail": map[string]any{
+			"plugin":    pluginID,
+			"version":   pluginVer,
+			"pid":       os.Getpid(),
+			"uptime_ms": time.Since(s.startedAt).Milliseconds(),
+		},
+	}, nil
+}
+
+func (s *server) handleEventDeliver(_ context.Context, raw json.RawMessage) (any, error) {
+	var p struct {
+		Event struct {
+			Type    string          `json:"type"`
+			At      string          `json:"at"`
+			Payload json.RawMessage `json:"payload"`
+		} `json:"event"`
+	}
+	_ = json.Unmarshal(raw, &p)
+	s.log.Info("收到事件", "type", p.Event.Type, "at", p.Event.At, "bytes", len(p.Event.Payload))
+	// 在这里按事件类型处理；清单 subscribes 里没声明的事件宿主不会投递。
+	return map[string]any{"ok": true}, nil
+}
+
+// handleCommand 处理命令面板命令；清单 provides.commands 里要有同样的 id。
+func (s *server) handleCommand(ctx context.Context, raw json.RawMessage) (any, error) {
+	var p struct {
+		Command string         `json:"command"`
+		Args    map[string]any `json:"args"`
+	}
+	if err := json.Unmarshal(raw, &p); err != nil {
+		return nil, rpcErrorf("invalid_params", "命令参数不是合法 JSON：%v", err)
+	}
+	if want := pluginID + ".say_hi"; p.Command != want {
+		return nil, rpcErrorf("not_found", "未声明的命令 %q（只实现了 %s）", p.Command, want)
+	}
+
+	msg := "你好，这是 " + pluginID + " 通过 pmw-plugin-rpc/1 返回的问候。"
+	if n, err := s.countObjects(ctx); err == nil {
+		msg += fmt.Sprintf(" 宿主里有 %d 个对象可读（objects:read）。", n)
+	} else {
+		s.log.Warn("读取对象示例失败，按降级处理", "err", err)
+	}
+	return map[string]any{"result": msg}, nil
+}
+
+// handlePermissionChanged 是通知（没有响应 id），权限 grant/revoke 后宿主会推。
+func (s *server) handlePermissionChanged(_ context.Context, raw json.RawMessage) (any, error) {
+	s.log.Info("权限发生变化，按需调整行为", "params", string(raw))
+	return nil, nil
+}
+
+// demoStoreQuery 演示宿主给的独立插件库（store:plugin 隐式权限，不用写进清单）。
+func (s *server) demoStoreQuery(ctx context.Context) {
+	callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var out struct {
+		Columns []string         `json:"columns"`
+		Rows    []map[string]any `json:"rows"`
+	}
+	err := s.conn.call(callCtx, "host.store.query", map[string]any{
+		"sql": "SELECT 1 AS ok",
+	}, &out)
+	if err != nil {
+		s.log.Warn("host.store.query 示例失败（宿主 P1 未实现时正常）", "err", err)
+		return
+	}
+	s.log.Info("host.store.query 示例成功", "columns", out.Columns, "rows", len(out.Rows))
+}
+
+// demoObjectsList 演示读内核对象（需要清单声明 objects:read）。
+func (s *server) demoObjectsList(ctx context.Context) {
+	callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var out struct {
+		Items []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+			Type  string `json:"type"`
+		} `json:"items"`
+	}
+	err := s.conn.call(callCtx, "host.objects.list", map[string]any{"limit": 3}, &out)
+	if err != nil {
+		s.log.Warn("host.objects.list 示例失败（宿主 P1 未实现或未授予 objects:read 时正常）", "err", err)
+		return
+	}
+	titles := make([]string, 0, len(out.Items))
+	for _, it := range out.Items {
+		titles = append(titles, it.Title)
+	}
+	s.log.Info("host.objects.list 示例成功", "count", len(out.Items), "titles", titles)
+}
+
+func (s *server) countObjects(ctx context.Context) (int, error) {
+	callCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	var out struct {
+		Items []json.RawMessage `json:"items"`
+	}
+	if err := s.conn.call(callCtx, "host.objects.list", map[string]any{"limit": 5}, &out); err != nil {
+		return 0, err
+	}
+	return len(out.Items), nil
+}

@@ -26,6 +26,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
+	"github.com/lizhao903/pm-workspace/internal/pluginhost"
 	"github.com/lizhao903/pm-workspace/internal/runner"
 	"github.com/lizhao903/pm-workspace/internal/schedule"
 	"github.com/lizhao903/pm-workspace/internal/selfupdate"
@@ -72,6 +73,9 @@ type Options struct {
 
 	// Plugins 是插件注册表；为 nil 时没有插件路由。必须在 New 之前 Start，路由在 New 时挂上。
 	Plugins *plugin.Registry
+
+	// External 是外部插件宿主（P1-a）；为 nil 时不注册 /api/plugins/external 路由。
+	External *pluginhost.Host
 
 	// Audit 是审计日志（CORE-08）；为 nil 时不记，GET /api/audits 回 500。
 	// 删除和 Agent 写操作由 audit.WrapStore 记，这里只给配置类 handler 和查询接口用。
@@ -387,6 +391,12 @@ func (s *Server) routes(m routeRegistrar) {
 	m.HandleFunc("GET /api/artifacts/{id}", s.handleGetArtifact)
 	m.HandleFunc("PATCH /api/artifacts/{id}", s.handleUpdateArtifact)
 	m.HandleFunc("DELETE /api/artifacts/{id}", s.handleDeleteArtifact)
+	// 产出物查看（DEV-08b 补，artifactview.go、artifactgit.go）：按产出物 id 读登记的文件、提交、分支，不接受路径参数
+	m.HandleFunc("GET /api/artifacts/{id}/file", s.handleArtifactFile)
+	m.HandleFunc("GET /api/artifacts/{id}/raw", s.handleArtifactRaw)
+	m.HandleFunc("POST /api/artifacts/{id}/open", s.handleArtifactOpen)
+	m.HandleFunc("GET /api/artifacts/{id}/commit", s.handleArtifactCommit)
+	m.HandleFunc("GET /api/artifacts/{id}/branch", s.handleArtifactBranch)
 
 	// 目录浏览。browse / shortcuts / mkdir 三个都是固定路径，互不遮挡。
 	m.HandleFunc("GET /api/fs/browse", s.handleFsBrowse)
@@ -528,6 +538,8 @@ func (s *Server) routes(m routeRegistrar) {
 
 	// 插件路由：/api/<插件 id>/...，停用时回 404（见 plugins.go）。
 	s.pluginRoutes(m)
+	// 外部插件管理接口（P1-a）：没有宿主时 externalPluginRoutes 直接返回。
+	s.externalPluginRoutes(m)
 }
 
 // --- 中间件 ---

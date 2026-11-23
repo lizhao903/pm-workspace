@@ -33,6 +33,7 @@ import (
 	"github.com/lizhao903/pm-workspace/internal/localdir"
 	"github.com/lizhao903/pm-workspace/internal/notify"
 	"github.com/lizhao903/pm-workspace/internal/plugin"
+	"github.com/lizhao903/pm-workspace/internal/pluginhost"
 	"github.com/lizhao903/pm-workspace/internal/plugins/browser"
 	"github.com/lizhao903/pm-workspace/internal/plugins/domains"
 	"github.com/lizhao903/pm-workspace/internal/plugins/etf"
@@ -56,7 +57,7 @@ import (
 )
 
 // version 可通过 -ldflags "-X main.version=..." 覆盖。
-var version = "0.1.0"
+var version = "0.3.0"
 
 // config 汇总命令行参数。参数超过五个后逐个传形参既难读也容易传错位置。
 type config struct {
@@ -80,6 +81,14 @@ type config struct {
 	mcpBin string
 	// dshBin：deepseek-harness 的 dsh 可执行文件；空串时走 PATH，再看 DSH_BIN
 	dshBin string
+	// allowExternalPlugins：是否允许安装外部插件（默认 true；每次安装仍需用户在界面确认权限）
+	allowExternalPlugins bool
+	// pluginDevDir：外部插件本地开发目录（P1-a 只记录，P1-b 起用于 dev link）
+	pluginDevDir string
+	// pluginMirror：GitHub 下载镜像前缀（P1-b 生效，当前保留）
+	pluginMirror string
+	// pluginMaxVersions：每个外部插件保留的历史版本数（回滚用，P1-b 生效）
+	pluginMaxVersions int
 }
 
 func main() {
@@ -98,6 +107,10 @@ func main() {
 	flag.StringVar(&cfg.publicURL, "public-url", connector.DefaultPublicURL, "浏览器访问工作台的地址，OAuth 回调地址由它拼出（见 docs/local-domain.md）")
 	flag.StringVar(&cfg.mcpBin, "mcp-bin", "", "交给 Claude Code「切换到终端」时接回工作台的 MCP 程序；留空按本程序位置推：bin/pmw 配 bin/pmw-mcp，bin/pmw-dev 配 bin/pmw-mcp-dev")
 	flag.StringVar(&cfg.dshBin, "dsh-bin", os.Getenv("DSH_BIN"), "deepseek-harness 的 dsh 可执行文件；留空走 PATH（也可用环境变量 DSH_BIN）")
+	flag.BoolVar(&cfg.allowExternalPlugins, "allow-external-plugins", true, "允许安装外部插件；每次安装仍需用户在界面确认权限")
+	flag.StringVar(&cfg.pluginDevDir, "plugin-dev-dir", "", "外部插件本地开发目录（P1-a 只记录，P1-b 起生效）")
+	flag.StringVar(&cfg.pluginMirror, "plugin-mirror", "", "GitHub 下载镜像前缀（P1-b 生效，当前保留）")
+	flag.IntVar(&cfg.pluginMaxVersions, "plugin-max-versions", 2, "每个外部插件保留的历史版本数（回滚用，P1-b 生效）")
 	flag.Parse()
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo})))
@@ -306,6 +319,27 @@ func run(cfg config) error {
 	// 插件发通知（VID-06b）：kind 带插件前缀、data.source 记插件 id，同样推 notification.created
 	plugins.SetNotifier(opts.Notify)
 	defer opts.Notify.Wait(5 * time.Second)
+	// 外部插件宿主（P1-a）：本地目录/tar.gz 安装、子进程 RPC、运行时前端资源。
+	// 默认允许安装，但每次安装仍要用户在设置页确认权限；--allow-external-plugins=false 时整块关闭。
+	var extHost *pluginhost.Host
+	if cfg.allowExternalPlugins {
+		extHost = pluginhost.New(pluginhost.Options{
+			DataDir:  filepath.Dir(cfg.dbPath),
+			DB:       pdb,
+			Version:  version,
+			DevDir:   cfg.pluginDevDir,
+			Logger:   slog.Default(),
+			Notifier: externalNotifier{center: opts.Notify},
+			Events:   bus,
+			Mirror:   cfg.pluginMirror,
+			Secrets:  v,
+		})
+		if err := extHost.Start(ctx); err != nil {
+			return fmt.Errorf("启动外部插件宿主失败: %w", err)
+		}
+		opts.External = extHost
+		defer extHost.Close()
+	}
 	// 运行异常（INC-01a，0043）：写成功发 incident 事件，转任务、改状态、巡检建任务记审计；建任务的 store 在下面接上
 	opts.Incidents = incident.New(pdb, slog.Default())
 	opts.Incidents.Events = bus
@@ -554,4 +588,20 @@ func openBrowser(url string) {
 	if err := exec.Command("open", url).Start(); err != nil {
 		slog.Warn("打开浏览器失败", "err", err)
 	}
+}
+
+// externalNotifier 把外部插件的 host.notify 接到内核通知中心：kind 带插件前缀、来源记插件 id。
+type externalNotifier struct{ center *notify.Center }
+
+func (n externalNotifier) Notify(ctx context.Context, pluginID, title, body string) error {
+	if n.center == nil {
+		return errors.New("通知中心未就绪")
+	}
+	return n.center.NotifyFromPlugin(ctx, plugin.Notification{
+		Kind:  pluginID + "_external",
+		Level: notify.LevelInfo,
+		Title: title,
+		Body:  body,
+		Data:  map[string]any{"source": pluginID},
+	})
 }

@@ -1,0 +1,45 @@
+/* 外部插件（P1-a）：安装表单、解析预览、已安装列表。颜色和间距沿用 plugins.css / tokens.css */
+.xpl { gap: var(--sp-6); }
+.xpl-block { display: flex; flex-direction: column; gap: var(--sp-5); }
+.xpl-block h3 { margin: 0; font-size: var(--fs-md); }
+.xpl-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2) var(--sp-4); margin-top: var(--sp-3); }
+.xpl-error { margin-top: var(--sp-3); color: var(--danger); font-size: var(--fs-sm); }
+
+.xpl-form { display: grid; grid-template-columns: minmax(160px, 220px) minmax(0, 1fr) auto; gap: var(--sp-5); align-items: end; }
+.xpl-form-actions { display: flex; gap: var(--sp-4); }
+@media (max-width: 900px) {
+  .xpl-form { grid-template-columns: minmax(0, 1fr); }
+}
+
+.xpl-preview {
+  display: flex; flex-direction: column; gap: var(--sp-5); padding: var(--sp-7); min-width: 0;
+  border: 1px solid var(--accent-line); border-radius: var(--r); background: var(--panel);
+}
+.xpl-preview[data-compatible='no'] { border-color: color-mix(in srgb, var(--danger) 45%, var(--line)); }
+.xpl-preview-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-6); }
+.xpl-preview-rows { display: flex; flex-direction: column; gap: var(--sp-3); font-size: var(--fs-sm); }
+.xpl-preview-row { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: var(--sp-5); align-items: baseline; }
+.xpl-preview-actions { display: flex; justify-content: flex-end; gap: var(--sp-5); }
+
+.xpl-checks { display: flex; flex-direction: column; gap: var(--sp-2); margin: 0; padding: 0; list-style: none; font-size: var(--fs-sm); }
+.xpl-checks li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-2) var(--sp-4); }
+.xpl-check-mark { font-weight: 600; }
+.xpl-ok { color: var(--ok); }
+.xpl-bad { color: var(--danger); }
+
+/* 高风险权限：已安装卡片上的单独授予/收回 */
+.xpl-perms { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); padding-top: var(--sp-4); border-top: 1px dashed var(--line); }
+.xpl-perm-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); font-size: var(--fs-sm); }
+.xpl-perm-name { color: var(--text-2); }
+.xpl-perm-row[data-granted='false'] .xpl-perm-name { color: var(--warn); }
+
+/* 市场索引：加载表单与条目版本 */
+.xpl-market-form { grid-template-columns: minmax(0, 1fr) auto; }
+.xpl-market { display: flex; flex-direction: column; gap: var(--sp-4); }
+.xpl-market-versions { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-4); }
+.xpl-market-version { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); font-size: var(--fs-sm); }
+.xpl-market-version[data-compatible='false'] { color: var(--muted); }
+
+.xpl-badges { display: flex; gap: var(--sp-2); align-items: center; }
+
+.xpl-market-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2) var(--sp-4); }

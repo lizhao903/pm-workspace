@@ -44,6 +44,8 @@ var NetworkHosts = map[string][]HostRule{
 		// 抖音：开放平台和 CDN
 		{Host: "douyin.com"}, {Host: "*.douyin.com"}, {Host: "*.douyinpic.com"}, {Host: "*.douyinvod.com"},
 	},
+	// GitHub 公开仓库的版本更新（VID-10，video 插件）：只放行匿名 GitHub API，只读公开仓库，不做 token、不碰私有仓库。
+	"github": {{Host: "api.github.com"}},
 	"market-data": {
 		// Binance 公开行情：只行情的域名，加主域名上的公开行情路径
 		{Host: "data-api.binance.vision"}, {Host: "data-stream.binance.vision"},

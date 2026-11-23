@@ -1,0 +1,53 @@
+/* 产出物查看窗（DEV-08b 补，SPEC-tasks-5.40 起）：外形同附件预览弹窗（core/ui/attachmentPreview.css 的 att-pv） */
+.art-pv-scrim { padding: var(--sp-6); }
+.art-pv { display: flex; flex-direction: column; width: min(1100px, 100%); height: min(860px, 100%); border-radius: var(--r-lg); background: var(--panel); border: 1px solid var(--line); box-shadow: var(--shadow-lg); overflow: hidden; }
+.art-pv:focus-visible { outline: 0; }
+.art-pv-head { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-3) var(--sp-4); border-bottom: 1px solid var(--line); min-width: 0; }
+.art-pv-kind { flex: none; padding: 1px 8px; border-radius: 999px; background: var(--hover); color: var(--muted); font-size: var(--fs-xs); }
+.art-pv-title { display: flex; min-width: 0; }
+.art-pv-title b { font-weight: 600; }
+.art-pv-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: auto; background: var(--panel-2); }
+.art-pv-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-3); padding: var(--sp-6); color: var(--muted); text-align: center; }
+.art-pv-note { padding: var(--sp-2) var(--sp-4); font-size: var(--fs-xs); color: var(--muted); }
+.art-pv-err { padding: var(--sp-2) var(--sp-4); font-size: var(--fs-xs); color: var(--danger); }
+
+.art-pv-file { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.art-pv-meta, .art-pv-cmeta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-3); padding: var(--sp-2) var(--sp-4); font-size: var(--fs-xs); color: var(--muted); border-bottom: 1px solid var(--line); }
+.art-pv-meta code, .art-pv-cmeta code { font-family: var(--mono); min-width: 0; max-width: 60%; }
+.art-pv-doc { padding: var(--sp-4) var(--sp-6); }
+.art-pv-code { margin: 0; padding: var(--sp-4); white-space: pre-wrap; word-break: break-word; font-family: var(--mono); font-size: var(--fs-sm); color: var(--text); }
+.art-pv-frame { flex: 1; min-height: 480px; width: 100%; border: 0; background: #fff; }
+.art-pv-img { flex: 1; display: flex; align-items: center; justify-content: center; padding: var(--sp-4); }
+.art-pv-img img { max-width: 100%; max-height: 100%; object-fit: contain; }
+.art-pv-tabs { align-self: flex-start; margin: var(--sp-2) var(--sp-4) 0; align-items: center; }
+.art-pv-newtab { margin-left: var(--sp-3); font-size: var(--fs-xs); color: var(--accent); }
+
+.art-pv-commit { padding: var(--sp-2) 0 var(--sp-4); }
+.art-pv-stack { display: flex; flex-direction: column; }
+.art-pv-back { padding: var(--sp-2) var(--sp-4) 0; }
+.art-pv-subject { margin: var(--sp-3) var(--sp-4) var(--sp-2); font-size: var(--fs-md, 15px); font-weight: 600; }
+.art-pv-h { margin: var(--sp-4) var(--sp-4) var(--sp-2); font-size: var(--fs-xs); font-weight: 600; color: var(--faint); }
+.art-pv-msg { margin: 0 var(--sp-4) var(--sp-3); white-space: pre-wrap; font-family: inherit; font-size: var(--fs-sm); color: var(--muted); }
+.art-pv-files, .art-pv-commits { list-style: none; margin: 0; padding: 0 var(--sp-4); display: flex; flex-direction: column; gap: 2px; }
+.art-pv-files li, .art-pv-commits li { display: flex; align-items: center; gap: var(--sp-3); min-height: 26px; font-size: var(--fs-sm); }
+.art-pv-st { flex: none; width: 18px; text-align: center; font-family: var(--mono); font-size: var(--fs-xs); color: var(--muted); }
+.art-pv-files li[data-status="A"] .art-pv-st { color: var(--ok); }
+.art-pv-files li[data-status="D"] .art-pv-st { color: var(--danger); }
+.art-pv-fname { flex: 1; min-width: 0; text-align: left; font-family: var(--mono); font-size: var(--fs-sm); color: var(--text); background: none; border: 0; padding: 0; }
+button.art-pv-fname { cursor: pointer; color: var(--accent); }
+button.art-pv-fname:hover { text-decoration: underline; }
+.art-pv-commits .art-pv-fname { font-family: inherit; }
+.art-pv-delta, .art-pv-by { flex: none; font-size: var(--fs-xs); color: var(--faint); font-family: var(--mono); }
+.art-pv-by { font-family: inherit; }
+.art-pv-diff { margin: var(--sp-3) var(--sp-4) 0; display: flex; flex-direction: column; gap: var(--sp-3); }
+.art-pv-chunk { margin: 0; padding: var(--sp-2) 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel); overflow-x: auto; font-family: var(--mono); font-size: 12px; line-height: 1.5; }
+.art-pv-chunk .dl { display: block; padding: 0 var(--sp-3); white-space: pre; min-width: max-content; }
+.art-pv-chunk .dl-add { background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.art-pv-chunk .dl-del { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+.art-pv-chunk .dl-hunk { color: var(--accent); background: var(--accent-soft); }
+.art-pv-chunk .dl-meta { color: var(--muted); font-weight: 600; }
+
+@media (max-width: 640px) {
+  .art-pv-scrim { padding: 0; }
+  .art-pv { width: 100%; height: 100%; border-radius: 0; }
+}

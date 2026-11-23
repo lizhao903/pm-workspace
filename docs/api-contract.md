@@ -942,6 +942,11 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 | GET | `/api/artifacts/{id}` | 单条 |
 | PATCH | `/api/artifacts/{id}` | `{object_id?,title?,path?,base_dir?,url?,platform?,note?,kind?,status?,scope_type?,scope_id?,props?}`。`props` 整体替换；产出者 `actor_*` 不经 PATCH 改 |
 | DELETE | `/api/artifacts/{id}` | 只删登记记录，**不删磁盘文件、不删云端页面** |
+| GET | `/api/artifacts/{id}/file` | `ArtifactFile`：这条产出物登记的本机文件，见下「查看产出物」 |
+| GET | `/api/artifacts/{id}/raw` | 原样回图片、PDF、HTML，给 `img`、`iframe` 用；其余类型 400 |
+| POST | `/api/artifacts/{id}/open` | `{reveal?}` 用本机默认应用打开，`reveal=true` 在访达中显示 |
+| GET | `/api/artifacts/{id}/commit` | `ArtifactCommit`：提交说明、改动文件、diff；分支产出物可带 `?sha=` 看分支上的某个提交 |
+| GET | `/api/artifacts/{id}/branch` | `ArtifactBranch`：分支相对主分支多出来的提交和改动文件 |
 
 过滤参数（彼此是「与」）：
 
@@ -1082,6 +1087,65 @@ AG-01b3。字段对齐原型 `web-next/src/agentdata.ts` 的 `KnowledgeBase` 和
 位置照旧：有远端页面（GitHub commit / 分支 / PR）就填 `url`；只在本地的 commit / branch 把仓库目录（绝对路径）填进 `path`，
 `base_dir` 留空。sha / branch / repo 从 `note` 里同一段 `key=value` 取；只认 `note` 前缀 `^\[(commit|branch|pr)\]` 的旧前端照旧能用。
 来源照旧按 `X-Actor-Source` 判定，经 MCP 登记的记成 `mcp`。
+
+### 查看产出物（DEV-08b 补，2026-11-20）
+
+任务抽屉「产出物」、产出物视图里的条目都能点开在工作台里看：本机文件预览，提交看改动，分支看相对主分支的提交。
+接口一律**按产出物 id 取，不接受路径参数**：读的永远是这条登记里的 `path`（提交、分支是备注里的 `repo=`，没有就用 `path`）。
+
+**安全边界**。登记和修改产出物时可以写任意绝对路径，所以读之前还要过一道边界，任何一条不过回 403 `forbidden`（仓库目录不过回 409 `repo_unavailable`），`message` 写明原因：
+
+- 本机文件系统的允许根（同 `/api/fs/*`：主目录、`/Volumes`、`/tmp`、设置里加的额外根），字面量和解析软链后各查一次；
+- 解析软链后的路径里任何一段是隐藏项（`~/.ssh`、`~/.aws`、`.env`、`.git/` 里面）都不给，唯一放行 Claude Code 的工作树目录 `.claude/worktrees/`（之后的段照样不许隐藏）；
+- 库文件、密钥、证书类文件（`vault.key`、`.db`、`.sqlite`、`.key`、`.pem`、`.p12` 等，同 `/api/fs/read`）不管在哪都不给；
+- 工作台数据目录里只放行 `releases/`、`test-reports/`、`proto-syncs/`、`worktrees/`（发布报告、测试报告、原型同步、需求工作区），其余（库文件、`vault.key`、备份）不给；包含数据目录的上级目录也不给。
+
+**读文件**（`GET /api/artifacts/{id}/file`）：
+
+`ArtifactFile`：
+```json
+{ "artifact_id": "art_…", "path": "/abs/real/path.md", "name": "path.md", "ext": "md", "size": 1234,
+  "modified": "2026-11-20T08:00:00Z", "preview": "markdown", "binary": false, "truncated": false, "limit": 1048576, "content": "# 标题…" }
+```
+
+- `preview`：`markdown`（md、markdown、mdx）/ `html`（html、htm，`content` 是源码，渲染走 `/raw`）/ `image` / `pdf` / `office`（Word、Excel 等，不预览）/ `text`（其余，包括源码和配置，等宽显示）/ `binary`（读出来是二进制）。`image`、`pdf`、`office` 不读内容（`content` 为空、`binary` 为 true）。
+- 文本最多回 1MB（`limit`），超出 `truncated=true`、只回开头。`path` 是解析软链后的真实路径。
+- 错误：没有这条 404；只有链接没有本机路径、路径是目录 400 `validation`；文件不在了 404 `not_found`；越界 403 `forbidden`。
+
+**`GET /api/artifacts/{id}/raw`**：图片（png、jpg、gif、webp、svg、bmp、avif）、PDF、HTML 原样回，`Content-Disposition: inline`、`nosniff`。SVG 和 HTML 带 `Content-Security-Policy` 的 `sandbox`：HTML 只显示，不跑脚本、不发请求，外链和相对路径的图片、样式加载不了（内联样式、`data:` 图片可以）。其余类型 400。
+
+**`POST /api/artifacts/{id}/open`** `{reveal?: boolean}` → `{path, reveal}`：同 `/api/fs/open`，打开只认文档种类（文本、PDF、图片、Office），其余回 403、可以在访达中显示；只在 macOS 上能用。
+
+**看提交**（`GET /api/artifacts/{id}/commit`，分支产出物带 `?sha=`）：
+
+`ArtifactCommit`：
+```json
+{ "artifact_id": "art_…", "repo": "/abs/repo", "sha": "<40 位>", "parents": ["<40 位>"], "author": "Broleez", "author_email": "x@y",
+  "authored_at": "2026-11-20T16:00:00+08:00", "subject": "fix: …", "body": "…",
+  "files": [{ "path": "a/b.go", "old_path": "", "status": "M", "additions": 3, "deletions": 1, "binary": false }],
+  "files_truncated": false, "diff": "diff --git …", "truncated": false, "limit": 524288 }
+```
+
+- 提交产出物看自己的 sha（备注 `sha=`，没有就从 GitHub `/commit/<sha>` 链接取），带 `?sha=` 回 400。分支产出物必须带 `?sha=`，且这个提交要在分支上（是分支的祖先），否则 404。sha 只认 4 到 64 位十六进制，否则 400。
+- `status` 是 git 的 `A` / `M` / `D` / `R` / `C` / `T`，改名时 `old_path` 是原路径；二进制文件 `binary=true`、行数为 0。合并提交按第一个父提交比。`diff` 最多 512KB（`limit`），超出 `truncated=true`；`files` 最多 1000 个（`files_truncated`）。
+- 不是提交产出物（也不是带 `?sha=` 的分支产出物）400。
+
+**看分支**（`GET /api/artifacts/{id}/branch`）：
+
+`ArtifactBranch`：
+```json
+{ "artifact_id": "art_…", "repo": "/abs/repo", "branch": "feat/x", "ref": "refs/heads/feat/x", "base": "main", "ahead": 3, "behind": 1,
+  "commits": [{ "sha": "<40 位>", "author": "Broleez", "authored_at": "2026-11-20T16:00:00+08:00", "subject": "feat: …" }],
+  "commits_truncated": false, "files": [], "files_truncated": false }
+```
+
+- 分支先找本地 `refs/heads/<branch>`，再找 `refs/remotes/origin/<branch>`；主分支依次找本地 `main`、`master`，`origin/HEAD` 指向的，`origin/main`、`origin/master`。
+- `commits` 是 `base..branch`（主分支上没有的），新的在前，最多 200 条（`commits_truncated`）；`ahead` / `behind` 是两边各多几个提交；`files` 是分支相对分叉点的改动（`base...branch`），字段同提交。分支就是主分支时 `commits`、`files` 为空。
+- 不是分支产出物、备注里没有 `branch=`、分支名不合法（`git check-ref-format --branch`）400；分支不在仓库里（合并后删了、没推到这台机器）404。
+
+**仓库取不到**统一回 409 `{"error":{"code":"repo_unavailable","message":"…"}}`，`message` 写明哪一种：没登记仓库目录（备注没有 `repo=`、也没有本机路径）、仓库目录不在了（工作区已清理）、不在允许范围、不是 git 仓库、找不到主分支、本机没有 git、git 读超时（15 秒）。仓库在但没有这个提交回 404 `not_found`。
+
+git 只跑只读命令（`rev-parse`、`show`、`log`、`diff`、`rev-list`、`merge-base`、`check-ref-format`、`symbolic-ref`），关掉外部 diff、textconv 和 fsmonitor，不弹交互；sha、分支名先校验再交给 git，不会被当成选项。
 
 ## 本机文件系统 fs
 
@@ -1576,6 +1640,41 @@ Google 连接器共用一套 OAuth（`internal/connector/google.go`）；现在�
 ```json
 { "error": { "code": "conflict", "message": "插件 demo 被这些已启用的插件依赖，要先停用它们：child", "dependents"?: ["child"], "permissions"?: ["network:any"] } }
 ```
+
+### 外部插件（P1-a，草案）
+
+外部插件是装进数据目录、以子进程运行、前端资源从插件包里加载的第三方插件（清单 v2 见 `docs/plugin-spec-v2.md`，开发流程见 `docs/plugin-developer-guide.md`）。只有启动时带着 `--allow-external-plugins`（默认开）才创建外部插件宿主；没有宿主时本节全部路由不注册，和其他不存在的接口一样回 404 `not_found`。
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| GET | `/api/plugins/external` | 已安装的外部插件列表（`Info[]`，字段见下），按安装顺序 |
+| GET | `/api/plugins/external/capabilities` | 宿主能力：`{ "external_plugins": true, "api_version": "2.0.0", "host_version": "<PMW 版本>" }`，install-check 用它判断实例支不支持外部插件。`host_version` 是开发构建的 `dev` 等非正式版本号时，安装、升级和市场列表都不按插件的 `pmw` 范围拦（`api` 范围照常检查） |
+| POST | `/api/plugins/external/resolve` | 解析安装来源、校验包与清单、返回预览，不安装。body `{ "source": { "type": "dir", "path": "...", "url": "...", "sha256": "..." } }`：`type` 是 `dir`、`archive` 或 `github`；`dir`、`archive` 要本地绝对路径，`github` 认仓库页、release 页和资产直链；`sha256` 可选 |
+| POST | `/api/plugins/external/dev/reload` | 重新扫描 `--plugin-dev-dir`（开发目录链接安装）：新目录安装、已装更新清单/版本、消失的移除状态（保留数据、不删源码）；回当前 dev 插件 `Info[]`。未配置开发目录时 400 |
+| POST | `/api/plugins/external/market` | 拉取并校验一个市场索引 URL（第三方 JSON，格式见 `docs/plugin-spec-v2.md` 第 11 节），返回 `{ "data": { title, description, signed, publisher?, entries: [{ id, title, description, author, repository, categories, labels, versions: [{ version, published_at, compatible, reason?, install: { type, url, sha256 }, permissions }] }] } }`。只接受 http(s)、≤2 MiB、10s、同源重定向；索引内容不参与信任判断，安装仍走 resolve/install |
+| POST | `/api/plugins/external/install` | 安装，默认装完启用。body `{ "source": {...}, "confirm_permissions": ["objects:read"], "enable": true }`：`confirm_permissions` 必须覆盖预览里所有非高风险权限，漏了 400 `validation`；`enable` 缺省 true。回 `{ "plugin": Info, "enabled": true, "warnings": [] }`；高风险权限本批不授予，只放进 `warnings`；启用失败时仍 200，`enabled` 为 false、`warnings` 带原因 |
+| POST | `/api/plugins/external/{id}/enable` | 启用并拉起插件进程（跑迁移、起后台任务），回 `Info`；已启用时幂等 200；平台/API 不兼容、插件不存在等 409/404 |
+| POST | `/api/plugins/external/{id}/disable` | 停用并结束插件进程，数据保留，回 `Info` |
+| POST | `/api/plugins/external/{id}/uninstall` | 卸载；运行中的插件会先停进程再卸（P1-a 实现）。body `{ "delete_data": false }`，为 true 时连插件数据目录一起删。回 `Info` |
+| POST | `/api/plugins/external/{id}/call` | 前端调用插件能力的统一入口，body `{ "method": "...", "params": {...} }`。允许：① 宿主→插件 request：`plugin.command.run`、`plugin.health`、`plugin.event.deliver`；② 前端→宿主 broker 能力：`host.objects.list`、`host.objects.get`、`host.settings.get`、`host.settings.set`、`host.notify`（权限仍按清单声明 + 用户授予校验）。其他方法 400 `validation`；回 `{ "data": <结果> }`，参数和结果原样 |
+| POST | `/api/plugins/external/{id}/upgrade` | 升级到新版本包。body `{ "source": {...}, "confirm_permissions": [...] }`：`confirm_permissions` 要覆盖新版本清单里所有非高风险权限；版本必须大于当前、id 必须一致；先跑新迁移再停旧进程，成功后按原启用状态拉起，旧版本进 `previous_version` 供回滚。失败时尽量恢复旧进程，回 `Info` |
+| POST | `/api/plugins/external/{id}/rollback` | 回到上一版本（交换当前/previous_*）：只回滚代码与清单，**数据库迁移不回退**；body `{}`；没有可回滚版本时 409 `conflict`；回 `Info` |
+| POST | `/api/plugins/external/{id}/permissions/grant` | 单独授予一项高风险权限（`fs:write:any`、`network:any`、`process:spawn`）。body `{ "permission": "...", "confirm": "<插件名>" }`；只接受用户本人在界面上的操作（`X-Actor-Source: ui` 且不带会话标识），否则 403 `forbidden`；`confirm` 必须等于插件名，否则 400 `validation`；`trade:live` 与未声明/非高风险权限 400；授予后给运行中的插件推 `plugin.permission_changed`。回 `Info` |
+| POST | `/api/plugins/external/{id}/permissions/revoke` | 收回已授予的高风险权限；body `{ "permission": "..." }`；没授予时也 200（幂等）；回 `Info` |
+| GET | `/api/plugins/external/{id}/api/{path...}` | 插件自己的 HTTP API 入口：宿主转成 `plugin.http.request` 交给运行中的插件，支持一次性响应与 `host.http.chunk/end` 流式响应；`Upgrade: websocket` 的 GET 走 `plugin.http.upgrade` + 双向帧（`plugin.http.ws_message` / `host.ws.send` / `host.ws.close`）。插件未运行时 409 |
+| POST | `/api/plugins/external/{id}/api/{path...}` | 同上（POST） |
+| PUT | `/api/plugins/external/{id}/api/{path...}` | 同上（PUT） |
+| PATCH | `/api/plugins/external/{id}/api/{path...}` | 同上（PATCH） |
+| DELETE | `/api/plugins/external/{id}/api/{path...}` | 同上（DELETE） |
+| GET | `/api/plugins/external/{id}/web/{path...}` | 插件包里的前端资源（入口 js、css、图片等，支持嵌套相对路径）：`path` 按包内相对路径写（例 `web/entry.js`），也兼容省略前端目录的写法（例 `entry.js`，按清单 `web_entry` 所在目录补全）。直接回文件字节，`Content-Type` 按扩展名，入口文件用 `Cache-Control: no-cache`，其余短缓存；越界和不存在 404 |
+| GET | `/api/plugins/external/{id}/icon` | 插件图标文件；没有图标或越界 404，前端回退默认图标 |
+
+`List`、`enable`、`disable`、`uninstall` 的 `data` 都是 `Info`（字段名以宿主结构 tag 为准）：`id`、`name`、`description`、`version`、`api`、`pmw`、`license`、`repository`、`icon`、`web_entry`、`web_styles`、`enabled`、`running`、`installed_at`、`source`、`package_sha256`、`permissions`、`granted`、`provides`、`error`、`install_dir`、`data_dir`、`previous_version`、`tier`（`verified`/`community`）、`publisher_id`。
+
+- `enabled` 是用户意愿，`running` 是进程现在真的活着：启用了但进程崩了时 `running` 为 false、`error` 带最近一次失败原因。
+- `source` 是安装来源（字段同请求里的 `source`），`package_sha256` 是实际安装的包哈希。
+- 权限：`permissions` 是清单声明的，`granted` 是用户确认过的；高风险权限（`process:spawn`、`fs:write:any`、`network:any`、`trade:live` 等）本批安装、启用都不授予，插件用到时相应功能失败。
+- 错误码：没有这个插件（或没有这个插件文件）404 `not_found`；来源参数不合法、权限没确认、方法不允许 400 `validation`；平台/API 不兼容、状态不对（重复启用、启用中卸载）、没在运行 409 `conflict`。详细说明在 `docs/plugin-community-plan.md`。
 
 ### 插件路由
 
@@ -3055,7 +3154,7 @@ SOP 插件 0.21.0 订阅它，发起触发方式是 `im_reply` 的流程（见 S
 
 ## SOP 编排插件 sop
 
-SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.21.0（0.21.0 加触发方式「我回复了消息」`im_reply`（见「我回复了消息触发」），清单 `subscribes` 加 `im.message_replied`；不加迁移，已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，没升级前 `im_reply` 的流程照常保存、不会发起；0.20.0 提前发现条件存成一句话的流程、执行失败写清原因和改法（TSK-0498，见「保存校验」「条件是一句话时的失败与提前发现」）：流程列表和详情都带回体检问题 `issues`（`code: "rule_text"`）；执行步骤失败带 `error_code`（`rule_text`），条件是写成一句话时重试必然原样失败、前端据此不给「重试」，给「去改流程」「按最新流程重新发起」「跳过这一步」；运行异常的「现象」用同一段文字；触发方式是 IM 的流程失败文字多一句用触发过滤。插件迁移 `0011_run_step_error_code.sql`（`sop_run_steps` 加 `error_code`），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；**迁移没应用完的插件启动时不加载**，升级前 SOP 编排整个不可用（流程、执行、IM 触发、定时发起都停）；升级后已有执行的 `error_code` 为空串、已有流程照常打开和执行；0.19.0 别的插件写内置流程时可带定时规则（TSK-0721）：`SOPFlowTemplate.Schedule` 给了且触发方式是定时时，写入流程同时建随它管理的定时任务（按给的启停，项目插件的「每周一 10:00 整理项目知识库」建成停用）；流程已有、还是第 1 版、又没有这一条时补建；不加迁移、接口不变，已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，没升级前内置流程是「定时，未配置」；0.18.0 加调试（TSK-0491，见「调试」）：新接口 `POST /api/sop/debug`（真实取数走一遍流程，写操作不执行只显示将做什么）、`POST /api/sop/im-explain`（模拟 IM 触发）、`GET /api/sop/flows/{id}/skips`（自动触发没发起的记录）；`POST /api/sop/step-fields` 加 `sample`；`SopNodeType` 加 `effect`、`dry_run`；`SopAssistReply` 加 `test`；清单 `subscribes` 加 `im.message_muted`；Agent 加 `test_sop`、`explain_im_trigger`。插件迁移 `0010_skips.sql`（建 `sop_skips`），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；**迁移没应用完的插件启动时不加载**，升级前 SOP 编排整个不可用（流程、执行、IM 触发、定时发起都停），生产上还是 0.16.0 的一次升级应用 `0010_skips.sql`，0.17.0 的批量停止一并带上；升级后已有流程、执行不动，没发起的记录从升级后开始记。同时 IM 插件升到 0.28.0（读取消息多输出归类和自动忽略、发 `im.message_muted`、节点声明副作用）、视频插件 0.8.2（节点声明副作用），都不加迁移，依次经 `POST /api/plugins/{id}/upgrade` 升级 `im`、`video`；IM 没升级前调试取消息只带 `message_id`（过滤条件判不准，结果里有说明）、「发信人被自动忽略」不进没发起的记录；项目插件的节点这一版没声明副作用，调试时一律按写操作模拟（含只读的「列项目档案」「读项目档案」），留待项目插件下次升级补（项目插件 0.19.0 已补，TSK-0721）；0.17.0 执行可批量停止（TSK-0717，见「运行」下「批量停止」）：`POST /api/sop/runs/batch-actions` 加 `action: "stop"`，新接口 `POST /api/sop/runs/stop` 按流程、来源、批次一次停掉全部执行中和待我处理的执行，批量发起加 `batch_id`、结果加 `batch_id` 和 `cancelled`，不加迁移、不改库里的执行；已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，不加迁移的版本升级不会让插件不加载，没升级前这两个接口不认 `stop`、批量发起不带批次（IM 消息页批量分诊的「立即停止」停不到这次发起的执行）；0.16.0 保存校验分错误和警告、条件改成结构化条件、节点和触发方式的声明、这一步能拿到的字段、AI 协助按声明出稿并自动返修（TSK-0490，见「保存校验」「结构化条件」「节点类型」「触发方式与字段」「AI 协助」），不加迁移、不改库里的流程；同时 IM 插件升到 0.26.1、项目插件 0.17.1、视频插件 0.8.1，只是给各自的 SOP 节点补声明（`SOPNodeDef.Spec`），节点执行不变、不加迁移。已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade` 依次升级 `sop`、`im`、`projects`、`video`；不加迁移的版本升级不会让插件不加载，但没升级前 `GET /api/sop/node-types` 里这几个插件的节点没有声明（`outputs_open: true`），引用它们输出的条件只给警告。升级后已有流程照常打开、执行：旧写法的一行规则照旧按原语法判断，只在打开和保存时提示改成结构化条件；生产库 2026-11-06 的 18 条流程（含内置）过新校验没有错误，警告见 TSK-0490 进展；0.15.0 流程库加文件夹（TSK-0482，见「文件夹」），插件迁移 `0009_folders.sql`（建 `sop_folders`，`sop_flows` 加 `folder_id`），新增后台任务 `folder_seed`（启用时按名字前缀把已有流程归进文件夹，只做一次），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；**迁移没应用完的插件启动时不加载**，升级前 SOP 编排整个不可用（流程、执行、IM 触发、定时发起都停）；生产上还是 0.12.0 的，一次升级依次应用 `0008_im_trigger.sql`、`0009_folders.sql`，升级后已有流程不丢、不改名、版本号不变，名字带「xxx · 」前缀的归进同名文件夹，其余在「未分类」；0.14.0 IM 触发加过滤条件（会话、与我的关系）、执行顺序与拦截（TSK-0481，见「IM 触发」），插件迁移 `0008_im_trigger.sql`（`sop_flows` 加 `im_filter`、`im_order`、`im_stop` 三列），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；**迁移没应用完的插件启动时不加载**，升级前 SOP 编排整个不可用（流程、执行、IM 触发、定时发起都停），升级后已有流程不过滤、不拦截、顺序按新建先后，行为不变；0.13.0 实现内核流程目录，Agent 的 `list_sops`、`get_sop`、`create_sop`、`update_sop` 经它查、建、改流程（TSK-0480），不加迁移，已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，升级前 Agent 看不到这三个工具；0.12.0 触发方式「定时」可配置规则、随流程管理的定时任务（TSK-0463），Claude Code 执行没回报时 summary 只取结论，不加迁移；0.11.0 加执行任务 `task_run`、改任务 `task_update` 节点（TSK-0411）和等服务商恢复（TSK-0391/0392），不加迁移；SOP-05 加 IM 触发，可选依赖 `im`、订阅 `im.message_received`；0.5.0 执行关联工作对象；0.6.0 加写进项目目录节点 `local_append`、建任务认项目编号和名字；0.7.0 加执行并发设置、批量发起和按输入字段查执行；0.7.1 加失败执行批量重跑；0.8.0 重跑后移出失败列表、重跑幂等；0.9.0 加 Claude Code 执行和条件回退；0.10.0 加流水线视图与治理（AUTO-12）），权限 `network:any`、`fs:write:project`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认；`fs:write:project` 是写进项目目录要的，0.6.0 升上来时要确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
+SOP-01a 起。插件 `sop`（`internal/plugins/sop`，清单 `plugin.json`，0.22.0（0.22.0 失败的执行能终止：`batch-actions` 的 `stop` 和单条 `stop` 动作不再跳过还没重跑过的失败执行（见「批量停止」），前端执行记录、待我处理里失败行加「终止」；不加迁移，已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；0.21.0 加触发方式「我回复了消息」`im_reply`（见「我回复了消息触发」），清单 `subscribes` 加 `im.message_replied`；不加迁移，已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，没升级前 `im_reply` 的流程照常保存、不会发起；0.20.0 提前发现条件存成一句话的流程、执行失败写清原因和改法（TSK-0498，见「保存校验」「条件是一句话时的失败与提前发现」）：流程列表和详情都带回体检问题 `issues`（`code: "rule_text"`）；执行步骤失败带 `error_code`（`rule_text`），条件是写成一句话时重试必然原样失败、前端据此不给「重试」，给「去改流程」「按最新流程重新发起」「跳过这一步」；运行异常的「现象」用同一段文字；触发方式是 IM 的流程失败文字多一句用触发过滤。插件迁移 `0011_run_step_error_code.sql`（`sop_run_steps` 加 `error_code`），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；**迁移没应用完的插件启动时不加载**，升级前 SOP 编排整个不可用（流程、执行、IM 触发、定时发起都停）；升级后已有执行的 `error_code` 为空串、已有流程照常打开和执行；0.19.0 别的插件写内置流程时可带定时规则（TSK-0721）：`SOPFlowTemplate.Schedule` 给了且触发方式是定时时，写入流程同时建随它管理的定时任务（按给的启停，项目插件的「每周一 10:00 整理项目知识库」建成停用）；流程已有、还是第 1 版、又没有这一条时补建；不加迁移、接口不变，已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，没升级前内置流程是「定时，未配置」；0.18.0 加调试（TSK-0491，见「调试」）：新接口 `POST /api/sop/debug`（真实取数走一遍流程，写操作不执行只显示将做什么）、`POST /api/sop/im-explain`（模拟 IM 触发）、`GET /api/sop/flows/{id}/skips`（自动触发没发起的记录）；`POST /api/sop/step-fields` 加 `sample`；`SopNodeType` 加 `effect`、`dry_run`；`SopAssistReply` 加 `test`；清单 `subscribes` 加 `im.message_muted`；Agent 加 `test_sop`、`explain_im_trigger`。插件迁移 `0010_skips.sql`（建 `sop_skips`），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；**迁移没应用完的插件启动时不加载**，升级前 SOP 编排整个不可用（流程、执行、IM 触发、定时发起都停），生产上还是 0.16.0 的一次升级应用 `0010_skips.sql`，0.17.0 的批量停止一并带上；升级后已有流程、执行不动，没发起的记录从升级后开始记。同时 IM 插件升到 0.28.0（读取消息多输出归类和自动忽略、发 `im.message_muted`、节点声明副作用）、视频插件 0.8.2（节点声明副作用），都不加迁移，依次经 `POST /api/plugins/{id}/upgrade` 升级 `im`、`video`；IM 没升级前调试取消息只带 `message_id`（过滤条件判不准，结果里有说明）、「发信人被自动忽略」不进没发起的记录；项目插件的节点这一版没声明副作用，调试时一律按写操作模拟（含只读的「列项目档案」「读项目档案」），留待项目插件下次升级补（项目插件 0.19.0 已补，TSK-0721）；0.17.0 执行可批量停止（TSK-0717，见「运行」下「批量停止」）：`POST /api/sop/runs/batch-actions` 加 `action: "stop"`，新接口 `POST /api/sop/runs/stop` 按流程、来源、批次一次停掉全部执行中和待我处理的执行，批量发起加 `batch_id`、结果加 `batch_id` 和 `cancelled`，不加迁移、不改库里的执行；已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，不加迁移的版本升级不会让插件不加载，没升级前这两个接口不认 `stop`、批量发起不带批次（IM 消息页批量分诊的「立即停止」停不到这次发起的执行）；0.16.0 保存校验分错误和警告、条件改成结构化条件、节点和触发方式的声明、这一步能拿到的字段、AI 协助按声明出稿并自动返修（TSK-0490，见「保存校验」「结构化条件」「节点类型」「触发方式与字段」「AI 协助」），不加迁移、不改库里的流程；同时 IM 插件升到 0.26.1、项目插件 0.17.1、视频插件 0.8.1，只是给各自的 SOP 节点补声明（`SOPNodeDef.Spec`），节点执行不变、不加迁移。已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade` 依次升级 `sop`、`im`、`projects`、`video`；不加迁移的版本升级不会让插件不加载，但没升级前 `GET /api/sop/node-types` 里这几个插件的节点没有声明（`outputs_open: true`），引用它们输出的条件只给警告。升级后已有流程照常打开、执行：旧写法的一行规则照旧按原语法判断，只在打开和保存时提示改成结构化条件；生产库 2026-11-06 的 18 条流程（含内置）过新校验没有错误，警告见 TSK-0490 进展；0.15.0 流程库加文件夹（TSK-0482，见「文件夹」），插件迁移 `0009_folders.sql`（建 `sop_folders`，`sop_flows` 加 `folder_id`），新增后台任务 `folder_seed`（启用时按名字前缀把已有流程归进文件夹，只做一次），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；**迁移没应用完的插件启动时不加载**，升级前 SOP 编排整个不可用（流程、执行、IM 触发、定时发起都停）；生产上还是 0.12.0 的，一次升级依次应用 `0008_im_trigger.sql`、`0009_folders.sql`，升级后已有流程不丢、不改名、版本号不变，名字带「xxx · 」前缀的归进同名文件夹，其余在「未分类」；0.14.0 IM 触发加过滤条件（会话、与我的关系）、执行顺序与拦截（TSK-0481，见「IM 触发」），插件迁移 `0008_im_trigger.sql`（`sop_flows` 加 `im_filter`、`im_order`、`im_stop` 三列），已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级；**迁移没应用完的插件启动时不加载**，升级前 SOP 编排整个不可用（流程、执行、IM 触发、定时发起都停），升级后已有流程不过滤、不拦截、顺序按新建先后，行为不变；0.13.0 实现内核流程目录，Agent 的 `list_sops`、`get_sop`、`create_sop`、`update_sop` 经它查、建、改流程（TSK-0480），不加迁移，已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `sop`）升级，升级前 Agent 看不到这三个工具；0.12.0 触发方式「定时」可配置规则、随流程管理的定时任务（TSK-0463），Claude Code 执行没回报时 summary 只取结论，不加迁移；0.11.0 加执行任务 `task_run`、改任务 `task_update` 节点（TSK-0411）和等服务商恢复（TSK-0391/0392），不加迁移；SOP-05 加 IM 触发，可选依赖 `im`、订阅 `im.message_received`；0.5.0 执行关联工作对象；0.6.0 加写进项目目录节点 `local_append`、建任务认项目编号和名字；0.7.0 加执行并发设置、批量发起和按输入字段查执行；0.7.1 加失败执行批量重跑；0.8.0 重跑后移出失败列表、重跑幂等；0.9.0 加 Claude Code 执行和条件回退；0.10.0 加流水线视图与治理（AUTO-12）），权限 `network:any`、`fs:write:project`：HTTP 节点要访问任意地址，高风险，安装时在 `permissions` 里单独确认；`fs:write:project` 是写进项目目录要的，0.6.0 升上来时要确认）。流程定义落在插件表 `sop_flows`（插件迁移 `0001_flows.sql`，安装插件时应用），id 前缀 `sop`；执行（SOP-01b）落在 `sop_runs`、`sop_run_steps`（插件迁移 `0002_runs.sql`），id 前缀 `spr`。AI 类和外部节点 SOP-01c 起；定时任务的 `sop` 动作和 Agent 的 `run_sop` 工具经内核「发起 SOP」钩子发起执行（SOP-01d）。插件未安装或停用时，本节接口回 `not_found` 404（同「插件路由」），数据不动。
 
 0.23.0（IM 过滤「相关串里的回复按 @我 算」）：`SopIMTrigger` 加 `thread_related`（见「IM 触发」），存在 `im_filter` 里（为 `false` 时不写，已有流程存的不变），不加迁移；要 IM 插件 0.32.0 带上串相关，IM 旧版本时只认「父消息被这条流程跑过」也认不出（事件没有父消息 id），等于没勾。没发起的记录（`sop_skips.info`）在消息列回复上多 `thread_related`、`thread_reason`；模拟 IM 触发的关系一项写出串相关的原因。
 
@@ -3377,7 +3476,7 @@ SOP-01b 起。执行语义同原型 `web-next/src/sopflow.ts` 的 `startRun`、`
 - 幂等：已终止的再停跳过（`reason`「已终止」）；按条件再停一次 `matched` 为 0。
 - 请求中途断开也会停完（服务端不随请求取消）。每次真停了记一条审计：`action` 为 `stop`、`target_type` 为 `sop_runs`，`target_id` 是批次（按批次停时，否则为空），`detail` 带条件、停了的 `run_ids`、跳过和出错的条数；操作者记为插件 `sop`。
 
-`POST /api/sop/runs/batch-actions` 的 `stop`：`run_ids` 1 到 200 个，逐条停；不是执行中、待我处理的跳过，`reason` 例：「不在执行中或待我处理（已完成）」「不在执行中或待我处理（失败）」「已终止」「执行不存在」「重复或为空」。回 `{done: [{run_id}], skipped, failed}`（形状同重跑；`done` 的顺序是实际停的顺序，不一定是请求里的顺序）。`error` 例：「这次执行没在调度里，稍后再试」（服务刚启动、还没接着调度时）。
+`POST /api/sop/runs/batch-actions` 的 `stop`：`run_ids` 1 到 200 个，逐条停；执行中、待我处理的停，0.22.0 起还没重跑过的失败执行也能停（「终止」：标为已终止，移出失败和待我处理；单条 `POST /api/sop/runs/{id}/actions {kind:"stop"}` 同样），别的跳过，`reason` 例：「不在执行中或待我处理（已完成）」「失败后已重跑」「已终止」「执行不存在」「重复或为空」。按条件停（`POST /api/sop/runs/stop`）仍只停执行中、待我处理的，不碰失败的。回 `{done: [{run_id}], skipped, failed}`（形状同重跑；`done` 的顺序是实际停的顺序，不一定是请求里的顺序）。`error` 例：「这次执行没在调度里，稍后再试」（服务刚启动、还没接着调度时）。
 
 `POST /api/sop/runs/stop`：
 
@@ -3682,7 +3781,7 @@ TERM-01a。插件 `terminal`（`internal/plugins/terminal`，清单 `plugin.json
 
 ## 内网域名插件 domains
 
-DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`，0.2.0），弱依赖 `projects`（订阅它的原型事件，DOM-02a），权限 `fs:read:any`、`process:spawn`（都是高风险，安装时在 `permissions` 里单独确认）、`network:localhost`。表前缀 `domains_`，迁移在插件目录 `migrations/0001_domains.sql`。接现有 bro.vip 方案（`docs/local-domain.md`）：**只读检测、只生成配置和命令，不写任何系统文件、不执行 sudo**；读 `/etc/hosts`、`/etc/pf.anchors/broleez-local`、`/etc/pf.conf`、`/Library/LaunchDaemons/vip.broleez.pf.plist` 和证书目录，调 `mkcert -CAROOT`、`security verify-cert`（命令先按 `PATH` 找，再试 `/opt/homebrew/bin`、`/usr/local/bin`）。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。设置分节的前端是 DOM-01b，原型自动分配域名和内置代理按域名转发是 DOM-02a、DOM-02b。
+DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`，0.2.1（0.2.1 生成的 hosts 片段每个域名多一条 `::1`，同 `setup-local-domain.sh`；不加迁移，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `domains`）升级）），弱依赖 `projects`（订阅它的原型事件，DOM-02a），权限 `fs:read:any`、`process:spawn`（都是高风险，安装时在 `permissions` 里单独确认）、`network:localhost`。表前缀 `domains_`，迁移在插件目录 `migrations/0001_domains.sql`。接现有 bro.vip 方案（`docs/local-domain.md`）：**只读检测、只生成配置和命令，不写任何系统文件、不执行 sudo**；读 `/etc/hosts`、`/etc/pf.anchors/broleez-local`、`/etc/pf.conf`、`/Library/LaunchDaemons/vip.broleez.pf.plist` 和证书目录，调 `mkcert -CAROOT`、`security verify-cert`（命令先按 `PATH` 找，再试 `/opt/homebrew/bin`、`/usr/local/bin`）。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」）。设置分节的前端是 DOM-01b，原型自动分配域名和内置代理按域名转发是 DOM-02a、DOM-02b。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -3722,7 +3821,7 @@ DOM-01a。插件 `domains`（`internal/plugins/domains`，清单 `plugin.json`�
 
 `DomainConfig`：`{proxy, domains, resolve, pf, proxy_config, cert}`，每段是 `{kind, path?, content, commands, note?}`：`content` 是要写进 `path` 的内容，`commands` 是要用户自己执行的命令（插件不执行）。没有启用的域名时 hosts 段和代理段的 `content` 是「没有启用的域名」。
 
-- `resolve`：按解析方式。`hosts` 是注释行 `# 产品工作台本地域名（scripts/setup-local-domain.sh 添加）` 加每个域名一行 `<IP>\t<域名>`，同脚本写进 `/etc/hosts` 的格式；后缀 `bro.vip` 时就是文档里的 `127.0.0.1 broleez.vip`、`127.0.0.1 bro.vip` 两行。`local_dns`、`router_dns` 同原型 `renderConfig`。
+- `resolve`：按解析方式。`hosts` 是注释行 `# 产品工作台本地域名（scripts/setup-local-domain.sh 添加）` 加每个域名的解析行 `<IP>\t<域名>`，同脚本写进 `/etc/hosts` 的格式：解析到本机时每个域名 `127.0.0.1` 和 `::1` 各一行（0.2.1 起，避免浏览器优先连公网 IPv6），开了局域网访问时只写 `lan_ip` 一行；后缀 `bro.vip` 时就是文档里的 `127.0.0.1 broleez.vip`、`::1 broleez.vip`、`127.0.0.1 bro.vip`、`::1 bro.vip` 四行。`local_dns`、`router_dns` 同原型 `renderConfig`。
 - `pf`：`proxy` 是 `builtin` 时是 anchor 文件内容，同 `setup-local-domain.sh` 写的两条（`rdr pass on lo0 inet proto tcp from any to 127.0.0.1 port 80 -> 127.0.0.1 port <http_port>`，443 同理），开了局域网访问再加发往 `lan_ip` 的两条；命令是 `cd <仓库>` 加 `sudo env DOMAINS='<域名…>' PORT=<http_port> TLS_PORT=<https_port> ./scripts/setup-local-domain.sh`（`sudo` 默认清环境变量，所以用 `env` 传）。Caddy、Nginx 时 `content` 为空，`note` 说明不需要 pf。
 - `proxy_config`：内置写 `<域名>  ->  <上游>`，Caddy、Nginx 片段同原型 `renderConfig`。工作台和别名的上游是 `http://127.0.0.1:<http_port>`，原型在运行时是 `http://127.0.0.1:<原型端口>`，没在运行时没有上游（内置写「未运行」）。
 - `cert`：HTTPS 开着才有，命令是 `brew install mkcert`、`mkcert -install`、`HOSTS='<域名…> localhost 127.0.0.1 ::1' ./scripts/setup-tls.sh`、`./scripts/install-autostart.sh`。
@@ -4356,7 +4455,7 @@ ETF-01a 起，ETF-01b 加派生指标、异动规则和命中记录。插件 `et
 
 ## 视频创作插件 video
 
-VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.11.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`、`process:spawn`（前三个是普通级别；`process:spawn` 是高风险，VID-03b 加，技能执行器要它才能让 Claude Code 在工程目录里写文件，0.3.0 升上来要重新确认；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，登记时不查磁盘；经连接器投稿时读成片和封面，内容平台出网用 `network:media-platforms`，VID-04b 起）。功能模块 0.11.0 起是三个（规格 `SPEC-videos-0.1`，原来只有一个 `videos`「视频」）：做视频 `videos`、素材收集 `video_clips`、发布与数据 `video_publish`，key 同工作台目录，菜单图标按清单 `icons` 依次是 `video`、`inbox`、`bars`。前端地址：做视频 `/videos`（全部视频、`/review` 待我处理、`/series` 系列、`/v/<id>` 某一集）、素材收集 `/video_clips`（素材收件箱、`/topics` 选题）、发布与数据 `/video_publish`（发布记录、`/calendar` 日历、`/bilibili` B 站数据）；原来的 `/videos/clips`、`/videos/topics`、`/videos/publishes`、`/videos/calendar`、`/videos/bilibili` 由前端重定向到新位置，查询串照带。后端给的链接不变：今日卡片的 `/videos/v/<id>` 仍是做视频里的某一集，带发布 id 的 `/videos/v/<id>?p=<发布 id>`（视频待发布、视频发布失败）由前端换到 `/video_publish?video=<id>&p=<发布 id>`，打开这条发布记录。工作台和 `ws_video`、`ws_all` 模板在库里仍只记 `videos`，不加迁移：前端读的时候把开着 `videos`、另外两个都没有的补成三个（素材收集排在做视频前面；有「发布与互动」分组的，发布与数据放进那组最前面，否则跟在做视频后面），在设置里存一次就按补齐后的样子落库；两个新模块都关掉、只留做视频的工作台，下次读会被当成拆分前的配置补回来。0.11.0 只改清单（`provides.modules` 加两个模块、加 `icons`），不加迁移、接口不变；已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `video`）升级，不加迁移的版本升级不会让插件不加载；前端按打进二进制的清单登记模块，没升级前菜单里也有三个模块。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`，`0003_artifact_ratio.sql`（VID-02a）给产出物加 `ratio`、`lang` 和按封面比例分组的序号、选用列，`0005_runners.sql`（VID-03b）建阶段执行器 `video_runners` 和执行记录 `video_runs`，`0007_video_topic.sql`（VID-09a）给视频加 `topic_id`，`0008_publish_snapshots.sql`（VID-05a）给发布记录加账号、标签、分区、合集和校验结果，建平台账号 `video_accounts`、数据快照 `video_metric_snapshots`，`0010_cover_tests.sql`（VID-05b）建封面 A/B 测试 `video_cover_tests`、`video_cover_test_arms`，给产出物加归档列，`0011_target_date.sql`（VID-06c）给视频加计划首发日 `target_date`、给发布记录加到点查询的索引，`0015_voiceover.sql`（TTS-01）给系列加配音音色 `voice` 和语速 `voice_speed`；0.1.0、0.2.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用新迁移，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d。内容平台连接器有 B 站 `bilibili`（VID-04b）、YouTube `youtube`、抖音 `douyin`（VID-04d），见下「内容平台」；B 站组件（TSK-0455，0.8.0）另登记网页端连接器 `bilibili_web`（扫码登录，非官方网页接口），见下「B 站组件（TSK-0455）」；视频号、小红书不做连接器，发布记录只登记、回填链接，数据手填。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
+VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`，0.11.0），强依赖 `projects`，弱依赖 `im`，权限 `fs:read:project`、`fs:write:project`、`network:media-platforms`、`network:github`、`process:spawn`（前三个是普通级别；`network:github` 也是普通级别，VID-10 加，升级到 0.10.0 要重新确认；`process:spawn` 是高风险，VID-03b 加，技能执行器要它才能让 Claude Code 在工程目录里写文件，0.3.0 升上来要重新确认；产出物路径按 `fs:read:project` 的范围限制在视频工程目录内，登记时不查磁盘；经连接器投稿时读成片和封面，内容平台出网用 `network:media-platforms`，VID-04b 起）。功能模块 0.11.0 起是三个（规格 `SPEC-videos-0.1`，原来只有一个 `videos`「视频」）：做视频 `videos`、素材收集 `video_clips`、发布与数据 `video_publish`，key 同工作台目录，菜单图标按清单 `icons` 依次是 `video`、`inbox`、`bars`。前端地址：做视频 `/videos`（全部视频、`/review` 待我处理、`/series` 系列、`/v/<id>` 某一集）、素材收集 `/video_clips`（素材收件箱、`/topics` 选题）、发布与数据 `/video_publish`（发布记录、`/calendar` 日历、`/bilibili` B 站数据）；原来的 `/videos/clips`、`/videos/topics`、`/videos/publishes`、`/videos/calendar`、`/videos/bilibili` 由前端重定向到新位置，查询串照带。后端给的链接不变：今日卡片的 `/videos/v/<id>` 仍是做视频里的某一集，带发布 id 的 `/videos/v/<id>?p=<发布 id>`（视频待发布、视频发布失败）由前端换到 `/video_publish?video=<id>&p=<发布 id>`，打开这条发布记录。工作台和 `ws_video`、`ws_all` 模板在库里仍只记 `videos`，不加迁移：前端读的时候把开着 `videos`、另外两个都没有的补成三个（素材收集排在做视频前面；有「发布与互动」分组的，发布与数据放进那组最前面，否则跟在做视频后面），在设置里存一次就按补齐后的样子落库；两个新模块都关掉、只留做视频的工作台，下次读会被当成拆分前的配置补回来。0.11.0 只改清单（`provides.modules` 加两个模块、加 `icons`），不加迁移、接口不变；已装旧版本的，换新二进制后经 `POST /api/plugins/{id}/upgrade`（id 为 `video`）升级，不加迁移的版本升级不会让插件不加载；前端按打进二进制的清单登记模块，没升级前菜单里也有三个模块。表前缀 `video_`，迁移在插件目录：`migrations/0001_video.sql` 建 `video_series`、`video_videos`、`video_checkpoints`、`video_publishes`，`0002_artifacts.sql`（VID-01b）建 `video_artifacts`、`video_artifact_reviews`，`0003_artifact_ratio.sql`（VID-02a）给产出物加 `ratio`、`lang` 和按封面比例分组的序号、选用列，`0005_runners.sql`（VID-03b）建阶段执行器 `video_runners` 和执行记录 `video_runs`，`0007_video_topic.sql`（VID-09a）给视频加 `topic_id`，`0008_publish_snapshots.sql`（VID-05a）给发布记录加账号、标签、分区、合集和校验结果，建平台账号 `video_accounts`、数据快照 `video_metric_snapshots`，`0010_cover_tests.sql`（VID-05b）建封面 A/B 测试 `video_cover_tests`、`video_cover_test_arms`，给产出物加归档列，`0011_target_date.sql`（VID-06c）给视频加计划首发日 `target_date`、给发布记录加到点查询的索引，`0015_voiceover.sql`（TTS-01）给系列加配音音色 `voice` 和语速 `voice_speed`；0.1.0、0.2.0 装过的要走升级（`POST /api/plugins/{id}/upgrade`）应用新迁移，没升级前插件不启动。形状同原型 `web-next/src/videodata.ts`。前端两页是 VID-01c、VID-01d。内容平台连接器有 B 站 `bilibili`（VID-04b）、YouTube `youtube`、抖音 `douyin`（VID-04d），见下「内容平台」；B 站组件（TSK-0455，0.8.0）另登记网页端连接器 `bilibili_web`（扫码登录，非官方网页接口），见下「B 站组件（TSK-0455）」；视频号、小红书不做连接器，发布记录只登记、回填链接，数据手填。插件未安装或停用时本节接口回 `not_found` 404（同「插件路由」），数据不动，再启用照旧。停用 `projects` 时 `video` 在 `dependents` 里（同「插件管理」）。
 
 | 方法 | 路径 | body / 说明 |
 |---|---|---|
@@ -4558,6 +4657,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 | POST | `/api/video/clips/{id}/topic` | 转为选题，body 可带选题字段（除 `clip_ids`）覆盖默认值；回 201 + `{topic, clip}` |
 | POST | `/api/video/clips/{id}/link` | `{topic_id}`，并入已有选题；回 `{topic, clip}` |
 | POST | `/api/video/clips/comments` | 无 body 或 `{publish_id?}`，立刻从平台拉评论收进素材箱（同原型「收集评论」）；回新收的 `VideoClip[]`，`meta` 是 `{added, duplicates, publishes, skipped}`，见下「评论收件」（VID-08b） |
+| POST | `/api/video/clips/github` | `{repo, limit?, include_prerelease?}`，立刻从公开 GitHub 仓库拉 Release 收进素材箱（同原型「拉取 GitHub 更新」）；回新收的 `VideoClip[]`，`meta` 是 `{repo, added, duplicates, releases, skipped}`，见下「GitHub 版本更新收件」（VID-10） |
 
 `VideoTopic`：`{id, title, angle, audience, status, score, tags, series_id?, platforms, outline, clip_ids, planned_at?, video_id?, drop_reason?, created_at, updated_at}`，同原型 `Topic`。
 
@@ -4576,7 +4676,7 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 
 `VideoClip`：`{id, kind, title, content, url?, source, heat?, tags, starred, topic_ids, triaged, publish_id?, message_id?, created_at, updated_at}`，同原型 `Clip` 多来源出处和 `updated_at`。
 
-- `id` 是 `cl_` 前缀（已登记）。`kind` 必填，是 `link` / `note` / `trend` / `comment` / `competitor` / `im`（同原型 `CLIP_KIND`），登记后不能改。
+- `id` 是 `cl_` 前缀（已登记）。`kind` 必填，是 `link` / `note` / `trend` / `comment` / `competitor` / `im` / `release`（同原型 `CLIP_KIND`，`release` 是 VID-10 加的），登记后不能改。
 - `title` 最多 200 字；没给时同原型「收进来」：有 `url` 取去掉协议的前 60 字，否则取 `content` 的前 40 字；三样都没有 400。`content` 最多 5000 字；`url` 要是 `http://` 或 `https://` 开头；`source` 是来源说明（平台名、热榜名、评论所在视频、消息所在群），最多 200 字，不给存「手动添加」；`heat` 是非负整数，传 `null` 清掉；`tags` 同选题。`starred`、`triaged` 是布尔，默认 `false`。
 - **来源出处**，登记后不能改：`publish_id` 只有 `comment` 能带，是这条评论所在的发布记录（`pb_`），要存在，否则 400，发布记录删掉时清空；`message_id` 只有 `im` 能带，是 im 插件的消息 id（`msg_`），只能有字母、数字和 `. _ : -`，最多 100 字，插件读不到 im 的表，**只存不查**；同一条消息已经收过时不再新建，回 200 + 已有的那条，`meta.existing` 为 `true`（VID-08b，IM 抽屉「收进素材箱」点两次只收一份）。前端从评论跳发布记录再到视频，从 IM 素材跳消息。
 - `topic_ids` 是归到的选题，按关联先后排，只能用转为选题、并入、选题的 `clip_ids` 改。
@@ -4590,6 +4690,17 @@ VID-01a 起。插件 `video`（`internal/plugins/video`，清单 `plugin.json`�
 - 不带 `publish_id` 时，拉不了的发布记录（没接或接了多个账号、连接器暂停或断开、平台出错）记进 `meta.skipped`（`{publish_id, reason}[]`），别的照拉，回 200；`meta.publishes` 是拉成的条数，`duplicates` 是收过的条数。接入的平台都没有评论能力时 400「接入的平台都还不能经连接器拉评论」（现在的 B 站开放平台没有评论接口）。
 - 带 `publish_id` 时：不存在 404；平台没有评论能力、还没有稿件链接、连接器没接或多个 400，暂停、断开 409；平台出错 502 `fetch_failed`。
 - IM 消息转素材：由 IM 页消息抽屉的「收进素材箱」调 `POST /api/video/clips`（`kind: im`，带 `message_id`），video 插件没在跑时这一节不显示。视频插件不订阅 `im.message_received`（事件只带 id，正文要回 IM 接口取；也不是每条消息都该进素材箱），没装 IM 插件时照常可用。
+
+GitHub 版本更新收件（VID-10）：把公开 GitHub 仓库的 Release 一条一条收成版本更新素材（`kind: release`，标签里带版本号），之后再照常「转为选题」做成版本更新说明视频，同原型素材收件箱的「拉取 GitHub 更新」。只拉公开仓库的匿名 GitHub API，不做 token、不碰私有仓库；新 kind `release` 能用 `GET /api/video/clips?kind=release` 筛到。
+
+- `POST /api/video/clips/github`：body 是 `{repo, limit?, include_prerelease?}`。`repo` 必填，认 `owner/repo`、`https://github.com/owner/repo`（`http://`、不带协议的 `github.com/owner/repo` 也行，结尾带 `.git` 或 `/` 同样认），别的写法 400「repo 要是 owner/repo 或者 GitHub 仓库地址」。`limit` 是要拉几条 Release，1 到 100，默认 30，直接当 GitHub 的 `per_page`。`include_prerelease` 默认 `false`，勾上后预发布也收。
+- 出网走 `Core.HTTP("github")`，域名清单只有 `api.github.com`（`internal/plugin/network.go` 的 `github` 组）。清单没声明、或升级到 0.10.0 后还没确认 `network:github` 时 400，去插件管理的视频插件里确认；请求带 `User-Agent: pmw-video-plugin`、`Accept: application/vnd.github+json`，总超时 20 秒。匿名接口每小时 60 次，拉不了就过一会儿再试。
+- 每次拉一页（`limit` 条，GitHub 默认按新发布的在前）。仓库不存在或不是公开仓库 400「GitHub 上没有这个仓库，或者它不是公开仓库」；403/429 且 `x-ratelimit-remaining` 是 `0`（匿名接口限流）、其它非 200、连不上、返回解析不了都是 502 `fetch_failed`，`error` 里多 `repo`。
+- 落成的素材：`kind` 是 `release`；`title` 取 `tag_name`（`name` 不空且和 `tag_name` 不一样时拼成「tag_name name」），最多 200 字；`content` 是 Release 说明（去首尾空白，最多 5000 字）；`url` 是 `html_url`（`http://`、`https://` 才带，最多 2048 字）；`source` 是「GitHub · owner/repo」；`tags` 是 `[tag_name, 发布日期 YYYY-MM-DD]`（没发布日期就只放 `tag_name`）；`heat` 没有，`starred`、`triaged` 都是 `false`。
+- 跳过不落的：草稿（`draft`，原因「草稿」）；预发布（`prerelease` 且没勾 `include_prerelease`，原因「预发布」）；没有 `tag_name` 的（原因「没有版本号」）。都记进 `meta.skipped`（`{tag, reason}[]`）。
+- **按版本去重**：内部列 `remote_id` 存 `github:owner/repo:tag_name`，有唯一索引（`0009_clip_remote.sql`），同一个 Release 拉几次都只落一份，收过的记 `meta.duplicates`。`meta` 还有 `repo`（规整后的 `owner/repo`）、`added`（这次新落的条数）、`releases`（拉到的条数）。落库按 Release 从旧到新，列表同一秒落库的按 rowid 倒序，所以 `data` 里新发布的在前。
+- 转选题、并入同上面的素材：标题、大纲照搬；Release 没有热度，需求度默认给 3。不发事件、不记审计。
+- 不做私有仓库、不做 GitHub token，也不拉 Issue、Commit、标签。
 
 转为选题和并入（同原型素材收件箱的「转为选题」「归到选题」）：
 
@@ -4975,7 +5086,7 @@ REC-01a 起，本地优先的录音转写：浏览器内录音，音频存数据
 | POST | `/api/executors/test` | 接收 `{executor, prompt, messages?}`，`messages` 为当前面板的历史 `{role, content}[]`（最多 20 条，不持久化），返回 `{reply, model}`；所有类型均实际调用所选本机 CLI，使用与 SOP 相同的程序路径和模型路由解析，临时目录只读测试 |
 
 执行器配置字段：`id, name, kind, bin, desc, enabled, provider_id, use_cli_config`。
-`kind` 为 `claude`、`deepseek`、`codex`；程序路径保存为绝对路径。Codex 的 `use_cli_config=true` 使用本机登录和配置，其他情况必须选择模型服务商。
+`kind` 为 `claude`、`deepseek`、`codex`；程序路径保存为绝对路径。Codex 的 `use_cli_config=true` 使用本机登录和配置；Claude Code 的模型服务商可选，`provider_id` 为空时直接调本机 `claude`、用它自己的登录和默认模型（不注入 `ANTHROPIC_*`，读出时 `provider_name` 为「Claude Code 本机登录与配置」、`model` 为「本机默认模型」，不报「未选择模型服务商」），选了服务商（须 Anthropic 兼容）才改走服务商；其他情况必须选择模型服务商。
 
 现有 SOP `claude_code` 节点的 `config.executor` 可保存执行器 ID，留空使用原来的 Claude Code 配置。运行时重新查询执行器并固定本次的程序和服务商配置；不存在、停用、配置缺失时失败，不自动切换执行器。角色、目录、提示词、权限、超时继续沿用节点配置。Codex 支持工作台回写 MCP；DeepSeek 沿用结束文本作为结论的回退机制。
 

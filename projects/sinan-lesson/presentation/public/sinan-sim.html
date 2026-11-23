@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<!-- powered by dsh - https://github.com/deepseek-ai/deepseek-harness -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>司南 · 地球内部磁铁假设检验</title>
+<style>
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: #121722;
+  color: #e8ecf4;
+  font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.app { max-width: 1180px; margin: 0 auto; padding: 18px 20px 28px; }
+header {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  padding: 0 4px 14px; border-bottom: 0.5px solid #333d52; flex-wrap: wrap;
+}
+h1 { font-size: 17px; font-weight: 500; margin: 0; }
+.steps { display: flex; gap: 22px; font-size: 12px; color: #8792a8; }
+.steps span.active { color: #8fc7ff; border-bottom: 2px solid #8fc7ff; padding-bottom: 3px; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 306px; gap: 16px; margin-top: 16px; }
+.panel, .stage, footer {
+  background: #1b2130; border: 0.5px solid #333d52; border-radius: 12px;
+}
+.stage { padding: 8px 12px 12px; position: relative; }
+#earth { display: block; width: 100%; height: auto; max-height: 470px; touch-action: none; user-select: none; }
+#earth text { font-family: inherit; }
+#needle { cursor: grab; }
+#earth.dragging #needle { cursor: grabbing; }
+.stage-tip { margin: 0 0 4px 8px; font-size: 12px; color: #8d99b0; }
+aside { display: flex; flex-direction: column; gap: 12px; }
+.panel { padding: 12px 14px; }
+.panel h2 { font-size: 13px; font-weight: 500; margin: 0 0 10px; color: #aeb9cf; }
+.switch { display: flex; gap: 8px; }
+.switch button {
+  flex: 1; padding: 9px 6px; font-size: 13px; font-family: inherit;
+  background: #202737; color: #9aa6bd; border: 0.5px solid #39435a;
+  border-radius: 8px; cursor: pointer;
+}
+.switch button:hover { border-color: #6fa4dc; }
+.switch button.active { background: #2b4a6e; color: #e8f1ff; border-color: #6fa4dc; }
+.caveat { margin: 9px 0 0; font-size: 11px; color: #8792a8; }
+.readout { background: #202b3c; border-radius: 8px; padding: 9px 12px; font-size: 13px; }
+.readout div { display: flex; justify-content: space-between; }
+.readout b { font-weight: 500; color: #cfe0f5; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
+th { text-align: left; color: #8792a8; font-weight: 400; padding: 2px 2px 6px; border-bottom: 0.5px solid #333d52; }
+td { padding: 5px 2px; color: #cbd6ea; border-bottom: 0.5px solid #262e40; }
+.tag { display: inline-block; padding: 0 6px; border-radius: 4px; font-size: 11px; }
+.tag.on { background: #2b4a6e; color: #cfe4ff; }
+.tag.off { background: #2e2b38; color: #c9bdd8; }
+.yes { color: #7fc9a5; }
+.no { color: #e0918c; }
+.empty { color: #6f7b91; font-size: 12px; padding: 8px 0; }
+footer { margin-top: 16px; padding: 14px 16px; display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
+footer h2 { font-size: 13px; font-weight: 500; margin: 0 0 8px; color: #aeb9cf; }
+.concl-main { flex: 1 1 460px; min-width: 0; }
+.stats { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 10px; }
+.stat { flex: 1 1 190px; }
+.stat .label { font-size: 12px; color: #9aa6bd; }
+.stat .label b { font-weight: 500; color: #e8ecf4; }
+.bar { height: 6px; border-radius: 3px; background: #2a3244; margin-top: 5px; overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: #6fa4dc; transition: width .3s; }
+.stat.off .bar i { background: #9b83a8; }
+.fill { font-size: 13px; color: #cbd6ea; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+select, .btn {
+  font-family: inherit; font-size: 12px; background: #202b3c; color: #e8ecf4;
+  border: 0.5px solid #39435a; border-radius: 6px; padding: 5px 8px;
+}
+.btn { cursor: pointer; }
+.btn:hover:not(:disabled) { border-color: #6fa4dc; }
+.btn.primary { background: #2b4a6e; border-color: #6fa4dc; color: #e8f1ff; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.feedback { margin: 9px 0 0; font-size: 12px; color: #e0ae63; min-height: 19px; }
+.concl-side { flex: 0 1 210px; display: flex; flex-direction: column; gap: 8px; }
+.hint { font-size: 12px; color: #8792a8; margin: 0; }
+.ext { margin: 10px 0 0; font-size: 13px; color: #cfe0f5; max-width: 620px; }
+@media (max-width: 900px) {
+  main { grid-template-columns: 1fr; }
+  aside { flex-direction: row; flex-wrap: wrap; }
+  aside .panel { flex: 1 1 220px; }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <h1>司南 · 地球内部磁铁假设检验</h1>
+    <div class="steps"><span>情境</span><span>实验</span><span>猜想</span><span class="active">检验</span><span>拓展</span></div>
+  </header>
+
+  <main>
+    <section class="stage">
+      <svg id="earth" viewBox="0 0 560 460" role="img" aria-label="地球剖面与可拖动磁针">
+        <text x="24" y="32" font-size="12" fill="#9aa6bd">上为北 · 下为南</text>
+        <text x="24" y="52" font-size="12" fill="#f0665e">红端 N 极</text>
+        <text x="24" y="72" font-size="12" fill="#5aa8ea">蓝端 S 极</text>
+        <defs><clipPath id="earthClip"><circle cx="280" cy="230" r="149"/></clipPath></defs>
+        <circle cx="280" cy="230" r="150" fill="#26344a" stroke="#5c6d8c" stroke-width="1"/>
+        <circle cx="280" cy="230" r="66" fill="#2f4059" stroke="#4a5c78" stroke-width="0.5"/>
+        <g id="innerOn" clip-path="url(#earthClip)">
+          <rect x="252" y="80" width="56" height="150" fill="#3f7fc1" stroke="#6fa4dc" stroke-width="0.5"/>
+          <rect x="252" y="230" width="56" height="150" fill="#c65a55" stroke="#e0837e" stroke-width="0.5"/>
+          <text x="280" y="160" font-size="15" fill="#ffffff" text-anchor="middle">S</text>
+          <text x="280" y="300" font-size="15" fill="#ffffff" text-anchor="middle">N</text>
+        </g>
+        <g id="innerOff" style="display:none" clip-path="url(#earthClip)">
+          <rect x="252" y="80" width="56" height="300" fill="none" stroke="#9aa6bd" stroke-width="1.2" stroke-dasharray="5 4"/>
+          <text x="280" y="236" font-size="12" fill="#8792a8" text-anchor="middle">无磁铁</text>
+        </g>
+        <g id="dragTip">
+          <text x="386" y="64" font-size="12" fill="#e0ae63">拖动磁针</text>
+          <path d="M384 68 L372 84" fill="none" stroke="#e0ae63" stroke-width="0.9"/>
+        </g>
+        <g id="needle" transform="translate(360,91.44) rotate(0)">
+          <circle r="44" fill="transparent" pointer-events="all"/>
+          <g fill="#121722" stroke="#121722" stroke-width="3.5" stroke-linejoin="round">
+            <path d="M0,-4 L-11,-7 L0,-40 L11,-7 Z"/>
+            <path d="M0,4 L-11,7 L0,40 L11,7 Z"/>
+            <circle r="5"/>
+          </g>
+          <path d="M0,-4 L-11,-7 L0,-40 L11,-7 Z" fill="#f0665e" stroke="#ffb0a8" stroke-width="0.5"/>
+          <path d="M0,4 L-11,7 L0,40 L11,7 Z" fill="#5aa8ea" stroke="#c2e2ff" stroke-width="0.5"/>
+          <circle r="5" fill="#e8ecf4" stroke="#8d99b0" stroke-width="0.5"/>
+        </g>
+      </svg>
+      <p class="stage-tip">拖动磁针沿地表移动，松手后观察 N 极朝向</p>
+    </section>
+
+    <aside>
+      <div class="panel">
+        <h2>模型假设</h2>
+        <div class="switch">
+          <button id="btnOn" class="active" type="button">有巨大磁铁</button>
+          <button id="btnOff" type="button">无巨大磁铁</button>
+        </div>
+        <p class="caveat">这是假设模型，不是地球的真实结构</p>
+      </div>
+      <div class="panel">
+        <h2>本次观察</h2>
+        <div class="readout">
+          <div><span>松手后 N 极指向</span><b id="roDir">—</b></div>
+          <div><span>偏离南北</span><b id="roDev">—</b></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>实验记录</h2>
+        <table>
+          <thead><tr><th style="width:52px">假设</th><th style="width:84px">位置</th><th>偏离</th><th style="width:44px">指南北</th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </aside>
+  </main>
+
+  <footer>
+    <div class="concl-main">
+      <h2>我的发现</h2>
+      <div class="stats">
+        <div class="stat"><div class="label">有磁铁组 <b id="onCount">0/0</b> 次沿南北</div><div class="bar"><i id="onBar"></i></div></div>
+        <div class="stat off"><div class="label">无磁铁组 <b id="offCount">0/0</b> 次沿南北</div><div class="bar"><i id="offBar"></i></div></div>
+      </div>
+      <div class="fill">
+        有磁铁时，磁针
+        <select id="selOn"><option value="">选择</option><option value="always">总是指南北</option><option value="random">朝向不定</option></select>
+        ；没有磁铁时，磁针
+        <select id="selOff"><option value="">选择</option><option value="always">总是指南北</option><option value="random">朝向不定</option></select>
+        <button id="submit" class="btn primary" type="button" disabled>提交发现</button>
+        <button id="restart" class="btn" type="button">再做一次</button>
+      </div>
+      <p id="feedback" class="feedback"></p>
+      <p id="ext" class="ext" style="display:none"></p>
+    </div>
+    <div class="concl-side">
+      <p id="hint" class="hint"></p>
+      <button id="next" class="btn" type="button" disabled>进入拓展</button>
+    </div>
+  </footer>
+</div>
+
+<script>
+// powered by dsh - https://github.com/deepseek-ai/deepseek-harness
+(function () {
+  'use strict';
+  var svg = document.getElementById('earth');
+  var needle = document.getElementById('needle');
+  var CX = 280, CY = 230, ORBIT = 160;
+  var hypothesis = 'on';
+  var theta = -Math.PI / 3;
+  var alpha = 0;
+  var omega = 0;
+  var state = 'idle';
+  var settleSource = 'drag';
+  var elapsed = 0;
+  var drag = null;
+  var offTarget = 60;
+  var records = [];
+  var touched = false;
+
+  var btnOn = document.getElementById('btnOn');
+  var btnOff = document.getElementById('btnOff');
+  var roDir = document.getElementById('roDir');
+  var roDev = document.getElementById('roDev');
+  var rows = document.getElementById('rows');
+  var onCount = document.getElementById('onCount');
+  var offCount = document.getElementById('offCount');
+  var onBar = document.getElementById('onBar');
+  var offBar = document.getElementById('offBar');
+  var selOn = document.getElementById('selOn');
+  var selOff = document.getElementById('selOff');
+  var submit = document.getElementById('submit');
+  var restart = document.getElementById('restart');
+  var feedback = document.getElementById('feedback');
+  var hint = document.getElementById('hint');
+  var next = document.getElementById('next');
+  var ext = document.getElementById('ext');
+  var innerOn = document.getElementById('innerOn');
+  var innerOff = document.getElementById('innerOff');
+  var dragTip = document.getElementById('dragTip');
+
+  function norm(a) {
+    a = ((a % 360) + 360) % 360;
+    return a > 180 ? a - 360 : a;
+  }
+  function compass(c) {
+    c = norm(c);
+    if (c >= -22.5 && c < 22.5) return '北';
+    if (c >= 22.5 && c < 67.5) return '东北';
+    if (c >= 67.5 && c < 112.5) return '东';
+    if (c >= 112.5 && c < 157.5) return '东南';
+    if (c >= 157.5 || c < -157.5) return '南';
+    if (c >= -157.5 && c < -112.5) return '西南';
+    if (c >= -112.5 && c < -67.5) return '西';
+    return '西北';
+  }
+  function sectorName(rad) { return compass(norm(rad * 180 / Math.PI + 90)) + '侧'; }
+  function place() {
+    var x = CX + ORBIT * Math.cos(theta);
+    var y = CY + ORBIT * Math.sin(theta);
+    needle.setAttribute('transform', 'translate(' + x.toFixed(2) + ',' + y.toFixed(2) + ') rotate(' + alpha.toFixed(2) + ')');
+  }
+  function toSvg(e) {
+    var pt = svg.createSVGPoint();
+    pt.x = e.clientX; pt.y = e.clientY;
+    var p = pt.matrixTransform(svg.getScreenCTM().inverse());
+    return { x: p.x, y: p.y };
+  }
+
+  function renderRecords() {
+    if (!records.length) {
+      rows.innerHTML = '<tr><td colspan="4" class="empty">还没有记录，拖动磁针试试</td></tr>';
+    } else {
+      var html = '';
+      for (var i = 0; i < records.length; i++) {
+        var r = records[i];
+        html += '<tr><td><span class="tag ' + r.h + '">' + (r.h === 'on' ? '有' : '无') + '</span></td>'
+          + '<td>' + r.pos + '</td><td>' + r.dev + '°</td>'
+          + '<td class="' + (r.aligned ? 'yes' : 'no') + '">' + (r.aligned ? '是' : '否') + '</td></tr>';
+      }
+      rows.innerHTML = html;
+    }
+    var on = records.filter(function (r) { return r.h === 'on'; });
+    var off = records.filter(function (r) { return r.h === 'off'; });
+    var onA = on.filter(function (r) { return r.aligned; }).length;
+    var offA = off.filter(function (r) { return r.aligned; }).length;
+    onCount.textContent = onA + '/' + on.length;
+    offCount.textContent = offA + '/' + off.length;
+    onBar.style.width = (on.length ? onA / on.length * 100 : 0) + '%';
+    offBar.style.width = (off.length ? offA / off.length * 100 : 0) + '%';
+    var ready = on.length >= 3 && off.length >= 3;
+    submit.disabled = !ready;
+    hint.textContent = ready
+      ? '两组各 3 次以上，可以说说你的发现了'
+      : '还需拖动：有磁铁 ' + Math.max(0, 3 - on.length) + ' 次，无磁铁 ' + Math.max(0, 3 - off.length) + ' 次';
+  }
+
+  function finish() {
+    state = 'idle';
+    omega = 0;
+    if (settleSource !== 'drag') return;
+    var a = norm(alpha);
+    var dev = Math.min(Math.abs(a), 180 - Math.abs(a));
+    var aligned = dev <= 8;
+    records.push({
+      h: hypothesis,
+      pos: sectorName(theta),
+      dev: Math.round(dev),
+      aligned: aligned
+    });
+    roDir.textContent = compass(a);
+    roDev.textContent = Math.round(dev) + '°';
+    renderRecords();
+  }
+
+  needle.addEventListener('pointerdown', function (e) {
+    e.preventDefault();
+    try { needle.setPointerCapture(e.pointerId); } catch (err) { /* 浏览器不支持捕获时仍可拖动 */ }
+    state = 'dragging';
+    omega = 0;
+    elapsed = 0;
+    var p = toSvg(e);
+    drag = { px: p.x, py: p.y, t: performance.now() };
+    svg.classList.add('dragging');
+    if (!touched) {
+      touched = true;
+      dragTip.style.display = 'none';
+    }
+  });
+
+  svg.addEventListener('pointermove', function (e) {
+    if (state !== 'dragging' || !drag) return;
+    e.preventDefault();
+    var p = toSvg(e);
+    var now = performance.now();
+    var dt = Math.max(0.008, (now - drag.t) / 1000);
+    var dx = p.x - drag.px, dy = p.y - drag.py;
+    if (Math.hypot(p.x - CX, p.y - CY) > 60) theta = Math.atan2(p.y - CY, p.x - CX);
+    if (Math.hypot(dx, dy) > 0.8) {
+      var phi = Math.atan2(dy, dx) * 180 / Math.PI;
+      var target = norm(phi + 90);
+      var next = alpha + norm(target - alpha) * 0.35;
+      omega = (next - alpha) / dt;
+      alpha = norm(next);
+    }
+    drag.px = p.x; drag.py = p.y; drag.t = now;
+    place();
+  });
+
+  function release() {
+    if (state !== 'dragging') return;
+    state = 'settling';
+    settleSource = 'drag';
+    elapsed = 0;
+    omega = Math.max(-520, Math.min(520, omega || 0));
+    if (hypothesis === 'off') {
+      var sign = Math.random() < 0.5 ? -1 : 1;
+      offTarget = sign * (30 + Math.random() * 120);
+      if (Math.abs(norm(alpha)) < 26) {
+        omega = sign * (150 + Math.random() * 170);
+      } else {
+        omega += (Math.random() - 0.5) * 180;
+      }
+      omega = Math.max(-520, Math.min(520, omega));
+    } else {
+      omega = Math.max(-320, Math.min(320, omega));
+    }
+    svg.classList.remove('dragging');
+  }
+  window.addEventListener('pointerup', release);
+  window.addEventListener('pointercancel', release);
+
+  var last = performance.now();
+  function frame(now) {
+    var dt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (state === 'settling') {
+      elapsed += dt;
+      if (hypothesis === 'on') {
+        omega += (norm(-alpha) * 52 - omega * 9.2) * dt;
+        alpha += omega * dt;
+        if (Math.abs(norm(alpha)) < 0.5 && Math.abs(omega) < 4) {
+          alpha = 0;
+          finish();
+        }
+      } else {
+        omega += (norm(offTarget - alpha) * 30 - omega * 6.6) * dt;
+        omega += (Math.random() - 0.5) * 110 * dt;
+        alpha += omega * dt;
+        if ((elapsed > 0.35 && Math.abs(omega) < 14 && Math.abs(norm(offTarget - alpha)) < 9) || elapsed > 1.4) {
+          alpha = offTarget;
+          finish();
+        }
+      }
+      alpha = norm(alpha);
+      place();
+    }
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+
+  function setHypothesis(h) {
+    hypothesis = h;
+    btnOn.classList.toggle('active', h === 'on');
+    btnOff.classList.toggle('active', h === 'off');
+    innerOn.style.display = h === 'on' ? '' : 'none';
+    innerOff.style.display = h === 'off' ? '' : 'none';
+    if (h === 'on' && Math.abs(norm(alpha)) > 0.5) {
+      settleSource = 'switch';
+      state = 'settling';
+      elapsed = 0;
+      omega = 0;
+    } else if (h === 'off' && state === 'settling') {
+      state = 'idle';
+      omega = 0;
+    }
+  }
+  btnOn.addEventListener('click', function () { setHypothesis('on'); });
+  btnOff.addEventListener('click', function () { setHypothesis('off'); });
+
+  submit.addEventListener('click', function () {
+    if (selOn.value === 'always' && selOff.value === 'random') {
+      feedback.textContent = '记录支持这个发现。';
+      next.disabled = false;
+    } else if (!selOn.value || !selOff.value) {
+      feedback.textContent = '先选完两个空。';
+    } else {
+      feedback.textContent = '再看看记录表，两组数据各自有没有规律？';
+      next.disabled = true;
+    }
+  });
+
+  next.addEventListener('click', function () {
+    ext.style.display = 'block';
+    ext.textContent = '这个模型能解释现象，但地球内部真的有一块巨大磁铁吗？下一环节继续探究磁铁指南北的真正原因，并看看指南针用在了哪里。';
+  });
+
+  restart.addEventListener('click', function () {
+    records = [];
+    alpha = 0; omega = 0; theta = -Math.PI / 3;
+    state = 'idle'; drag = null; elapsed = 0;
+    setHypothesis('on');
+    state = 'idle'; omega = 0;
+    roDir.textContent = '—'; roDev.textContent = '—';
+    selOn.value = ''; selOff.value = '';
+    feedback.textContent = ''; ext.style.display = 'none'; ext.textContent = '';
+    next.disabled = true;
+    place();
+    renderRecords();
+  });
+
+  place();
+  renderRecords();
+})();
+</script>
+</body>
+</html>

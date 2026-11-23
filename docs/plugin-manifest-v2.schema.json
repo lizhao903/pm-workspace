@@ -1,0 +1,1175 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pm-workspace.local/schemas/plugin-manifest-v2.schema.json",
+  "title": "PMW 外部插件清单（plugin.json，manifest_version 2）",
+  "description": "PMW 外部插件规范 v0.1（草案）的清单格式，规范见 docs/plugin-spec-v2.md 第 4 节。Schema 只表达结构和清单内可静态判定的条件；和 id 相关的前缀规则、内核保留字、依赖是否存在、连接器冲突、平台产物是否齐全、权限理由是否逐项覆盖等由宿主（internal/pluginhost，计划新增）和 plugin-sdk 的 validate 做语义校验。第一方内置插件继续用 docs/plugin-manifest.schema.json（Plugin API 1.x），不要混用。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "manifest_version",
+    "id",
+    "name",
+    "version",
+    "api",
+    "pmw",
+    "license",
+    "repository",
+    "permissions",
+    "permissions_reason",
+    "runtime"
+  ],
+  "properties": {
+    "manifest_version": {
+      "const": 2,
+      "description": "清单格式版本，外部插件固定为 2；与 api 字段（宿主 API 范围）是两件事"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{1,23}$",
+      "description": "插件 id，全局唯一、一经发布不改；不能是内核保留字（internal/plugin/manifest.go 的 ReservedIDs，以代码为准）"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "显示名，插件管理页和菜单用"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "description": "一句话说明"
+    },
+    "version": {
+      "$ref": "#/$defs/version",
+      "description": "插件自身版本，MAJOR.MINOR.PATCH"
+    },
+    "api": {
+      "$ref": "#/$defs/range",
+      "description": "要求的宿主外部插件 API 版本范围；宿主 ExternalAPIVersion 必须在范围内（计划新增，见 docs/plugin-spec-v2.md 9 节）"
+    },
+    "pmw": {
+      "$ref": "#/$defs/range",
+      "description": "要求的 PMW 内核版本范围；宿主二进制版本必须在范围内"
+    },
+    "license": {
+      "type": "string",
+      "minLength": 1,
+      "description": "许可证标识，优先 SPDX 标识符（例 MIT、Apache-2.0）；包内必须有 LICENSE 文件"
+    },
+    "homepage": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://",
+      "description": "项目主页，可选"
+    },
+    "repository": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https?://",
+      "description": "源码仓库地址，安装记录和升级检查用；v0.1 只接受 github.com 的 https 仓库"
+    },
+    "publisher": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ],
+      "description": "发布者信息，可选。没有 publisher 或没有 key 时按 community（未签名）处理；有 key 且发布签名验证通过才是 verified（见 docs/plugin-spec-v2.md 10 节）",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_-]*:[A-Za-z0-9][A-Za-z0-9_.-]{0,38}$",
+          "description": "发布者标识，形如 github:owner"
+        },
+        "key": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{43}=$",
+          "description": "ed25519 公钥（raw 32 字节）的 base64；可选，44 字符。私钥不进仓库"
+        }
+      }
+    },
+    "icon": {
+      "type": "string",
+      "minLength": 1,
+      "description": "图标路径，包内相对路径，例 assets/icon.svg；前端由宿主经 /api/plugins/{id}/icon 提供",
+      "pattern": "^[^:\\\\]+$",
+      "not": {
+        "pattern": "(^/|\\\\|(^|/)\\.\\.(/|$))"
+      }
+    },
+    "provides": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "本插件注册的扩展点 id，按扩展点分组；分组键和值规则沿用 docs/plugin-manifest.schema.json（见 docs/plugin-spec-v2.md 4.4）",
+      "properties": {
+        "modules": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          }
+        },
+        "settings": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          }
+        },
+        "object_types": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": "等于插件 id 或以 <id>_ 开头（语义校验）"
+        },
+        "connectors": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": "全局命名空间，不加插件前缀；有 connectors 时必须至少声明一项 network:* 权限（语义校验）"
+        },
+        "skills": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^sk_[a-z0-9_]*$"
+          }
+        },
+        "agent_tools": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": "以 <id>_ 开头（语义校验）"
+        },
+        "sop_nodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": "以 <id>_ 开头（语义校验）；目录评审单独说明"
+        },
+        "today_cards": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": "以 <id>_ 开头（语义校验）"
+        },
+        "commands": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/event"
+          }
+        },
+        "search": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          }
+        },
+        "schedule_actions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*$"
+          },
+          "description": "以 <id>_ 开头（语义校验）；目录评审单独说明"
+        }
+      }
+    },
+    "permissions": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "申请的可选权限，可以是空数组。store:plugin、log:write 是隐式权限，不写进来；写进来反而非法",
+      "items": {
+        "anyOf": [
+          {
+            "enum": [
+              "objects:read",
+              "objects:write",
+              "events:subscribe",
+              "fs:read:project",
+              "fs:write:project",
+              "fs:read:attachments",
+              "fs:write:attachments",
+              "fs:read:any",
+              "fs:write:any",
+              "network:localhost",
+              "network:im",
+              "network:media-platforms",
+              "network:github",
+              "network:market-data",
+              "network:model",
+              "network:exchanges",
+              "network:any",
+              "process:spawn",
+              "agent:run",
+              "notify",
+              "schedule",
+              "artifacts:write",
+              "audit:write",
+              "trade:live"
+            ]
+          },
+          {
+            "type": "string",
+            "pattern": "^secrets:[a-z][a-z0-9_]*$"
+          }
+        ]
+      }
+    },
+    "permissions_reason": {
+      "type": "object",
+      "description": "逐项权限理由：每个 permissions 项都必须在这里有一条 1–80 字的中文理由（schema 用 allOf 逐项校验；通配的 secrets:<scope> 逐项关系由语义校验检查）",
+      "propertyNames": {
+        "anyOf": [
+          {
+            "enum": [
+              "objects:read",
+              "objects:write",
+              "events:subscribe",
+              "fs:read:project",
+              "fs:write:project",
+              "fs:read:attachments",
+              "fs:write:attachments",
+              "fs:read:any",
+              "fs:write:any",
+              "network:localhost",
+              "network:im",
+              "network:media-platforms",
+              "network:github",
+              "network:market-data",
+              "network:model",
+              "network:exchanges",
+              "network:any",
+              "process:spawn",
+              "agent:run",
+              "notify",
+              "schedule",
+              "artifacts:write",
+              "audit:write",
+              "trade:live"
+            ]
+          },
+          {
+            "type": "string",
+            "pattern": "^secrets:[a-z][a-z0-9_]*$"
+          }
+        ]
+      },
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 80,
+        "pattern": "(?=.*[\\u4e00-\\u9fff])",
+        "description": "用户可读的中文理由，1–80 字"
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "anyOf": [
+        {
+          "required": [
+            "backend"
+          ]
+        },
+        {
+          "required": [
+            "web"
+          ]
+        }
+      ],
+      "description": "运行形态；backend（子进程 + pmw-plugin-rpc/1）与 web（前端 ESM）至少有一个；有 provides.modules 时必须有 web（allOf 校验）",
+      "properties": {
+        "backend": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "protocol",
+            "entry"
+          ],
+          "properties": {
+            "kind": {
+              "const": "process",
+              "description": "v0.1 只支持 process：每个启用的外部插件一个子进程"
+            },
+            "protocol": {
+              "const": "pmw-plugin-rpc/1",
+              "description": "后端 IPC 协议版本，见 docs/plugin-spec-v2.md 第 7 节"
+            },
+            "entry": {
+              "type": "object",
+              "minProperties": 1,
+              "propertyNames": {
+                "pattern": "^(darwin|linux|windows)-(amd64|arm64)$"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "minLength": 1,
+                "description": "平台二进制路径，包内相对路径；Windows 允许 .exe。发布检查强制 darwin-arm64 + linux-amd64，本地开发只需当前平台",
+                "pattern": "^[^:\\\\]+$",
+                "not": {
+                  "pattern": "(^/|\\\\|(^|/)\\.\\.(/|$))"
+                }
+              },
+              "description": "按 GOOS-GOARCH 给平台二进制；键必须匹配 ^(darwin|linux|windows)-(amd64|arm64)$"
+            },
+            "health_timeout_ms": {
+              "type": "integer",
+              "minimum": 100,
+              "maximum": 60000,
+              "default": 10000,
+              "description": "健康检查超时，毫秒；默认 10000"
+            }
+          }
+        },
+        "web": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "entry"
+          ],
+          "properties": {
+            "entry": {
+              "type": "string",
+              "minLength": 1,
+              "description": "前端 ESM 入口，包内相对路径，例 web/entry.js",
+              "pattern": "^[^:\\\\]+$",
+              "not": {
+                "pattern": "(^/|\\\\|(^|/)\\.\\.(/|$))"
+              }
+            },
+            "styles": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "minLength": 1,
+                "description": "样式文件，包内相对路径，例 web/style.css",
+                "pattern": "^[^:\\\\]+$",
+                "not": {
+                  "pattern": "(^/|\\\\|(^|/)\\.\\.(/|$))"
+                }
+              },
+              "description": "入口 import 之外的样式文件（可选）；宿主按顺序注入并挂到 [data-pmw-plugin=\"{id}\"] 下"
+            }
+          }
+        }
+      }
+    },
+    "depends": {
+      "$ref": "#/$defs/deps",
+      "description": "强依赖：插件 id 到版本范围；安装、启用前都要满足，停用被依赖的插件时连带停用（计划新增的 v2 字段，见 docs/plugin-spec-v2.md 4.5）"
+    },
+    "optional_depends": {
+      "$ref": "#/$defs/deps",
+      "description": "弱依赖：装了就联动，没装也能用"
+    },
+    "emits": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/event"
+      },
+      "description": "本插件发布的事件，必须以 <id>. 开头（语义校验）；插件只能经 host.events.publish 发这里声明过的事件"
+    },
+    "subscribes": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/event"
+      },
+      "description": "订阅的事件；非空时必须声明 events:subscribe 权限（allOf 校验）"
+    },
+    "migrations": {
+      "type": "string",
+      "minLength": 1,
+      "description": "插件自有库的迁移目录，包内相对路径，例 migrations；外部插件没有 table_prefix，迁移只作用于宿主给它的私有库",
+      "pattern": "^[^:\\\\]+$",
+      "not": {
+        "pattern": "(^/|\\\\|(^|/)\\.\\.(/|$))"
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "objects:read"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "objects:read"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "objects:write"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "objects:write"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "events:subscribe"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "events:subscribe"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "fs:read:project"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "fs:read:project"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "fs:write:project"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "fs:write:project"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "fs:read:attachments"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "fs:read:attachments"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "fs:write:attachments"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "fs:write:attachments"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "fs:read:any"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "fs:read:any"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "fs:write:any"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "fs:write:any"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "network:localhost"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "network:localhost"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "network:im"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "network:im"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "network:media-platforms"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "network:media-platforms"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "network:github"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "network:github"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "network:market-data"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "network:market-data"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "network:model"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "network:model"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "network:exchanges"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "network:exchanges"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "network:any"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "network:any"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "process:spawn"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "process:spawn"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "agent:run"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "agent:run"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "notify"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "notify"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "schedule"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "schedule"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "artifacts:write"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "artifacts:write"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "audit:write"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "audit:write"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "permissions"
+        ],
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "trade:live"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "permissions_reason"
+        ],
+        "properties": {
+          "permissions_reason": {
+            "required": [
+              "trade:live"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "provides"
+        ],
+        "properties": {
+          "provides": {
+            "required": [
+              "modules"
+            ],
+            "properties": {
+              "modules": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "runtime"
+        ],
+        "properties": {
+          "runtime": {
+            "required": [
+              "web"
+            ]
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "provides"
+        ],
+        "properties": {
+          "provides": {
+            "required": [
+              "connectors"
+            ],
+            "properties": {
+              "connectors": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "permissions": {
+            "contains": {
+              "pattern": "^network:"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "subscribes"
+        ],
+        "properties": {
+          "subscribes": {
+            "minItems": 1
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "events:subscribe"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "permissions": {
+            "contains": {
+              "const": "events:subscribe"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "subscribes"
+        ],
+        "properties": {
+          "subscribes": {
+            "minItems": 1
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})$"
+    },
+    "range": {
+      "type": "string",
+      "description": "空格分隔的比较，每项是 >=、>、<=、<、=、^、~ 加版本或精确版本；省略写法只允许跟比较运算符。不支持 ||、*、x、预发布标签（规则同 Plugin API 1.x，见 docs/plugin-api.md 1.2）",
+      "pattern": "^\\s*(((>=|<=|>|<)(0|[1-9][0-9]{0,8})(\\.(0|[1-9][0-9]{0,8})){0,2})|((=|\\^|~)?(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})))(\\s+(((>=|<=|>|<)(0|[1-9][0-9]{0,8})(\\.(0|[1-9][0-9]{0,8})){0,2})|((=|\\^|~)?(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8}))))*\\s*$"
+    },
+    "deps": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z][a-z0-9_]{1,23}$"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/range"
+      }
+    },
+    "event": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*\\.[a-z][a-z0-9_]*$"
+    },
+    "relPath": {
+      "type": "string",
+      "minLength": 1,
+      "description": "插件包内的相对路径：不以 / 开头、不含反斜杠、不含 .. 段",
+      "pattern": "^[^:\\\\]+$",
+      "not": {
+        "pattern": "(^/|\\\\|(^|/)\\.\\.(/|$))"
+      }
+    }
+  }
+}

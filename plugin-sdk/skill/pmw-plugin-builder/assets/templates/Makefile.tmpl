@@ -1,0 +1,58 @@
+# PMW 外部插件构建入口（清单 v2，草案）。
+#
+# 常用命令：
+#   make build       构建当前平台后端二进制（开发用）
+#   make build-all   构建发布矩阵：darwin-arm64 / linux-amd64 / windows-amd64
+#   make validate    校验 plugin.json 和包内文件
+#   make pack        打当前平台的发布包到 dist/（产物带 SHA256SUMS）
+#   make lint        gofmt + go vet + validate
+#
+# 构建只需要 Go 1.22+ 和 Python 3.9+；前端 entry.ts 只用 JS 语法子集，不需要 Node。
+# 工具脚本是本仓库内自带的副本，来自 PMW plugin-sdk 的 pmw_plugin.py。
+
+PMW_ID   := {{PMW_ID}}
+PY       ?= python3
+GO       ?= go
+GOOS     := $(shell $(GO) env GOOS)
+GOARCH   := $(shell $(GO) env GOARCH)
+EXE      := $(if $(filter windows,$(GOOS)),.exe)
+BIN_DIR  := bin
+DIST_DIR := dist
+VERSION  := $(shell $(PY) -c "import json;print(json.load(open('plugin.json'))['version'])")
+
+.PHONY: all build web build-all validate lint pack clean
+
+all: build
+
+# entry.ts 只用 JS 语法子集（JSDoc 类型注释，无类型标注），复制即可作为 ESM 产物。
+# 需要真正的 TypeScript 编译时才引入 esbuild/tsc，并保持产物仍是单文件 ESM。
+web:
+	@mkdir -p web
+	@cp -f web/entry.ts web/entry.js
+	@echo "web/entry.js 已生成（来自 web/entry.ts，版本 $(VERSION)）"
+
+build: web
+	@mkdir -p $(BIN_DIR)
+	$(GO) build -trimpath -ldflags "-s -w" -o $(BIN_DIR)/$(PMW_ID)-$(GOOS)-$(GOARCH)$(EXE) .
+	@echo "已生成 $(BIN_DIR)/$(PMW_ID)-$(GOOS)-$(GOARCH)$(EXE)"
+
+# 发布矩阵和 .github/workflows/release.yml 保持一致。
+build-all: web
+	@mkdir -p $(BIN_DIR)
+	CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 $(GO) build -trimpath -ldflags "-s -w" -o $(BIN_DIR)/$(PMW_ID)-darwin-arm64 .
+	CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 $(GO) build -trimpath -ldflags "-s -w" -o $(BIN_DIR)/$(PMW_ID)-linux-amd64 .
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 $(GO) build -trimpath -ldflags "-s -w" -o $(BIN_DIR)/$(PMW_ID)-windows-amd64.exe .
+	@echo "已生成发布矩阵：darwin-arm64 / linux-amd64 / windows-amd64"
+
+validate:
+	$(PY) scripts/pmw_plugin.py validate .
+
+lint: validate
+	@files="$$(gofmt -l .)"; if [ -n "$$files" ]; then echo "gofmt 未通过："; echo "$$files"; exit 1; fi
+	$(GO) vet ./...
+
+pack:
+	$(PY) scripts/pmw_plugin.py pack .
+
+clean:
+	rm -rf $(BIN_DIR) $(DIST_DIR)

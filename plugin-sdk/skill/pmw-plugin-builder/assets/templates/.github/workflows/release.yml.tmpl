@@ -1,0 +1,126 @@
+# PMW 外部插件发布流水线（清单 v2，草案）。
+#
+# 触发：推送 v<semver> tag（例如 v0.1.0）。
+# 产物：darwin-arm64 / linux-amd64 / windows-amd64 三个 tar.gz + SHA256SUMS（可选 .sig）。
+# 需要仓库 secret PLUGIN_SIGNING_KEY（ed25519 私钥，PEM）时才签名；没有就按 community 未签名发布。
+#
+# 注意：tag 的版本必须和 plugin.json 的 version 一致；CI 会在预检步骤里校验。
+
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: 构建 ${{ matrix.goos }}-${{ matrix.goarch }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: arm64
+          - goos: linux
+            goarch: amd64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - name: 检出（带 tag 历史）
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: false
+
+      - name: 生成前端入口
+        run: make web
+
+      - name: 校验清单（tag 与 version 一致）
+        run: |
+          python3 scripts/pmw_plugin.py validate .
+          tag_version="${GITHUB_REF_NAME#v}"
+          manifest_version="$(python3 -c "import json;print(json.load(open('plugin.json'))['version'])")"
+          if [ "$tag_version" != "$manifest_version" ]; then
+            echo "tag $GITHUB_REF_NAME 和 plugin.json 的 version $manifest_version 不一致" >&2
+            exit 1
+          fi
+
+      - name: 构建二进制
+        run: |
+          mkdir -p bin
+          ext=""
+          if [ "${{ matrix.goos }}" = "windows" ]; then ext=".exe"; fi
+          CGO_ENABLED=0 GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -trimpath -ldflags "-s -w" \
+            -o "bin/{{PMW_ID}}-${{ matrix.goos }}-${{ matrix.goarch }}${ext}" .
+
+      - name: 打包（含 SHA256SUMS）
+        run: python3 scripts/pmw_plugin.py pack . --os ${{ matrix.goos }} --arch ${{ matrix.goarch }}
+
+      - name: 上传平台产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: {{PMW_ID}}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: 创建 Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 收集产物
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: 汇总 SHA256SUMS
+        run: |
+          cd dist
+          sha256sum *.tar.gz | sort -k2 > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: 可选签名（ed25519，SHA256SUMS.sig）
+        env:
+          PLUGIN_SIGNING_KEY: ${{ secrets.PLUGIN_SIGNING_KEY }}
+        run: |
+          if [ -n "$PLUGIN_SIGNING_KEY" ]; then
+            printf '%s\n' "$PLUGIN_SIGNING_KEY" > /tmp/pmw-plugin-signing-key.pem
+            # 规范要求：对 SHA256SUMS 原始字节做 ed25519 签名，base64 单行写 SHA256SUMS.sig。
+            openssl pkeyutl -sign -rawin \
+              -inkey /tmp/pmw-plugin-signing-key.pem \
+              -in dist/SHA256SUMS -out /tmp/pmw-plugin-SHA256SUMS.rawsig
+            base64 < /tmp/pmw-plugin-SHA256SUMS.rawsig | tr -d '\n' > dist/SHA256SUMS.sig
+            rm -f /tmp/pmw-plugin-signing-key.pem /tmp/pmw-plugin-SHA256SUMS.rawsig
+            echo "已生成 dist/SHA256SUMS.sig（base64 单行）"
+          else
+            echo "未配置 PLUGIN_SIGNING_KEY，跳过签名（community 未签名发布）"
+          fi
+
+      - name: 创建 GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          args=(dist/*.tar.gz dist/SHA256SUMS)
+          if [ -f dist/SHA256SUMS.sig ]; then
+            args+=(dist/SHA256SUMS.sig)
+          fi
+          gh release create "$GITHUB_REF_NAME" "${args[@]}" \
+            --title "{{PMW_NAME}} $GITHUB_REF_NAME" \
+            --generate-notes

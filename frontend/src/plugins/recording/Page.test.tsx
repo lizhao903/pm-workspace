@@ -191,6 +191,21 @@ describe('录音列表页', () => {
     expect(screen.getByText(/86%/)).toBeInTheDocument()
   })
 
+  it('详情页两栏：段落和全文切换，点段落高亮当前段', async () => {
+    fakeBackend()
+    renderAt()
+    await userEvent.click(await screen.findByRole('button', { name: /访谈/ }))
+    const segs = await screen.findByRole('list', { name: '段落' })
+    // 有段落时默认看段落，全文编辑框收在另一个标签里
+    expect(screen.queryByRole('textbox', { name: '转写全文' })).not.toBeInTheDocument()
+    const first = within(segs).getAllByRole('button')[0]
+    await userEvent.click(first)
+    expect(first).toHaveAttribute('aria-current', 'true')
+    await userEvent.click(screen.getByRole('tab', { name: '转写全文' }))
+    expect(screen.getByRole('textbox', { name: '转写全文' })).toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: '段落' })).not.toBeInTheDocument()
+  })
+
   it('列表行内重命名：铅笔→输入→回车，PATCH 后标题更新', async () => {
     const { calls } = fakeBackend()
     renderAt()

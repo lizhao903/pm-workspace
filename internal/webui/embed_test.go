@@ -79,3 +79,18 @@ func TestMissingAssetIs404(t *testing.T) {
 		t.Fatalf("-> %d %q %q", w.Code, w.Header().Get("Cache-Control"), w.Body.String())
 	}
 }
+
+func TestHandlerSecurityHeaders(t *testing.T) {
+	h := handlerFor(fstest.MapFS{
+		"index.html": &fstest.MapFile{Data: []byte("<!doctype html><title>x</title>")},
+	})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	csp := rec.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "default-src 'self'") || !strings.Contains(csp, "object-src 'none'") {
+		t.Fatalf("CSP 不对：%q", csp)
+	}
+	if rec.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("缺 nosniff：%v", rec.Header())
+	}
+}

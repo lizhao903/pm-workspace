@@ -1,0 +1,43 @@
+{
+  "manifest_version": 2,
+  "id": "hello_world",
+  "name": "Hello World",
+  "description": "PMW 外部插件示例：模块页、设置分节、今日卡片和一个命令",
+  "version": "0.1.0",
+  "api": ">=2.0.0 <3.0.0",
+  "pmw": ">=0.3.0 <1.0.0",
+  "license": "MIT",
+  "homepage": "https://github.com/example/pmw-plugin-hello_world",
+  "repository": "https://github.com/example/pmw-plugin-hello_world",
+  "publisher": {
+    "id": "github:example"
+  },
+  "icon": "assets/icon.svg",
+  "provides": {
+    "modules": ["hello_world"],
+    "settings": ["hello_world"],
+    "today_cards": ["hello_world_tip"],
+    "commands": ["hello_world.say_hi"]
+  },
+  "permissions": ["objects:read", "notify"],
+  "permissions_reason": {
+    "objects:read": "在模块页和今日卡片里展示最近对象标题，作为只读示例",
+    "notify": "点「打个招呼」按钮时发一条演示通知"
+  },
+  "runtime": {
+    "backend": {
+      "kind": "process",
+      "protocol": "pmw-plugin-rpc/1",
+      "entry": {
+        "darwin-arm64": "bin/hello_world-darwin-arm64",
+        "linux-amd64": "bin/hello_world-linux-amd64",
+        "windows-amd64": "bin/hello_world-windows-amd64.exe"
+      },
+      "health_timeout_ms": 10000
+    },
+    "web": {
+      "entry": "web/entry.js",
+      "styles": ["web/style.css"]
+    }
+  }
+}

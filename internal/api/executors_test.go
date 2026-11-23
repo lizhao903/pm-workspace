@@ -183,6 +183,32 @@ printf '%s\n' '{"type":"item.completed","item":{"type":"agent_message","text":"c
 		t.Fatal(status)
 	}
 }
+
+// Claude Code 不选服务商：用本机 claude 的登录和默认模型，不注入 ANTHROPIC_*，不算配置缺失。
+func TestClaudeExecutorWithoutProviderUsesLocalCLI(t *testing.T) {
+	s, _, _, _ := terminalFixture(t)
+	t.Setenv("ANTHROPIC_MODEL", "")
+	bin := filepath.Join(t.TempDir(), "claude")
+	script := `#!/bin/sh
+cat >/dev/null
+[ -z "$ANTHROPIC_MODEL" ] || exit 8
+printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"claude local ok"}]}}' '{"type":"result","subtype":"success","is_error":false,"result":"claude local ok"}'
+`
+	if err := os.WriteFile(bin, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	e := Executor{Name: "本机 Claude", Kind: "claude", Bin: bin, Enabled: true}
+	body, _ := json.Marshal(map[string]any{"executor": e, "prompt": "hello"})
+	w := do(s, "POST", "/api/executors/test", string(body))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "claude local ok") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	status := s.executorStatus(t.Context(), e)
+	if len(status.Warnings) != 0 || status.ProviderName != "Claude Code 本机登录与配置" || status.Model != "本机默认模型" {
+		t.Fatal(status)
+	}
+}
+
 func mustExecutorJSON(t *testing.T, e Executor) []byte {
 	t.Helper()
 	b, err := json.Marshal(e)

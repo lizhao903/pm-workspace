@@ -53,6 +53,7 @@
     "fs:read:project",
     "fs:write:project",
     "network:media-platforms",
+    "network:github",
     "process:spawn",
     "fs:read:registered"
   ],

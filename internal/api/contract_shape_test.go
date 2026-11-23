@@ -111,6 +111,10 @@ var contractSpecs = map[string]contractSpec{
 	"输出产物 artifacts / 溯源字段（AG-03b，0031）#table1": {v: domain.Artifact{}, partial: true},
 	// 按对象汇总（TSK-0497）
 	"ArtifactsByObject": {v: domain.ArtifactsByObject{}},
+	// 查看产出物（DEV-08b 补）
+	"ArtifactFile":   {v: ArtifactFile{}},
+	"ArtifactCommit": {v: ArtifactCommit{}},
+	"ArtifactBranch": {v: ArtifactBranch{}},
 
 	"LocalDir":   {v: localdir.Dir{}},
 	"FsFile":     {v: fsbrowse.FileContent{}},

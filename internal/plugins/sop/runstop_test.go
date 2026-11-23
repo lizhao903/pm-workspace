@@ -198,3 +198,39 @@ func TestBatchActionsStopAndAllRunning(t *testing.T) {
 		t.Fatalf("超过 200 条：%d %s", code, errMsg(out))
 	}
 }
+
+// 失败的执行能终止（sop 0.22.0）：待我处理里不想重试的终止掉，移出失败、待我处理；已重跑过的失败执行跳过；按条件停不碰失败的。
+func TestStopFailedRun(t *testing.T) {
+	_, h := setup(t, New())
+	fid := newFlow(t, h, `{"name":"写纪要","fields":[{"key":"topic","label":"主题","type":"text","required":true}],"steps":[
+		{"key":"ai","name":"AI 起草","kind":"ai","after":[]}]}`)
+	f1 := failedRun(t, h, fid, "周会")
+	f2 := failedRun(t, h, fid, "复盘")
+	f3 := failedRun(t, h, fid, "评审")
+
+	// 按条件停只停执行中、待我处理的，失败的不算
+	if d := stopCall(t, h, `{"all_running":true}`); d["matched"] != float64(0) {
+		t.Fatalf("按条件停不碰失败的：%v", d)
+	}
+	d := batchAct(t, h, "stop", f1)
+	if len(d["done"].([]any)) != 1 {
+		t.Fatalf("终止失败的执行：%v", d)
+	}
+	if r := getRun(t, h, f1); r["status"] != "stopped" || r["stopped"] != true {
+		t.Fatalf("终止后状态：%v", r["status"])
+	}
+	if _, ok := listIDs(t, h, "?status=failed,waiting")[f1]; ok {
+		t.Fatal("终止的不再算待我处理")
+	}
+	// 单条动作同样能终止
+	if code, out := call(t, h, "POST", "/api/sop/runs/"+f2+"/actions", `{"kind":"stop"}`); code != 200 {
+		t.Fatalf("单条终止：%d %s", code, errMsg(out))
+	}
+	waitStatus(t, h, f2, "stopped")
+	// 已重跑过的失败执行跳过
+	batchAct(t, h, "relaunch", f3)
+	d = batchAct(t, h, "stop", f3)
+	if len(d["skipped"].([]any)) != 1 || d["skipped"].([]any)[0].(map[string]any)["reason"] != "失败后已重跑" {
+		t.Fatalf("已重跑的跳过：%v", d)
+	}
+}

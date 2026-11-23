@@ -215,6 +215,12 @@ func (s *Server) handleDeleteExecutor(w http.ResponseWriter, r *http.Request) {
 	s.fail(w, r, notFoundf("执行器不存在"))
 }
 
+// usesLocalCLI 是执行器直接用本机 CLI 自己的登录和默认模型、不经模型服务商：Codex 勾了「使用本机 Codex 登录和模型配置」，
+// 或 Claude Code 没选服务商（Claude Code 是调本机 claude 命令，本机登录过就能跑，服务商可选；选了才注入 ANTHROPIC_* 改走服务商）。
+func usesLocalCLI(e Executor) bool {
+	return (e.Kind == "codex" && e.UseCLIConfig) || (e.Kind == "claude" && strings.TrimSpace(e.ProviderID) == "")
+}
+
 // Status checks never launch executables during list requests.
 func (s *Server) executorStatus(ctx context.Context, e Executor) Executor {
 	e.Warnings = []string{}
@@ -224,8 +230,11 @@ func (s *Server) executorStatus(ctx context.Context, e Executor) Executor {
 	if _, err := exec.LookPath(e.Bin); err != nil {
 		e.Warnings = append(e.Warnings, "找不到程序或程序不可执行")
 	}
-	if e.Kind == "codex" && e.UseCLIConfig {
+	if usesLocalCLI(e) {
 		e.ProviderName = "Codex 本机登录与配置"
+		if e.Kind == "claude" {
+			e.ProviderName = "Claude Code 本机登录与配置"
+		}
 		e.Model = "本机默认模型"
 		return e
 	}
@@ -416,7 +425,7 @@ func (s *Server) executorConfigRequest(ctx context.Context, e Executor) (runner.
 	}
 	req := runner.Request{Harness: h}
 	var route *runner.DeepSeekRoute
-	if !(e.Kind == "codex" && e.UseCLIConfig) {
+	if !usesLocalCLI(e) {
 		p, err := s.resolveProvider(ctx, e.ProviderID)
 		if err != nil {
 			return req, err
@@ -436,10 +445,14 @@ func (s *Server) executorConfigRequest(ctx context.Context, e Executor) (runner.
 	case runner.HarnessDeepSeek:
 		req.DeepSeek = route
 	default:
+		req.ClaudeBin = e.Bin
+		if route == nil {
+			// 没选服务商：不注入 ANTHROPIC_*，用本机 claude 的登录和默认模型（同节点的「默认 Claude Code」）
+			return req, nil
+		}
 		if route.Kind != domain.ProviderAnthropic {
 			return req, fmt.Errorf("Claude Code 执行器需要 Anthropic 兼容服务商")
 		}
-		req.ClaudeBin = e.Bin
 		req.ClaudeEnv = []string{"ANTHROPIC_BASE_URL=" + route.BaseURL, "ANTHROPIC_API_KEY=" + route.APIKey, "ANTHROPIC_AUTH_TOKEN=" + route.APIKey, "ANTHROPIC_MODEL=" + route.Model}
 	}
 	return req, nil

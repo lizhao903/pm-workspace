@@ -104,7 +104,7 @@ var ReservedIDs = []string{
 var Permissions = []string{
 	"fs:read:project", "fs:write:project", "fs:read:attachments", "fs:write:attachments",
 	"fs:read:any", "fs:write:any", "fs:read:registered",
-	"network:localhost", "network:im", "network:media-platforms", "network:market-data",
+	"network:localhost", "network:im", "network:media-platforms", "network:github", "network:market-data",
 	"network:model", "network:exchanges", "network:any",
 	"process:spawn", "trade:live",
 }

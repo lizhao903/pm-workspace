@@ -16,6 +16,7 @@ const PERMISSION_TEXT: Record<string, { text: string; risk: Risk }> = {
   'network:localhost': { text: '访问 127.0.0.1 和本机域名', risk: 'normal' },
   'network:im': { text: '访问 IM 平台的接口', risk: 'normal' },
   'network:media-platforms': { text: '访问视频平台', risk: 'normal' },
+  'network:github': { text: '访问 GitHub 的接口', risk: 'normal' },
   'network:market-data': { text: '访问行情源', risk: 'normal' },
   'network:exchanges': { text: '访问交易所的交易接口', risk: 'high' },
   'network:any': { text: '访问任意外网地址', risk: 'high' },

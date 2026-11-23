@@ -63,7 +63,8 @@ describe('产出物面板', () => {
     expect(within(commit).getByText('MCP 回写')).toBeInTheDocument()
 
     const file = screen.getByRole('group', { name: '文件' })
-    expect(within(file).getByText('docs/a.md')).toHaveAttribute('title', '/repo/docs/a.md')
+    // 本机文件点标题在工作台里查看（ArtifactViewer.test.tsx 测查看本身）
+    expect(within(file).getByRole('button', { name: 'docs/a.md' })).toHaveAttribute('title', '在工作台里查看 /repo/docs/a.md')
     expect(within(file).queryByRole('link')).toBeNull()
     expect(within(file).getByRole('button', { name: '复制路径' })).toBeInTheDocument()
     expect(within(file).getByText('执行扫描')).toBeInTheDocument()

@@ -135,6 +135,8 @@ func TestNetworkAllows(t *testing.T) {
 		{"media-platforms", "https://member.bilibili.com/x/web/data/pandect?type=1", true},
 		{"media-platforms", "https://api.vc.bilibili.com/web_im/v1/web_im/send_msg", true},
 		{"media-platforms", "https://passport.biligame.com/x/passport-login/web/crossDomain", false},
+		{"github", "https://api.github.com/repos/foo/bar/releases?per_page=30", true},
+		{"github", "https://github.com/foo/bar", false},
 		{"market-data", "https://api.binance.com/api/v3/order", false},
 		{"market-data", "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT", true},
 		{"market-data", "https://fapi.binance.com/fapi/v1/ticker/bookTicker", true},

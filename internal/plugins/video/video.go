@@ -125,6 +125,7 @@ func (p *Plugin) Register(r plugin.Registrar) error {
 		m.HandleFunc("POST /api/video/clips/{id}/topic", h.clipToTopic)
 		m.HandleFunc("POST /api/video/clips/{id}/link", h.linkTopic)
 		m.HandleFunc("POST /api/video/clips/comments", h.pullComments)
+		m.HandleFunc("POST /api/video/clips/github", h.pullGitHubReleases) // GitHub 版本更新收件（VID-10，github.go）
 		h.registerDeals(m)
 		h.registerStoryboard(m) // 分镜和 B-roll 素材（TSK-0456，storyboard.go、media.go）
 		m.HandleFunc("GET /api/video/calendar", h.listCalendar)

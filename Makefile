@@ -3,11 +3,11 @@
 BIN     := bin/pmw
 BIN_MCP := bin/pmw-mcp
 DIST    := internal/webui/dist
-VERSION ?= 0.2.0
+VERSION ?= 0.3.0
 LDFLAGS := -X main.version=$(VERSION)
 
 .DEFAULT_GOAL := build
-.PHONY: deps web frontend ui build build-mcp run dev seed test vet fmt clean placeholder check check-dsh fix-dsh hooks
+.PHONY: deps web frontend ui build build-mcp run start dev seed test vet fmt clean placeholder check check-dsh fix-dsh hooks
 
 # 嵌哪套前端：new 是正式前端 frontend/（默认），legacy 是旧前端 web/，保留一个版本做回退，下个版本删。
 FRONTEND ?= new
@@ -57,6 +57,11 @@ build-mcp:
 
 run: placeholder
 	go run ./cmd/pmw --open
+
+# 一键启动/修复本地工作台与 https://bro.vip（链路与排查见 docs/local-domain.md）。
+# make start ARGS=--status 只看现状（不用 sudo）；make start ARGS=--build 先重建。
+start:
+	@scripts/start-workbench.sh $(ARGS)
 
 # dev 分两个终端跑：Go 只服务 API，前端热更新交给 vite。
 dev: placeholder

@@ -15,7 +15,7 @@ export const TOPIC_STATUS: Record<VideoTopicStatus, { label: string; color: stri
   dropped: { label: '放弃', color: 'var(--danger)', desc: '不做了，留着备查' },
 }
 
-export const CLIP_KINDS: VideoClipKind[] = ['link', 'note', 'trend', 'comment', 'competitor', 'im']
+export const CLIP_KINDS: VideoClipKind[] = ['link', 'note', 'trend', 'comment', 'competitor', 'im', 'release']
 export const CLIP_KIND: Record<VideoClipKind, { label: string; color: string }> = {
   link: { label: '链接', color: 'var(--accent)' },
   note: { label: '笔记', color: 'var(--muted)' },
@@ -23,6 +23,7 @@ export const CLIP_KIND: Record<VideoClipKind, { label: string; color: string }> 
   comment: { label: '评论', color: 'var(--tp-teal)' },
   competitor: { label: '竞品', color: 'var(--tp-violet)' },
   im: { label: 'IM 消息', color: 'var(--ok)' },
+  release: { label: '版本更新', color: 'var(--tp-github)' },
 }
 
 export const PLATFORMS: { key: VideoPlatform; label: string }[] = [

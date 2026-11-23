@@ -276,6 +276,10 @@ func TestConfigMatchesLocalDomainDoc(t *testing.T) {
 		t.Fatal(err)
 	}
 	h := setup(t, newPlugin(newFakeSys(t)))
+	// 文档按实际部署写明文端口 7796（start-workbench.sh 带 PORT=7796 调脚本）；插件默认仍是脚本默认的 7777，这里对齐文档再比
+	if code, body := call(t, h, "PUT", "/api/domains/settings", `{"http_port":7796}`); code != 200 {
+		t.Fatalf("改端口 %d %s", code, body)
+	}
 	cfg := data(t, h, "GET", "/api/domains/config", "")
 	if fmt.Sprint(cfg["domains"]) != "[broleez.vip bro.vip]" {
 		t.Fatalf("domains=%v", cfg["domains"])
@@ -284,7 +288,8 @@ func TestConfigMatchesLocalDomainDoc(t *testing.T) {
 	// hosts：文档写的是「加 `127.0.0.1 broleez.vip` 和 `127.0.0.1 bro.vip`」，脚本按 127.0.0.1<TAB>域名 写，先写注释行
 	resolve := cfg["resolve"].(map[string]any)
 	gotHosts := strings.Split(resolve["content"].(string), "\n")
-	wantHosts := []string{hostsHeader, "127.0.0.1\tbroleez.vip", "127.0.0.1\tbro.vip"}
+	// 每个域名 IPv4、IPv6 各一条，同脚本（理由见 hostsLines）
+	wantHosts := []string{hostsHeader, "127.0.0.1\tbroleez.vip", "::1\tbroleez.vip", "127.0.0.1\tbro.vip", "::1\tbro.vip"}
 	if strings.Join(gotHosts, "\n") != strings.Join(wantHosts, "\n") {
 		t.Fatalf("hosts 片段：\n%q\n要：\n%q", gotHosts, wantHosts)
 	}
@@ -293,7 +298,7 @@ func TestConfigMatchesLocalDomainDoc(t *testing.T) {
 			t.Fatalf("文档里没有 %q", l)
 		}
 	}
-	if !strings.Contains(string(script), strings.TrimPrefix(hostsHeader, "# ")) || !strings.Contains(string(script), `printf '127.0.0.1\t%s\n'`) {
+	if !strings.Contains(string(script), strings.TrimPrefix(hostsHeader, "# ")) || !strings.Contains(string(script), `for ip in 127.0.0.1 ::1`) || !strings.Contains(string(script), `printf '%s\t%s\n' "$ip" "$d"`) {
 		t.Fatal("脚本写 hosts 的格式变了，生成的片段要跟着改")
 	}
 
@@ -315,13 +320,13 @@ func TestConfigMatchesLocalDomainDoc(t *testing.T) {
 			t.Fatalf("第 %d 条：生成 %q，文档 %q", i+1, gotPF[i], docRules[i])
 		}
 		// 和脚本写进 anchor 的那两行一字不差（脚本里端口是变量）
-		scriptLine := strings.NewReplacer("7777", "${PORT}", "7443", "${TLS_PORT}").Replace(gotPF[i])
+		scriptLine := strings.NewReplacer("7796", "${PORT}", "7443", "${TLS_PORT}").Replace(gotPF[i])
 		if !strings.Contains(string(script), scriptLine+"\n") {
 			t.Fatalf("脚本里没有 %q", scriptLine)
 		}
 	}
 	cmds := strings.Join(toStrings(pf["commands"]), "\n")
-	if !strings.Contains(cmds, `sudo env DOMAINS='broleez.vip bro.vip' PORT=7777 TLS_PORT=7443 ./scripts/setup-local-domain.sh`) ||
+	if !strings.Contains(cmds, `sudo env DOMAINS='broleez.vip bro.vip' PORT=7796 TLS_PORT=7443 ./scripts/setup-local-domain.sh`) ||
 		!strings.Contains(cmds, "cd '/repo'") {
 		t.Fatalf("pf 命令 %s", cmds)
 	}
@@ -330,7 +335,7 @@ func TestConfigMatchesLocalDomainDoc(t *testing.T) {
 		t.Fatalf("证书命令 %v", cert["commands"])
 	}
 	// 内置代理：域名 -> 上游
-	if got := cfg["proxy_config"].(map[string]any)["content"]; got != "broleez.vip  ->  http://127.0.0.1:7777\nbro.vip  ->  http://127.0.0.1:7777" {
+	if got := cfg["proxy_config"].(map[string]any)["content"]; got != "broleez.vip  ->  http://127.0.0.1:7796\nbro.vip  ->  http://127.0.0.1:7796" {
 		t.Fatalf("内置代理 %q", got)
 	}
 }

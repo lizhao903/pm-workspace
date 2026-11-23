@@ -1,0 +1,85 @@
+.ss-scene {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 40px;
+  padding: 80px 120px; font-family: var(--font-body); color: var(--text);
+}
+.ss-axis {
+  position: absolute; left: 120px; right: 120px; bottom: 92px; height: 2px;
+  border-top: 2px dashed var(--rule); opacity: 0.6;
+}
+.ss-body { width: 100%; max-width: 1500px; display: flex; flex-direction: column; gap: 40px; align-items: center; }
+.ss-two { flex-direction: row; justify-content: center; gap: 120px; }
+.ss-caption { gap: 24px; order: -1; }
+.ss-kicker { font-size: 44px; color: var(--text-mute); }
+
+/* 常驻器物层：step0~2 在场，step3 起以 max-height 收拢让位，节点不卸载。 */
+.ss-artifacts {
+  display: flex; justify-content: center; gap: 120px;
+  max-height: 460px; opacity: 1; overflow: hidden;
+  transition: max-height 800ms var(--ease-soft), opacity 600ms var(--ease-soft);
+}
+.ss-artifacts-away { max-height: 0; }
+.ss-cell {
+  position: relative; width: 460px; height: 420px; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 28px;
+  border: 2px dashed var(--rule); border-radius: 18px; background: var(--surface-2);
+  font-size: 42px; color: var(--text-2);
+  transition: border-color 700ms var(--ease-soft), transform 700ms var(--ease-quart);
+}
+.ss-cell-lit { border-color: var(--accent); transform: scale(1.04); }
+.ss-cell-day { background: var(--accent-soft); }
+.ss-cell-night { background: var(--surface-3); }
+.ss-icon { width: 220px; height: 220px; }
+.ss-sun { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 5; }
+.ss-ray { stroke: var(--accent); stroke-width: 5; stroke-linecap: round; }
+.ss-star { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 5; }
+.ss-dipper { position: absolute; top: 60px; width: 420px; height: 180px; }
+.ss-dipper-line { fill: none; stroke: var(--accent); stroke-width: 4; stroke-dasharray: 1400; animation: ss-draw 1400ms var(--ease-soft) both; }
+.ss-dipper-dot { fill: var(--text); animation: ss-fade 500ms var(--ease-soft) both; }
+
+.ss-fog {
+  position: absolute; inset: 0; background: var(--surface-2); opacity: 0;
+  animation: ss-fog-in 1200ms var(--ease-soft) both; pointer-events: none;
+}
+.ss-fail { position: relative; z-index: 2; display: flex; gap: 60px; justify-content: center; }
+.ss-fail-item { position: relative; font-size: 52px; color: var(--text-mute); padding: 0.3em 0.7em; }
+.ss-fail-strike {
+  position: absolute; left: 0; right: 0; top: 50%; height: 4px; background: var(--text-faint);
+  transform: scaleX(0); transform-origin: left center; animation: ss-draw-x 700ms var(--ease-quart) both;
+}
+.ss-note { position: relative; z-index: 2; font-size: 44px; color: var(--text-2); text-align: center; }
+
+.ss-stone { align-items: center; }
+.ss-stone-svg { width: 720px; height: 420px; }
+.ss-rock { fill: var(--surface-3); stroke: var(--text-mute); stroke-width: 5; }
+.ss-iron { fill: var(--accent); animation: ss-iron-in 1000ms var(--ease-quart) both; }
+
+.ss-needle { width: 150px; height: 400px; }
+.ss-n { fill: var(--chalk-n); }
+.ss-s { fill: var(--chalk-s); }
+.ss-pivot { fill: var(--text); }
+.ss-pole { fill: var(--text); font-size: 36px; font-family: var(--font-mono); }
+.ss-spoon { width: 320px; height: 220px; }
+.ss-spoon-bowl { fill: var(--surface-3); stroke: var(--text-mute); stroke-width: 5; }
+.ss-spoon-handle { fill: var(--text-mute); }
+
+.ss-paths { position: relative; align-items: center; }
+.ss-fork { width: 900px; height: 400px; }
+.ss-fork-line { fill: none; stroke: var(--rule); stroke-width: 5; stroke-dasharray: 14 14; }
+.ss-fork-dot { fill: var(--text-mute); }
+.ss-path {
+  position: absolute; font-size: 48px; color: var(--text-mute);
+  padding: 0.35em 0.9em; border: 2px dashed var(--rule); border-radius: 12px; line-height: 1.4;
+  transition: color 600ms var(--ease-quart), border-color 600ms var(--ease-quart), transform 600ms var(--ease-quart);
+}
+.ss-path-old { left: 520px; top: 60px; }
+.ss-path-new { left: 520px; bottom: 40px; }
+.ss-path-lit { color: var(--accent); border-color: var(--accent); transform: scale(1.12); }
+
+.ss-rise { animation: rise-in 700ms var(--ease-quart) both; }
+
+@keyframes ss-draw { from { stroke-dashoffset: 1400; } to { stroke-dashoffset: 0; } }
+@keyframes ss-draw-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes ss-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes ss-fog-in { from { opacity: 0; } to { opacity: 0.86; } }
+@keyframes ss-iron-in { from { opacity: 0; transform: translateX(-60px); } to { opacity: 1; transform: translateX(0); } }

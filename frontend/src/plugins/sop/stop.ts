@@ -4,14 +4,18 @@
 // 只停执行中、待我处理的（失败、已完成、已终止、已重跑的不停）；后端按 batch-actions 的 stop、按条件的 POST /api/sop/runs/stop 做。
 import { sopRunShow, type SopRunBrief, type SopStopResult } from '../../core/data'
 
-/** 能停：执行中、待我处理（已重跑的失败执行不算） */
-export const isStoppable = (r: Pick<SopRunBrief, 'status' | 'relaunched_to'>) => {
+/** 正在跑的：执行中、待我处理；「停止全部运行中」按条件停的也是这些 */
+export const isRunningLike = (r: Pick<SopRunBrief, 'status' | 'relaunched_to'>) => {
   const s = sopRunShow(r)
   return s === 'running' || s === 'waiting'
 }
 
+/** 能停：执行中、待我处理，以及还没重跑过的失败执行（终止，SOP 0.22.0：不想重试就终止掉，移出待我处理） */
+export const isStoppable = (r: Pick<SopRunBrief, 'status' | 'relaunched_to'>) => isRunningLike(r) || sopRunShow(r) === 'failed'
+
 /** 确认框里的说明：停了什么、不撤回什么 */
 export const STOP_EFFECT = '停止后执行标为「已终止」：排队等模型的步骤立即出队，正在调模型的请求会取消，等你处理的步骤不再等。'
+export const STOP_FAILED_EFFECT = '终止后执行标为「已终止」，移出失败和待我处理，不能再重试；要重来得重新发起。'
 export const STOP_NO_UNDO = '已经建出的任务、写出的文档、发出的消息不会撤回；停止后不能接着跑，要重来得重新发起。'
 
 /** 勾选停止、单条停止的结果 */

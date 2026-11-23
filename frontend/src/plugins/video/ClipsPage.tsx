@@ -5,9 +5,10 @@
 // 「收集评论」「拉取热榜」先打开手动收集：一行一条贴进来，行尾的数字记成点赞数或热度
 import { Fragment, useState, type CSSProperties } from 'react'
 import {
-  errorText, useClipToTopic, useCreateClip, useDeleteClip, useLinkClip, usePatchClip, type Video, type VideoClip, type VideoClipKind, type VideoTopic,
+  errorText, useClipToTopic, useCreateClip, useDeleteClip, useLinkClip, usePatchClip, usePullGithubClips,
+  type GithubClipsMeta, type Video, type VideoClip, type VideoClipKind, type VideoTopic,
 } from '../../core/data'
-import { Button, ConfirmDialog, Field, IconSearch, Input, PageTitle, SearchSelect, Textarea, cls } from '../../core/ui'
+import { Button, Checkbox, ConfirmDialog, Field, IconSearch, Input, PageTitle, SearchSelect, Textarea, cls } from '../../core/ui'
 import { timeAgo } from './model'
 import { VideosTabs, type ModuleTab } from './parts'
 import { KindTag } from './topicParts'
@@ -35,6 +36,7 @@ export function ClipsPage({ clips, topics, videos, onModuleTab, onOpenTopic }: {
   const [draft, setDraft] = useState('')
   const [limit, setLimit] = useState(PAGE)
   const [collect, setCollect] = useState<Collect | null>(null)
+  const [github, setGithub] = useState(false)
   const [note, setNote] = useState('')
   const [delId, setDelId] = useState<string | null>(null)
   const create = useCreateClip()
@@ -79,14 +81,24 @@ export function ClipsPage({ clips, topics, videos, onModuleTab, onOpenTopic }: {
     del.mutate(delId, { onSettled: () => setDelId(null) })
   }
   const delClip = clips.find((c) => c.id === delId)
+  // 拉完成：关面板，提示收了多少、多少之前收过，切到「版本更新」待整理
+  const onPulled = (m: GithubClipsMeta) => {
+    setGithub(false)
+    setNote(m.added === 0 && m.duplicates > 0 ? '这些版本之前都收过了'
+      : m.duplicates > 0 ? `收进 ${m.added} 条版本更新，${m.duplicates} 条之前收过`
+        : `收进 ${m.added} 条版本更新`)
+    setBox('todo')
+    setKind('release')
+  }
 
   return (
     <div className="vd-page">
       <PageTitle parent="素材收集" count={clips.length} desc="评论、热榜、竞品、聊天里冒出来的点子先收进来，再挑出值得做的变成选题" actions={(
         <>
           {note && <span className="tp-note" role="status">{note}</span>}
-          <Button variant="outline" aria-pressed={collect === 'trend'} onClick={() => { setNote(''); setCollect(collect === 'trend' ? null : 'trend') }}>拉取热榜</Button>
-          <Button variant="outline" aria-pressed={collect === 'comment'} onClick={() => { setNote(''); setCollect(collect === 'comment' ? null : 'comment') }}>收集评论</Button>
+          <Button variant="outline" aria-pressed={collect === 'trend'} onClick={() => { setNote(''); setGithub(false); setCollect(collect === 'trend' ? null : 'trend') }}>拉取热榜</Button>
+          <Button variant="outline" aria-pressed={collect === 'comment'} onClick={() => { setNote(''); setGithub(false); setCollect(collect === 'comment' ? null : 'comment') }}>收集评论</Button>
+          <Button variant="outline" aria-pressed={github} onClick={() => { setNote(''); setCollect(null); setGithub(!github) }}>拉取 GitHub 更新</Button>
         </>
       )}>素材收件箱</PageTitle>
       <VideosTabs active="clips" videos={videos} onSelect={onModuleTab} />
@@ -95,6 +107,8 @@ export function ClipsPage({ clips, topics, videos, onModuleTab, onOpenTopic }: {
         <CollectForm key={collect} what={collect} onClose={() => setCollect(null)}
           onDone={(k) => { setCollect(null); setNote(`收进 ${k} 条${COLLECT[collect].source}`); setBox('todo'); setKind('') }} />
       )}
+
+      {github && <GithubForm onClose={() => setGithub(false)} onDone={onPulled} />}
 
       <div className="tp-add">
         <input value={draft} aria-label="收进来" placeholder="粘贴链接，或者随手记一句想法，回车收进来" maxLength={5000}
@@ -130,7 +144,7 @@ export function ClipsPage({ clips, topics, videos, onModuleTab, onOpenTopic }: {
       {!rows.length ? (
         <div className="empty">
           <div className="empty-title">{q.trim() || kind ? '没有匹配的素材' : box === 'todo' ? '待整理的都处理完了' : '这里没有素材'}</div>
-          <div className="empty-desc">{kind === 'comment' && !q.trim() ? '评论要等接上内容平台才能自动收，现在可以用「收集评论」手动贴进来' : '在上面粘贴链接，或者收集评论、热榜'}</div>
+          <div className="empty-desc">{kind === 'comment' && !q.trim() ? '评论要等接上内容平台才能自动收，现在可以用「收集评论」手动贴进来' : '在上面粘贴链接，或者收集评论、热榜、从 GitHub 拉版本更新'}</div>
         </div>
       ) : (
         <div className="tp-clips">
@@ -228,6 +242,44 @@ function CollectForm({ what, onClose, onDone }: { what: Collect; onClose: () => 
         <span className="spacer" />
         <Button onClick={onClose} disabled={busy}>取消</Button>
         <Button variant="primary" disabled={!lines.length || busy} onClick={() => void submit()}>{busy ? '收进来中' : lines.length ? `收进 ${lines.length} 条` : '收进来'}</Button>
+      </div>
+    </section>
+  )
+}
+
+/** 拉取 GitHub 更新（VID-10）：填公开仓库和条数，把 Release 收成「版本更新」素材；收过的后端按 remote_id 去重 */
+function GithubForm({ onClose, onDone }: { onClose: () => void; onDone: (m: GithubClipsMeta) => void }) {
+  const pull = usePullGithubClips()
+  const [repo, setRepo] = useState('')
+  const [limit, setLimit] = useState(30)
+  const [prerelease, setPrerelease] = useState(false)
+  const repoOK = !!repo.trim()
+
+  const submit = () => {
+    if (!repoOK || pull.isPending) return
+    const n = Math.min(100, Math.max(1, Math.round(Number(limit) || 30)))
+    setLimit(n)
+    pull.mutate({ repo: repo.trim(), limit: n, include_prerelease: prerelease }, { onSuccess: (r) => onDone(r.meta) })
+  }
+
+  return (
+    <section className="tp-collect" aria-label="拉取 GitHub 更新">
+      <div className="tp-collect-head">拉取 GitHub 更新<span className="vd-hint">把项目的 Release 收成「版本更新」素材，写版本更新说明时直接用</span></div>
+      <Field label="仓库">
+        <Input value={repo} maxLength={300} autoFocus aria-label="GitHub 仓库" placeholder="owner/repo，或粘贴 GitHub 仓库地址"
+          onChange={(e) => setRepo(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) submit() }} />
+      </Field>
+      <Field label="条数">
+        <Input type="number" aria-label="条数" min={1} max={100} value={limit}
+          onChange={(e) => setLimit(Number(e.target.value))} />
+      </Field>
+      <Checkbox checked={prerelease} onChange={(e) => setPrerelease(e.target.checked)}>包含预发布版本</Checkbox>
+      {pull.error && <div className="vd-err" role="alert">拉取失败：{errorText(pull.error)}</div>}
+      <div className="tp-collect-foot">
+        <span className="tp-muted">只拉公开仓库的 Release；GitHub 匿名接口每小时 60 次</span>
+        <span className="spacer" />
+        <Button onClick={onClose} disabled={pull.isPending}>取消</Button>
+        <Button variant="primary" disabled={!repoOK || pull.isPending} onClick={submit}>{pull.isPending ? '拉取中' : '拉取'}</Button>
       </div>
     </section>
   )

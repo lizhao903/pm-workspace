@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  CAPTURE_SOURCES, LIST_FILTERS, MODEL_STATUS_TEXT, captureSourceShort, captureSourceText, clampPct, confidencePct, confidenceTone,
+  CAPTURE_SOURCES, LIST_FILTERS, activeSegment, MODEL_STATUS_TEXT, captureSourceShort, captureSourceText, clampPct, confidencePct, confidenceTone,
   confirmedTodos, fileKindText, fmtBytes, fmtCreatedAt, fmtDuration, fmtMB, jobText, layoutFlow, lowConfidenceTodos, matchesFilter,
   mediaErrorText, minutesThreshold, pendingTodos, recordingPath, shareErrorText, speakerColor, speakerDisplayName, speakerIndex,
   speakerMap, speakerSimilarityPct, statusText, statusTone, systemDeviceHint, todoKindText, todoObjectPath, todoStatusText, treeRows,
@@ -308,5 +308,20 @@ describe('M6：系统音频采集来源', () => {
     expect(systemDeviceHint({ ...base, devices: [{ index: 0, name: '麦克风', default: true, virtual: false }] })).toContain('blackhole-2ch')
     expect(systemDeviceHint({ ...base, devices: [{ index: 1, name: 'BlackHole 2ch', default: false, virtual: true }] })).toContain('虚拟声卡')
     expect(systemDeviceHint({ ...base, error: '没权限' })).toContain('没权限')
+  })
+})
+
+describe('activeSegment 播放位置对应的段落', () => {
+  const segs = [{ start_ms: 0, end_ms: 4000 }, { start_ms: 4000, end_ms: 9000 }, { start_ms: 12000, end_ms: 15000 }]
+  it('落在段内、段与段之间的空白、末尾之后', () => {
+    expect(activeSegment(segs, 0)).toBe(0)
+    expect(activeSegment(segs, 3999)).toBe(0)
+    expect(activeSegment(segs, 4000)).toBe(1)
+    expect(activeSegment(segs, 10000)).toBe(1)
+    expect(activeSegment(segs, 99000)).toBe(2)
+  })
+  it('第一段之前和没有段落', () => {
+    expect(activeSegment([{ start_ms: 500, end_ms: 900 }], 100)).toBe(-1)
+    expect(activeSegment([], 100)).toBe(-1)
   })
 })

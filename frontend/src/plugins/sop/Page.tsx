@@ -120,10 +120,11 @@ export default function Page() {
   const subnav = route.kind !== 'edit' && (
     <InSubnavHost>
       <Subnav<NavKey> title="SOP" className="sop-subnav" active={active} onSelect={select} items={[
+        // 流程库排第一个（11-20 用户要求）；进 SOP 默认仍落在执行记录
+        { key: 'library', label: '流程库', desc: flows.data ? `${flowList.length} 个标准流程` : undefined, group: '视图' },
         { key: 'runs', label: '执行记录', group: '视图' },
         // 计数加载失败时不显示红点，不当成 0
         { key: 'waiting', label: '待我处理', desc: '待检查、待确认、失败', alert: waitingQ.isError ? 0 : pendingN, group: '视图' },
-        { key: 'library', label: '流程库', desc: flows.data ? `${flowList.length} 个标准流程` : undefined, group: '视图' },
         ...recent.map((f) => ({
           key: `flow:${f.id}` as NavKey, label: f.name, desc: `${timeAgo(new Date(stats.get(f.id)!.last).toISOString(), now)}执行`, group: '最近用过',
         })),

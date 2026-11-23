@@ -4,9 +4,9 @@
 // 「停止全部运行中」按条件停（POST /api/sop/runs/stop，按当前流程筛选时只停这条流程的），先 dry_run 数出将停止几条。
 // 照失败页批量重跑（RerunDialog）的样子，结果一行提示留在列表上
 import { useRef } from 'react'
-import { SOP_BATCH_MAX, errorText, useSopStopPreview, useStopSopRuns, useStopSopWhere, type SopRunBrief, type SopStopScope } from '../../core/data'
+import { SOP_BATCH_MAX, errorText, sopRunShow, useSopStopPreview, useStopSopRuns, useStopSopWhere, type SopRunBrief, type SopStopScope } from '../../core/data'
 import { ConfirmDialog } from '../../core/ui'
-import { STOP_EFFECT, STOP_NO_UNDO, stopIdsNote, stopWhereNote } from './stop'
+import { STOP_EFFECT, STOP_FAILED_EFFECT, STOP_NO_UNDO, stopIdsNote, stopWhereNote } from './stop'
 
 export type StopTarget =
   | { kind: 'ids'; runs: readonly SopRunBrief[] }
@@ -38,10 +38,13 @@ export function StopDialog({ target, onCancel, onDone }: {
   }
 
   const err = byIds.error ?? byWhere.error ?? (target.kind === 'where' ? preview.error : null)
+  // 全是失败的执行（SOP 0.22.0）：说「终止」，不说停止
+  const failedOnly = target.kind === 'ids' && n > 0 && target.runs.every((r) => sopRunShow(r) === 'failed')
+  const verb = failedOnly ? '终止' : '停止'
   const title = target.kind === 'ids'
-    ? (n === 1 ? '停止这条执行' : `停止勾选的 ${n} 条执行`)
+    ? (n === 1 ? (failedOnly ? '终止这条失败的执行' : '停止这条执行') : `${verb}勾选的 ${n} 条执行`)
     : `停止${target.label}运行中的执行`
-  const label = pending ? '停止中…' : counting ? '正在数…' : n ? `停止 ${n} 条` : '没有要停的'
+  const label = pending ? `${verb}中…` : counting ? '正在数…' : n ? `${verb} ${n} 条` : '没有要停的'
   return (
     <ConfirmDialog open danger title={title} confirmLabel={label} busy={pending || counting || !n} onConfirm={submit} onCancel={onCancel}>
       <div className="sop-rerun">
@@ -52,7 +55,7 @@ export function StopDialog({ target, onCancel, onDone }: {
             {preview.data && preview.data.matched > 0 && preview.data.summary.waiting > 0 && `（其中 ${preview.data.summary.waiting} 条在等你处理）`}
           </div>
         )}
-        <div className="sop-rerun-hint">{STOP_EFFECT}</div>
+        <div className="sop-rerun-hint">{failedOnly ? STOP_FAILED_EFFECT : STOP_EFFECT}</div>
         <div className="sop-rerun-hint">{STOP_NO_UNDO}</div>
         {err ? <div className="sop-act-error sop-rerun-err" role="alert">没停成：{errorText(err)}</div> : null}
       </div>

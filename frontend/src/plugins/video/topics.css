@@ -1,6 +1,6 @@
 /* 选题库、素材收件箱（VID-08c），照原型 web-next/src/topics.css；类名 tp- 前缀，颜色走 tokens.css，tokens 里没有的紫、青、橙在这里定 */
-:root { --tp-violet: #7a4fd6; --tp-teal: #0f8a8a; --tp-orange: #e8590c; }
-:root[data-theme='dark'] { --tp-violet: #a48af0; --tp-teal: #3cb8b8; --tp-orange: #f2894a; }
+:root { --tp-violet: #7a4fd6; --tp-teal: #0f8a8a; --tp-orange: #e8590c; --tp-github: #6e5494; }
+:root[data-theme='dark'] { --tp-violet: #a48af0; --tp-teal: #3cb8b8; --tp-orange: #f2894a; --tp-github: #b392f0; }
 
 .tp-muted { color: var(--faint); font-size: var(--fs-xs); white-space: nowrap; }
 
